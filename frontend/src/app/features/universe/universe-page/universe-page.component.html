@@ -1,0 +1,8 @@
+@if (loading()) {
+  <app-loading />
+} @else if (error()) {
+  <div class="error-banner">{{ error() }}</div>
+} @else {
+  <h2>Universe</h2>
+  <app-universe-table [symbols]="symbols()" />
+}

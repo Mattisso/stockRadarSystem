@@ -1,0 +1,13 @@
+@if (loading() && !signals().length) {
+  <app-loading />
+} @else if (error()) {
+  <div class="error-banner">{{ error() }}</div>
+} @else {
+  <h2>Signals</h2>
+  <div class="signals-layout">
+    <app-signals-table [signals]="signals()" (signalSelected)="onSignalSelected($event)" />
+    @if (selectedSignal(); as detail) {
+      <app-signal-detail [signal]="detail" />
+    }
+  </div>
+}

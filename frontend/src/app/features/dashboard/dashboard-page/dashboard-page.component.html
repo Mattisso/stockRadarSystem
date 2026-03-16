@@ -1,0 +1,13 @@
+@if (loading() && !portfolio()) {
+  <app-loading />
+} @else if (error()) {
+  <div class="error-banner">{{ error() }}</div>
+} @else {
+  <div class="dashboard-grid">
+    <app-portfolio-summary-widget [portfolio]="portfolio()" />
+    <app-positions-widget [positions]="portfolio()?.positions ?? []" />
+    <app-recent-trades-widget [trades]="recentTrades()" />
+    <app-active-signals-widget [signals]="activeSignals()" />
+    <app-system-status-widget [healthy]="healthy()" [lastUpdated]="lastUpdated()" />
+  </div>
+}

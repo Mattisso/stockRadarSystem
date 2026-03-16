@@ -1,0 +1,19 @@
+replicaCount: 1
+
+image:
+  repository: stock-radar-frontend
+  pullPolicy: IfNotPresent
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 4200
+  containerPort: 4200
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"

@@ -1,0 +1,8 @@
+@if (loading()) {
+  <app-loading />
+} @else if (error()) {
+  <div class="error-banner">{{ error() }}</div>
+} @else {
+  <h2>Trade History</h2>
+  <app-trades-table [trades]="trades()" />
+}

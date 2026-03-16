@@ -1,0 +1,32 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>{{ signal().ticker }} — {{ signal().signal_type | signalType }}</mat-card-title>
+    <mat-card-subtitle>{{ signal().created_at | date:'medium' }}</mat-card-subtitle>
+  </mat-card-header>
+  <mat-card-content>
+    <div class="feature-row">
+      <span class="feature-label">Overall Score</span>
+      <app-score-bar [value]="signal().score" />
+    </div>
+    <div class="feature-row">
+      <span class="feature-label">Liquidity Imbalance</span>
+      <app-score-bar [value]="signal().liquidity_imbalance ?? 0" />
+    </div>
+    <div class="feature-row">
+      <span class="feature-label">Spread Compression</span>
+      <app-score-bar [value]="signal().spread_compression ?? 0" />
+    </div>
+    <div class="feature-row">
+      <span class="feature-label">Bid Stacking</span>
+      <app-score-bar [value]="signal().bid_stacking ?? 0" />
+    </div>
+    <div class="feature-row">
+      <span class="feature-label">Volume Acceleration</span>
+      <app-score-bar [value]="signal().volume_acceleration ?? 0" />
+    </div>
+    <div class="feature-row">
+      <span class="feature-label">Order Aggression</span>
+      <app-score-bar [value]="signal().order_aggression ?? 0" />
+    </div>
+  </mat-card-content>
+</mat-card>

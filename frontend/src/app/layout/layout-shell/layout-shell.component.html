@@ -1,0 +1,11 @@
+<app-nav-bar
+  [isDark]="isDark()"
+  (menuToggled)="onMenuToggle()"
+  (themeToggled)="onThemeToggle()"
+/>
+<div class="shell-body">
+  <app-side-nav [menuItems]="menuItems" [collapsed]="collapsed()" />
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>

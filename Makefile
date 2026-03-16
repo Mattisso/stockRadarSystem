@@ -25,7 +25,7 @@ refresh: down
 	$(MAKE) up
 
 # ── Docker ──────────────────────────────────────────────────────────
-.PHONY: build build-dev build-prod push
+.PHONY: build build-dev build-prod push build-frontend
 
 build-dev:
 	docker build -t $(REGISTRY)/stock-radar-api:dev \
@@ -35,10 +35,15 @@ build-prod:
 	docker build -t $(REGISTRY)/stock-radar-api:latest \
 		-f backend/Dockerfile_prod .
 
-build: build-prod
+build-frontend:
+	docker build -t $(REGISTRY)/stock-radar-frontend:latest \
+		-f frontend/Dockerfile_prod .
+
+build: build-prod build-frontend
 
 push:
 	docker push $(REGISTRY)/stock-radar-api:latest
+	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
 .PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test
@@ -107,10 +112,13 @@ status:
 	kubectl get svc -n $(NAMESPACE)
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
-.PHONY: dev test migrate
+.PHONY: dev test migrate serve-frontend
 
 dev:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+serve-frontend:
+	cd frontend && npx ng serve --proxy-config proxy.conf.json
 
 test:
 	cd backend && python -m pytest tests/ -v

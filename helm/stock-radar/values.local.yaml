@@ -9,3 +9,9 @@ api:
     PGDATABASE: stock_radar
     TRADING_MODE: paper
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
+
+frontend:
+  image:
+    repository: localhost:32000/stock-radar-frontend
+    tag: tilt
+    pullPolicy: Never

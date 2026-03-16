@@ -1,0 +1,38 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Open Positions</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (positions().length) {
+      <table mat-table [dataSource]="positions()">
+        <ng-container matColumnDef="ticker">
+          <th mat-header-cell *matHeaderCellDef>Ticker</th>
+          <td mat-cell *matCellDef="let row">{{ row.ticker }}</td>
+        </ng-container>
+        <ng-container matColumnDef="quantity">
+          <th mat-header-cell *matHeaderCellDef>Qty</th>
+          <td mat-cell *matCellDef="let row">{{ row.quantity }}</td>
+        </ng-container>
+        <ng-container matColumnDef="avg_cost">
+          <th mat-header-cell *matHeaderCellDef>Avg Cost</th>
+          <td mat-cell *matCellDef="let row">{{ row.avg_cost | currency }}</td>
+        </ng-container>
+        <ng-container matColumnDef="market_value">
+          <th mat-header-cell *matHeaderCellDef>Mkt Value</th>
+          <td mat-cell *matCellDef="let row">{{ row.market_value | currency }}</td>
+        </ng-container>
+        <ng-container matColumnDef="unrealized_pnl">
+          <th mat-header-cell *matHeaderCellDef>Unrealized P&L</th>
+          <td mat-cell *matCellDef="let row" [class]="row.unrealized_pnl | pnlColor">
+            {{ row.unrealized_pnl | currency }}
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+      </table>
+    } @else {
+      <p class="empty">No open positions</p>
+    }
+  </mat-card-content>
+</mat-card>

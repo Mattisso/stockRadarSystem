@@ -1,0 +1,23 @@
+h2 {
+  margin: 0 0 16px;
+}
+
+.signals-layout {
+  display: flex;
+  gap: 16px;
+}
+
+app-signals-table {
+  flex: 1;
+}
+
+app-signal-detail {
+  width: 320px;
+}
+
+.error-banner {
+  padding: 16px;
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+  border-radius: 8px;
+}

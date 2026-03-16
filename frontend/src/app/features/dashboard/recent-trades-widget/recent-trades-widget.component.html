@@ -1,0 +1,25 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Recent Trades</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (trades().length) {
+      <mat-list>
+        @for (trade of trades(); track trade.id) {
+          <mat-list-item>
+            <mat-icon matListItemIcon>{{ trade.side === 'buy' ? 'arrow_upward' : 'arrow_downward' }}</mat-icon>
+            <span matListItemTitle>{{ trade.ticker }} — {{ trade.side | uppercase }} {{ trade.quantity }}</span>
+            <span matListItemLine>
+              {{ trade.status }} · {{ trade.created_at | date:'short' }}
+              @if (trade.pnl !== null) {
+                · <span [class]="trade.pnl | pnlColor">{{ trade.pnl | currency }}</span>
+              }
+            </span>
+          </mat-list-item>
+        }
+      </mat-list>
+    } @else {
+      <p class="empty">No recent trades</p>
+    }
+  </mat-card-content>
+</mat-card>

@@ -1,0 +1,12 @@
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.error-banner {
+  padding: 16px;
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+  border-radius: 8px;
+}

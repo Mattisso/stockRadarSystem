@@ -4,6 +4,9 @@ global:
 api:
   enabled: true
 
+frontend:
+  enabled: true
+
 serviceaccount:
   enabled: true
 

@@ -1,0 +1,48 @@
+@use '@angular/material' as mat;
+
+html {
+  @include mat.theme((
+    color: (
+      primary: mat.$azure-palette,
+      tertiary: mat.$green-palette,
+    ),
+    typography: Roboto,
+    density: -1,
+  ));
+
+  &.dark-theme {
+    @include mat.theme((
+      color: (
+        theme-type: dark,
+        primary: mat.$azure-palette,
+        tertiary: mat.$green-palette,
+      ),
+      typography: Roboto,
+      density: -1,
+    ));
+  }
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}
+
+.pnl-positive {
+  color: #4caf50;
+  font-weight: 500;
+}
+
+.pnl-negative {
+  color: #f44336;
+  font-weight: 500;
+}
+
+.pnl-neutral {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.dark-theme .pnl-neutral {
+  color: rgba(255, 255, 255, 0.6);
+}

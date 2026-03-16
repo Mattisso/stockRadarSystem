@@ -1,0 +1,29 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Portfolio Summary</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (portfolio(); as p) {
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric__label">Cash Balance</span>
+          <span class="metric__value">{{ p.cash_balance | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Total Value</span>
+          <span class="metric__value">{{ p.total_value | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Buying Power</span>
+          <span class="metric__value">{{ p.buying_power | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Daily P&L</span>
+          <span class="metric__value" [class]="p.daily_pnl | pnlColor">{{ p.daily_pnl | currency }}</span>
+        </div>
+      </div>
+    } @else {
+      <p>No portfolio data</p>
+    }
+  </mat-card-content>
+</mat-card>
