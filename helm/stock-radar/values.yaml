@@ -1,0 +1,19 @@
+global:
+  sharedServiceAccountName: svcdeployer
+
+api:
+  enabled: true
+
+serviceaccount:
+  enabled: true
+
+env:
+  PORT: "8000"
+  host: "stock-radar-postgres"
+  port: 5434
+  name: "stock_radar"
+
+secretName: postgres-secret
+
+test:
+  enabled: true

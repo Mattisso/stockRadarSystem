@@ -1,0 +1,19 @@
+{{- if .Values.test.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-test-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stock-radar.labels" . | nindent 4 }}
+data:
+  test-postgres.sh: |
+    #!/bin/bash
+    set -e
+    echo "Testing PostgreSQL connection..."
+    pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"
+    echo "Testing stock_radar schema..."
+    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+      -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'stock_radar';"
+    echo "PostgreSQL test passed."
+{{- end }}

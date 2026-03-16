@@ -1,0 +1,5 @@
+apiVersion: v2
+name: serviceaccount
+description: Service account and RBAC for Stock Radar
+type: application
+version: 0.1.0

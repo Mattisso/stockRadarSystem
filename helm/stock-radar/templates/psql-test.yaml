@@ -1,0 +1,42 @@
+{{- if .Values.test.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: psql-test
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": test
+  labels:
+    {{- include "stock-radar.labels" . | nindent 4 }}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: psql
+      image: postgres:16
+      command: ["/bin/bash", "/scripts/test-postgres.sh"]
+      env:
+        - name: PGHOST
+          value: {{ .Values.env.host | quote }}
+        - name: PGPORT
+          value: {{ .Values.env.port | quote }}
+        - name: PGDATABASE
+          value: {{ .Values.env.name | quote }}
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secretName }}
+              key: PGUSER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secretName }}
+              key: PGPASSWORD
+      volumeMounts:
+        - name: test-script
+          mountPath: /scripts
+  volumes:
+    - name: test-script
+      configMap:
+        name: postgres-test-script
+        defaultMode: 0755
+{{- end }}
