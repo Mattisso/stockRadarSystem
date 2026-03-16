@@ -29,11 +29,11 @@ refresh: down
 
 build-dev:
 	docker build -t $(REGISTRY)/stock-radar-api:dev \
-		-f backend/Dockerfile_dev backend/
+		-f backend/Dockerfile_dev .
 
 build-prod:
 	docker build -t $(REGISTRY)/stock-radar-api:latest \
-		-f backend/Dockerfile_prod backend/
+		-f backend/Dockerfile_prod .
 
 build: build-prod
 

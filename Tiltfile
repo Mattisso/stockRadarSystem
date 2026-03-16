@@ -1,7 +1,7 @@
 # Stock Radar System — Tilt local K8s dev environment
 # Usage: make up  (or: tilt up --host=0.0.0.0)
 
-allow_k8s_contexts("svcdeployer-context")
+allow_k8s_contexts(["microk8s", "svcdeployer-context"])
 default_registry("localhost:32000")
 
 NAMESPACE = "stock-radar"

@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Runtime ─────────────────────────────────────────────────────────
@@ -24,9 +24,14 @@ RUN groupadd -g 1000 appuser && useradd -u 1000 -g appuser -m appuser
 
 COPY --from=builder /install /usr/local
 
-COPY . .
+COPY backend/app ./app
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini .
+COPY backend/pyproject.toml .
+COPY backend/docker-entrypoint_prod.sh /usr/local/bin/
 
-RUN chown -R appuser:appuser /app
+RUN chmod +x /usr/local/bin/docker-entrypoint_prod.sh && \
+    chown -R appuser:appuser /app
 
 USER appuser
 
@@ -35,6 +40,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:8000/api/health || exit 1
 
-COPY docker-entrypoint_prod.sh /usr/local/bin/
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["docker-entrypoint_prod.sh"]
