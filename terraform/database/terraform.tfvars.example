@@ -1,0 +1,7 @@
+pg_host               = "localhost"
+pg_port               = 5434
+pg_superuser          = "postgres"
+pg_superuser_password = "postgres"
+pg_sslmode            = "prefer"
+app_role_name         = "stock_radar_app"
+app_role_password     = "change-me-in-production"
