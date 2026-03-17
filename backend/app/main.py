@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
-from app.broker.mock_broker import MockBroker
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
@@ -26,7 +25,20 @@ async def lifespan(app: FastAPI):
     setup_logging()
 
     # ── Broker ──────────────────────────────────────────────────────
-    broker = MockBroker()  # Swap for IBKRBroker in Sprint 8
+    if settings.broker_type == "ibkr":
+        from app.broker.ibkr_broker import IBKRBroker
+
+        broker = IBKRBroker(
+            host=settings.ibkr_host,
+            port=settings.ibkr_port,
+            client_id=settings.ibkr_client_id,
+            timeout=settings.ibkr_timeout,
+            max_reconnect_attempts=settings.ibkr_max_reconnect_attempts,
+        )
+    else:
+        from app.broker.mock_broker import MockBroker
+
+        broker = MockBroker()
     await broker.connect()
     app.state.broker = broker
 
