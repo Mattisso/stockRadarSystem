@@ -112,19 +112,27 @@ status:
 	kubectl get svc -n $(NAMESPACE)
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
-.PHONY: dev test migrate serve-frontend
+.PHONY: dev test migrate serve-frontend tunnel tunnel-frontend
 
 dev:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 serve-frontend:
-	cd frontend && npx ng serve --proxy-config proxy.conf.json
+	cd frontend && npx ng serve --proxy-config proxy.conf.json --host 0.0.0.0 --allowed-hosts
 
 test:
 	cd backend && python -m pytest tests/ -v
 
 migrate:
 	cd backend && alembic upgrade head
+
+tunnel:
+	@echo "Starting Cloudflare quick tunnel for backend (port 8000)..."
+	cloudflared tunnel --url http://localhost:8000
+
+tunnel-frontend:
+	@echo "Starting Cloudflare quick tunnel for frontend (port 4200)..."
+	cloudflared tunnel --url http://localhost:4200
 
 # ── Cleanup ─────────────────────────────────────────────────────────
 .PHONY: clean prune
