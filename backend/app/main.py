@@ -14,6 +14,7 @@ from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
+from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
 from app.risk.risk_manager import RiskManager
 
 log = get_logger(__name__)
@@ -42,9 +43,22 @@ async def lifespan(app: FastAPI):
     await broker.connect()
     app.state.broker = broker
 
+    # ── ML components ────────────────────────────────────────────────
+    classifier = BreakoutClassifier(model_dir=settings.ml_model_dir)
+    classifier.load()  # try loading a previously saved model
+
+    ml_scorer = None
+    if settings.ml_enabled:
+        ml_scorer = MLScorer(classifier, weight=settings.ml_confidence_weight)
+
+    trainer = ModelTrainer(classifier, SessionLocal, min_samples=settings.ml_min_training_samples)
+
+    app.state.classifier = classifier
+    app.state.trainer = trainer
+
     # ── Core components ─────────────────────────────────────────────
     tick_buffer = TickBuffer(maxlen=100)
-    signal_detector = SignalDetector(tick_buffer)
+    signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
     trade_executor = TradeExecutor(
         broker=broker,
@@ -91,9 +105,13 @@ async def lifespan(app: FastAPI):
     async def monitor_job():
         await trade_executor.monitor_positions()
 
+    async def retrain_job():
+        await trainer.retrain_if_needed()
+
     scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
     scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
     scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
+    scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
 
     scheduler.start()
 

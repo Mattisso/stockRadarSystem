@@ -13,3 +13,4 @@ apscheduler>=3.10.4
 numpy>=2.2.0
 pandas>=2.2.3
 ib_insync>=0.9.86
+scikit-learn>=1.6.0

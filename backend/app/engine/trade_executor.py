@@ -93,6 +93,7 @@ class TradeExecutor:
                     bid_stacking=feature.bid_stacking,
                     volume_acceleration=feature.volume_acceleration,
                     order_aggression=feature.order_aggression,
+                    ml_confidence=feature.ml_confidence,
                 )
                 db.add(signal_record)
                 db.flush()
@@ -146,6 +147,7 @@ class TradeExecutor:
                 # Persist trade
                 trade_record = Trade(
                     ticker=ticker,
+                    signal_id=signal_record.id,
                     side=TradeSide.BUY,
                     status=TradeStatus.FILLED,
                     quantity=params.quantity,
@@ -232,6 +234,12 @@ class TradeExecutor:
                         trade.exit_price = order.fill_price
                         trade.exit_time = datetime.now()
                         trade.pnl = pnl
+
+                        # Backfill outcome on the originating signal
+                        if trade.signal_id:
+                            signal = db.query(Signal).filter_by(id=trade.signal_id).first()
+                            if signal:
+                                signal.outcome_pnl = pnl
 
                     tickers_to_close.append(ticker)
 

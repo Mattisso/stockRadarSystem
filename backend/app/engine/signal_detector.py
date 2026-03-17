@@ -26,6 +26,7 @@ class FeatureVector:
     order_aggression: float
     composite_score: float
     signal_type: SignalType
+    ml_confidence: float | None = None
 
 
 class SignalDetector:
@@ -45,9 +46,10 @@ class SignalDetector:
     }
     THRESHOLD = 0.65
 
-    def __init__(self, tick_buffer: TickBuffer, minimum_history: int = 10) -> None:
+    def __init__(self, tick_buffer: TickBuffer, minimum_history: int = 10, ml_scorer=None) -> None:
         self.tick_buffer = tick_buffer
         self.minimum_history = minimum_history
+        self.ml_scorer = ml_scorer
 
     def compute_signal(self, ticker: str) -> FeatureVector | None:
         """Compute the feature vector for a ticker. Returns None if insufficient data."""
@@ -63,13 +65,29 @@ class SignalDetector:
         va = self._volume_acceleration(latest, history)
         oa = self._order_aggression(history)
 
-        score = (
+        rule_score = (
             self.WEIGHTS["liquidity_imbalance"] * li
             + self.WEIGHTS["spread_compression"] * sc
             + self.WEIGHTS["bid_stacking"] * bs
             + self.WEIGHTS["volume_acceleration"] * va
             + self.WEIGHTS["order_aggression"] * oa
         )
+
+        # Hybrid ML scoring (if available)
+        ml_confidence = None
+        score = rule_score
+        if self.ml_scorer is not None:
+            fv = FeatureVector(
+                ticker=ticker,
+                liquidity_imbalance=round(li, 4),
+                spread_compression=round(sc, 4),
+                bid_stacking=round(bs, 4),
+                volume_acceleration=round(va, 4),
+                order_aggression=round(oa, 4),
+                composite_score=round(rule_score, 4),
+                signal_type=SignalType.FALSE_BREAKOUT,  # placeholder
+            )
+            score, ml_confidence = self.ml_scorer.score(fv)
 
         signal_type = SignalType.BREAKOUT if score >= self.THRESHOLD else SignalType.FALSE_BREAKOUT
 
@@ -82,6 +100,7 @@ class SignalDetector:
             order_aggression=round(oa, 4),
             composite_score=round(score, 4),
             signal_type=signal_type,
+            ml_confidence=ml_confidence,
         )
 
     # ── Feature 1: Liquidity Imbalance ──────────────────────────────

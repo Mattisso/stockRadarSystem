@@ -38,5 +38,12 @@ class Settings(BaseSettings):
     ibkr_timeout: int = 30
     ibkr_max_reconnect_attempts: int = 10
 
+    # --- ML ---
+    ml_enabled: bool = True
+    ml_min_training_samples: int = 50
+    ml_retrain_interval_hours: int = 24
+    ml_model_dir: str = "models"
+    ml_confidence_weight: float = 0.3
+
 
 settings = Settings()
