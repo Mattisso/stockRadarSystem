@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, Float, Integer, String, func
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -27,6 +27,9 @@ class Trade(Base):
     __table_args__ = {"schema": "stock_radar"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("stock_radar.signals.id"), nullable=True
+    )
     ticker: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     side: Mapped[TradeSide] = mapped_column(Enum(TradeSide), nullable=False)
     status: Mapped[TradeStatus] = mapped_column(

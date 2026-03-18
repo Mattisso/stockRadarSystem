@@ -1,0 +1,40 @@
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Runtime ─────────────────────────────────────────────────────────
+FROM python:3.13-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -g 1000 appuser && useradd -u 1000 -g appuser -m appuser
+
+COPY --from=builder /install /usr/local
+
+COPY backend/app ./app
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini .
+COPY backend/pyproject.toml .
+COPY backend/docker-entrypoint_dev.sh /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/docker-entrypoint_dev.sh && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+ENTRYPOINT ["docker-entrypoint_dev.sh"]

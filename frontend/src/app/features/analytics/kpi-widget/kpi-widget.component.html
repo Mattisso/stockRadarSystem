@@ -1,0 +1,46 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Trading KPIs</mat-card-title>
+    <mat-card-subtitle>{{ subtitle() }}</mat-card-subtitle>
+  </mat-card-header>
+  <mat-card-content>
+    @if (kpis(); as k) {
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric__label">Total P&L</span>
+          <span class="metric__value" [class]="k.total_pnl | pnlColor">{{ k.total_pnl | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Win Rate</span>
+          <span class="metric__value">{{ k.win_rate | percent:'1.1-1' }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Total Trades</span>
+          <span class="metric__value">{{ k.total_trades }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Profit Factor</span>
+          <span class="metric__value">{{ k.profit_factor | number:'1.2-2' }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Avg Win</span>
+          <span class="metric__value pnl-positive">{{ k.avg_win | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Avg Loss</span>
+          <span class="metric__value pnl-negative">{{ k.avg_loss | currency }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Sharpe Ratio</span>
+          <span class="metric__value">{{ k.sharpe_ratio | number:'1.2-2' }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric__label">Avg Hold Time</span>
+          <span class="metric__value">{{ k.avg_hold_time_minutes | number:'1.0-0' }} min</span>
+        </div>
+      </div>
+    } @else {
+      <p>No data</p>
+    }
+  </mat-card-content>
+</mat-card>

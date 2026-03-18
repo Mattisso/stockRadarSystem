@@ -1,0 +1,32 @@
+<table mat-table [dataSource]="signals()" class="signals-table">
+  <ng-container matColumnDef="ticker">
+    <th mat-header-cell *matHeaderCellDef>Ticker</th>
+    <td mat-cell *matCellDef="let row" class="ticker">{{ row.ticker }}</td>
+  </ng-container>
+  <ng-container matColumnDef="signal_type">
+    <th mat-header-cell *matHeaderCellDef>Type</th>
+    <td mat-cell *matCellDef="let row">{{ row.signal_type | signalType }}</td>
+  </ng-container>
+  <ng-container matColumnDef="score">
+    <th mat-header-cell *matHeaderCellDef>Score</th>
+    <td mat-cell *matCellDef="let row">
+      <app-score-bar [value]="row.score" />
+    </td>
+  </ng-container>
+  <ng-container matColumnDef="acted_on">
+    <th mat-header-cell *matHeaderCellDef>Acted On</th>
+    <td mat-cell *matCellDef="let row">
+      <app-status-badge
+        [label]="row.acted_on ? 'Yes' : 'No'"
+        [color]="row.acted_on ? 'green' : 'grey'"
+      />
+    </td>
+  </ng-container>
+  <ng-container matColumnDef="created_at">
+    <th mat-header-cell *matHeaderCellDef>Time</th>
+    <td mat-cell *matCellDef="let row">{{ row.created_at | date:'short' }}</td>
+  </ng-container>
+
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns" (click)="signalSelected.emit(row.id)" class="clickable"></tr>
+</table>

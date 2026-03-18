@@ -22,6 +22,7 @@ class SignalCreate(SignalBase):
 
 class SignalRead(SignalBase):
     id: int
+    ml_confidence: float | None = None
     acted_on: bool
     outcome_pnl: float | None = None
     created_at: datetime

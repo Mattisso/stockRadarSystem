@@ -28,10 +28,22 @@ class Settings(BaseSettings):
     universe_max_price: float = 10.0
     universe_min_volume: int = 100_000
 
-    # --- IBKR (Phase 1b) ---
-    ibkr_host: str = ""
-    ibkr_port: int = 0
-    ibkr_client_id: int = 0
+    # --- Broker ---
+    broker_type: str = "mock"  # "mock" | "ibkr"
+
+    # --- IBKR ---
+    ibkr_host: str = "127.0.0.1"
+    ibkr_port: int = 7497  # 7497=paper, 7496=live
+    ibkr_client_id: int = 1
+    ibkr_timeout: int = 30
+    ibkr_max_reconnect_attempts: int = 10
+
+    # --- ML ---
+    ml_enabled: bool = True
+    ml_min_training_samples: int = 50
+    ml_retrain_interval_hours: int = 24
+    ml_model_dir: str = "models"
+    ml_confidence_weight: float = 0.3
 
 
 settings = Settings()

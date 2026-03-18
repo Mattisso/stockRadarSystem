@@ -1,0 +1,47 @@
+implementation_plan.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+backend/.env
+
+# Testing
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+htmlcov/
+
+# Terraform
+terraform/**/.terraform/
+terraform/**/.terraform.lock.hcl
+terraform/**/*.tfstate
+terraform/**/*.tfstate.backup
+terraform/**/secrets.auto.tfvars
+
+# Helm
+helm/**/*.tgz
+
+# Angular
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# Misc
+*.log
+tmp/
+.cache/
+.claude/

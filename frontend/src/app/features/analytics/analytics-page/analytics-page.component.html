@@ -1,0 +1,14 @@
+@if (loading() && !kpis()) {
+  <app-loading />
+} @else if (error()) {
+  <div class="error-banner">{{ error() }}</div>
+} @else {
+  <div class="analytics-grid">
+    <app-kpi-widget [kpis]="kpis()" />
+    <app-ml-status-widget
+      [mlStatus]="mlStatus()"
+      [retraining]="retraining()"
+      (retrain)="onRetrain()" />
+    <app-signal-accuracy-widget [buckets]="signalAccuracy()" />
+  </div>
+}

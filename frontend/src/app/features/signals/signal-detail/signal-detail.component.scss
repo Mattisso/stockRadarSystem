@@ -1,0 +1,15 @@
+.feature-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+}
+
+.feature-label {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.6);
+}

@@ -1,0 +1,81 @@
+.status-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+
+  &.trained {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+  }
+
+  &.untrained {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+  }
+}
+
+.config-tag {
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  background: rgba(128, 128, 128, 0.1);
+  opacity: 0.8;
+}
+
+.importances {
+  margin: 16px 0;
+
+  h4 {
+    margin: 0 0 8px;
+    font-size: 0.85rem;
+    opacity: 0.7;
+  }
+}
+
+.importance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.importance-label {
+  width: 140px;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.importance-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.importance-bar {
+  height: 100%;
+  background: #42a5f5;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.importance-value {
+  width: 48px;
+  text-align: right;
+  font-size: 0.8rem;
+}
+
+.actions {
+  margin-top: 16px;
+}

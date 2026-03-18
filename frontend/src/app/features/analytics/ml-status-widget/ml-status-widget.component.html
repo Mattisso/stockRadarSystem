@@ -1,0 +1,40 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>ML Model</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (mlStatus(); as ml) {
+      <div class="status-row">
+        <span class="status-badge" [class.trained]="ml.model_trained" [class.untrained]="!ml.model_trained">
+          {{ ml.model_trained ? 'Trained' : 'Not Trained' }}
+        </span>
+        <span class="config-tag">{{ ml.ml_enabled ? 'Enabled' : 'Disabled' }}</span>
+        <span class="config-tag">Weight: {{ ml.ml_confidence_weight }}</span>
+      </div>
+
+      @if (importanceEntries.length > 0) {
+        <div class="importances">
+          <h4>Feature Importances</h4>
+          @for (entry of importanceEntries; track entry[0]) {
+            <div class="importance-row">
+              <span class="importance-label">{{ entry[0] }}</span>
+              <div class="importance-bar-bg">
+                <div class="importance-bar" [style.width.%]="entry[1] * 100"></div>
+              </div>
+              <span class="importance-value">{{ entry[1] | percent:'1.1-1' }}</span>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="actions">
+        <button mat-stroked-button (click)="onRetrain()" [disabled]="retraining()">
+          <mat-icon>model_training</mat-icon>
+          {{ retraining() ? 'Retraining...' : 'Retrain Model' }}
+        </button>
+      </div>
+    } @else {
+      <p>No ML data</p>
+    }
+  </mat-card-content>
+</mat-card>

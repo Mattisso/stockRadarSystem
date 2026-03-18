@@ -1,0 +1,53 @@
+replicaCount: 1
+
+image:
+  repository: stock-radar-api
+  pullPolicy: IfNotPresent
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 8000
+  containerPort: 8000
+  nodePort: 30020
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: stock-radar.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 3000
+  allowPrivilegeEscalation: false
+  capabilities:
+    add:
+      - NET_BIND_SERVICE
+
+env:
+  API_PORT: "8000"
+  PGHOST: "192.168.1.77"
+  PGPORT: "5434"
+  PGUSER_SECRET_KEY: PGUSER
+  PGPASSWORD_SECRET_KEY: PGPASSWORD
+  PGDATABASE: "stock_radar"
+  TRADING_MODE: "paper"
+
+secretName: "postgres-secret"

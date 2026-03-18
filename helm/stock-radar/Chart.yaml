@@ -1,0 +1,17 @@
+apiVersion: v2
+name: stock-radar
+description: AI-Powered Real-Time NASDAQ Breakout Detection & Execution
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: serviceaccount
+    version: 0.1.0
+    condition: serviceaccount.enabled
+  - name: api
+    version: 0.1.0
+    condition: api.enabled
+  - name: frontend
+    version: 0.1.0
+    condition: frontend.enabled

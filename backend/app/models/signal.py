@@ -27,6 +27,7 @@ class Signal(Base):
     bid_stacking: Mapped[float] = mapped_column(Float, nullable=True)
     volume_acceleration: Mapped[float] = mapped_column(Float, nullable=True)
     order_aggression: Mapped[float] = mapped_column(Float, nullable=True)
+    ml_confidence: Mapped[float] = mapped_column(Float, nullable=True)
     acted_on: Mapped[bool] = mapped_column(Boolean, default=False)
     outcome_pnl: Mapped[float] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

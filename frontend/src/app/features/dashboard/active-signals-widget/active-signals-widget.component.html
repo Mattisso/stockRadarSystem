@@ -1,0 +1,23 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Active Signals</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (signals().length) {
+      <mat-list>
+        @for (signal of signals(); track signal.id) {
+          <mat-list-item>
+            <mat-icon matListItemIcon>bolt</mat-icon>
+            <span matListItemTitle>{{ signal.ticker }} — {{ signal.signal_type | signalType }}</span>
+            <span matListItemLine>
+              <app-score-bar [value]="signal.score" />
+              · {{ signal.created_at | date:'short' }}
+            </span>
+          </mat-list-item>
+        }
+      </mat-list>
+    } @else {
+      <p class="empty">No active signals</p>
+    }
+  </mat-card-content>
+</mat-card>
