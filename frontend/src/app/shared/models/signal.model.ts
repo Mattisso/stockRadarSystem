@@ -10,6 +10,7 @@ export interface ISignal {
   bid_stacking: number | null;
   volume_acceleration: number | null;
   order_aggression: number | null;
+  ml_confidence: number | null;
   acted_on: boolean;
   outcome_pnl: number | null;
   created_at: string;

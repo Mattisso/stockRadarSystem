@@ -5,5 +5,6 @@ export const APP_MENU: MenuItem[] = [
   { label: 'Universe', icon: 'public', route: '/universe', section: 'Market' },
   { label: 'Signals', icon: 'bolt', route: '/signals' },
   { label: 'Trades', icon: 'swap_horiz', route: '/trades', section: 'Trading' },
+  { label: 'Analytics', icon: 'analytics', route: '/analytics' },
   { label: 'Settings', icon: 'settings', route: '/settings', section: 'System' },
 ];

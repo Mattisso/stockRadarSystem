@@ -6,6 +6,12 @@ HELM_DIR := helm/stock-radar
 .PHONY: up down logs stop restart refresh
 
 up:
+	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	kubectl create secret generic postgres-secret \
+		--from-literal=PGUSER=postgres \
+		--from-literal=PGPASSWORD=postgres \
+		--namespace=$(NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -
 	tilt up --host=0.0.0.0
 
 down:

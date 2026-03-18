@@ -28,6 +28,11 @@ export const routes: Routes = [
           import('./features/signals/signals.routes').then(m => m.SIGNALS_ROUTES),
       },
       {
+        path: 'analytics',
+        loadChildren: () =>
+          import('./features/analytics/analytics.routes').then(m => m.ANALYTICS_ROUTES),
+      },
+      {
         path: 'settings',
         loadChildren: () =>
           import('./features/settings/settings.routes').then(m => m.SETTINGS_ROUTES),

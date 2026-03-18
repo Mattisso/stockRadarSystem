@@ -98,14 +98,36 @@ helm_cmd = " ".join([
 k8s_yaml(local(helm_cmd, quiet=True))
 
 # ── K8s resources & port forwarding ─────────────────────────────────
+
+# RBAC must be applied before any workload that references the ServiceAccount
+k8s_resource(
+    new_name="rbac",
+    objects=[
+        "svcdeployer:serviceaccount",
+        "svcdeployer-role:role",
+        "svcdeployer-clusterrole:clusterrole",
+        "svcdeployer-rolebinding:rolebinding",
+        "svcdeployer-binding:clusterrolebinding",
+    ],
+    labels=["infra"],
+)
+
+k8s_resource(
+    "check-postgres-secret",
+    resource_deps=["rbac"],
+    labels=["infra"],
+)
+
 k8s_resource(
     "stock-radar-api",
     port_forwards=["8000:8000"],
+    resource_deps=["rbac"],
     labels=["app"],
 )
 
 k8s_resource(
     "stock-radar-frontend",
-    port_forwards=["4200:4200"],
+    port_forwards=["4201:4200"],
+    resource_deps=["rbac"],
     labels=["app"],
 )
