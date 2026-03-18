@@ -10,6 +10,9 @@ frontend:
 serviceaccount:
   enabled: true
 
+monitoring:
+  enabled: true
+
 env:
   PORT: "8000"
   host: "stock-radar-postgres"

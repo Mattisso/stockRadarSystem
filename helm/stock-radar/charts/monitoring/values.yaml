@@ -1,0 +1,8 @@
+prometheus:
+  image: prom/prometheus:v2.51.0
+  retention: 7d
+  scrapeInterval: 15s
+
+grafana:
+  image: grafana/grafana:11.0.0
+  adminPassword: admin

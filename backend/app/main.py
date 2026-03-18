@@ -1,5 +1,6 @@
 """Stock Radar System — FastAPI entry point."""
 
+import time
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,6 +11,7 @@ from app.api.routes import router
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
+from app.core.metrics import ML_MODEL_TRAINED, SCHEDULER_JOB_DURATION, SCHEDULER_JOB_ERRORS
 from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
 from app.engine.trade_executor import TradeExecutor
@@ -46,6 +48,7 @@ async def lifespan(app: FastAPI):
     # ── ML components ────────────────────────────────────────────────
     classifier = BreakoutClassifier(model_dir=settings.ml_model_dir)
     classifier.load()  # try loading a previously saved model
+    ML_MODEL_TRAINED.set(1 if classifier.is_trained else 0)
 
     ml_scorer = None
     if settings.ml_enabled:
@@ -77,36 +80,62 @@ async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
 
     async def refresh_universe_job():
-        db = SessionLocal()
+        start = time.monotonic()
         try:
-            engine = UniverseFilterEngine(broker, db)
-            tickers = await engine.refresh_universe()
-            await broker.subscribe_market_data(tickers)
-            log.info("scheduler.universe_refreshed", count=len(tickers))
+            db = SessionLocal()
+            try:
+                engine = UniverseFilterEngine(broker, db)
+                tickers = await engine.refresh_universe()
+                await broker.subscribe_market_data(tickers)
+                log.info("scheduler.universe_refreshed", count=len(tickers))
+            finally:
+                db.close()
         except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="universe_refresh").inc()
             log.exception("scheduler.universe_refresh_error")
         finally:
-            db.close()
+            SCHEDULER_JOB_DURATION.labels(job="universe_refresh").observe(time.monotonic() - start)
 
     async def scan_job():
-        db = SessionLocal()
+        start = time.monotonic()
         try:
-            engine = UniverseFilterEngine(broker, db)
-            tickers = engine.get_active_tickers()
+            db = SessionLocal()
+            try:
+                engine = UniverseFilterEngine(broker, db)
+                tickers = engine.get_active_tickers()
+            finally:
+                db.close()
+
+            if not tickers:
+                return
+
+            await trade_executor.collect_market_data(tickers)
+            await trade_executor.scan_signals(tickers)
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="signal_scan").inc()
+            log.exception("scheduler.signal_scan_error")
         finally:
-            db.close()
-
-        if not tickers:
-            return
-
-        await trade_executor.collect_market_data(tickers)
-        await trade_executor.scan_signals(tickers)
+            SCHEDULER_JOB_DURATION.labels(job="signal_scan").observe(time.monotonic() - start)
 
     async def monitor_job():
-        await trade_executor.monitor_positions()
+        start = time.monotonic()
+        try:
+            await trade_executor.monitor_positions()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="position_monitor").inc()
+            log.exception("scheduler.position_monitor_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="position_monitor").observe(time.monotonic() - start)
 
     async def retrain_job():
-        await trainer.retrain_if_needed()
+        start = time.monotonic()
+        try:
+            await trainer.retrain_if_needed()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="ml_retrain").inc()
+            log.exception("scheduler.ml_retrain_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="ml_retrain").observe(time.monotonic() - start)
 
     scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
     scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
@@ -140,5 +169,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+
+Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["/metrics"],
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 app.include_router(router, prefix="/api")

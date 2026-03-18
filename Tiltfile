@@ -131,3 +131,24 @@ k8s_resource(
     resource_deps=["rbac"],
     labels=["app"],
 )
+
+k8s_resource(
+    "stock-radar-prometheus",
+    port_forwards=["9090:9090"],
+    labels=["monitoring"],
+    objects=[
+        "stock-radar-prometheus-config:configmap",
+    ],
+)
+
+k8s_resource(
+    "stock-radar-grafana",
+    port_forwards=["3000:3000"],
+    resource_deps=["stock-radar-prometheus"],
+    labels=["monitoring"],
+    objects=[
+        "stock-radar-grafana-datasources:configmap",
+        "stock-radar-grafana-dashboards-provider:configmap",
+        "stock-radar-grafana-dashboard:configmap",
+    ],
+)

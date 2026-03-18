@@ -1,0 +1,4 @@
+apiVersion: v2
+name: monitoring
+description: Prometheus + Grafana for Stock Radar System
+version: 0.1.0

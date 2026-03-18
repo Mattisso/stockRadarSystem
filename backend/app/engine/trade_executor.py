@@ -7,6 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.broker.interface import BrokerInterface, OrderSide, OrderStatus, OrderType
 from app.core.logging import get_logger
+from app.core.metrics import (
+    OPEN_POSITIONS,
+    RISK_REJECTIONS,
+    SIGNALS_DETECTED,
+    TRADE_PNL,
+    TRADES_EXECUTED,
+)
 from app.data.tick_buffer import MarketSnapshot, TickBuffer
 from app.engine.signal_detector import SignalDetector
 from app.models.signal import Signal
@@ -97,6 +104,7 @@ class TradeExecutor:
                 )
                 db.add(signal_record)
                 db.flush()
+                SIGNALS_DETECTED.labels(signal_type=feature.signal_type.value).inc()
 
                 # Only act on BREAKOUT signals
                 if feature.signal_type.value != "breakout":
@@ -120,6 +128,7 @@ class TradeExecutor:
                 )
 
                 if isinstance(result, RiskRejection):
+                    RISK_REJECTIONS.labels(reason=_classify_rejection(result.reason)).inc()
                     log.info(
                         "trade_executor.risk_rejected",
                         ticker=ticker,
@@ -172,6 +181,9 @@ class TradeExecutor:
                     stop_loss=params.stop_loss_price,
                     target=params.target_price,
                 )
+
+                TRADES_EXECUTED.labels(side="buy").inc()
+                OPEN_POSITIONS.set(len(self._open_positions))
 
                 log.info(
                     "trade_executor.entry_executed",
@@ -241,6 +253,8 @@ class TradeExecutor:
                             if signal:
                                 signal.outcome_pnl = pnl
 
+                    TRADES_EXECUTED.labels(side="sell").inc()
+                    TRADE_PNL.observe(pnl)
                     tickers_to_close.append(ticker)
 
                     log.info(
@@ -255,6 +269,8 @@ class TradeExecutor:
             # Remove closed positions
             for ticker in tickers_to_close:
                 del self._open_positions[ticker]
+            if tickers_to_close:
+                OPEN_POSITIONS.set(len(self._open_positions))
 
             db.commit()
         except Exception:
@@ -262,3 +278,16 @@ class TradeExecutor:
             log.exception("trade_executor.monitor_positions_error")
         finally:
             db.close()
+
+
+def _classify_rejection(reason: str) -> str:
+    """Normalize rejection reasons into stable metric labels."""
+    if "Daily loss" in reason:
+        return "daily_loss_limit"
+    if "Max positions" in reason:
+        return "max_positions"
+    if "Already holding" in reason:
+        return "already_holding"
+    if "Invalid entry" in reason:
+        return "invalid_price"
+    return "other"

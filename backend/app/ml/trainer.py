@@ -1,6 +1,7 @@
 """Retraining orchestration for the breakout classifier."""
 
 from app.core.logging import get_logger
+from app.core.metrics import ML_MODEL_TRAINED, ML_RETRAIN_TOTAL
 from app.ml.features import extract_training_data
 from app.ml.model import BreakoutClassifier
 
@@ -22,14 +23,18 @@ class ModelTrainer:
             X, y = extract_training_data(db)
 
             if len(y) < self.min_samples:
+                ML_RETRAIN_TOTAL.labels(status="skipped").inc()
                 log.info("ml.retrain_skipped", samples=len(y), min_required=self.min_samples)
                 return None
 
             metrics = self.classifier.train(X, y)
             self.classifier.save()
+            ML_RETRAIN_TOTAL.labels(status="success").inc()
+            ML_MODEL_TRAINED.set(1)
             log.info("ml.retrain_complete", **metrics)
             return metrics
         except Exception:
+            ML_RETRAIN_TOTAL.labels(status="error").inc()
             log.exception("ml.retrain_error")
             return None
         finally:

@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stock-radar-grafana-dashboards-provider
+  namespace: {{ .Release.Namespace }}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ''
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stock-radar-grafana-dashboard
+  namespace: {{ .Release.Namespace }}
+data:
+  stock-radar.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "uid": "stock-radar",
+        "title": "Stock Radar System",
+        "tags": ["stock-radar"],
+        "timezone": "browser",
+        "refresh": "15s",
+        "panels": [
+          {
+            "title": "Request Rate",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+            "targets": [{"expr": "rate(http_requests_total[5m])", "legendFormat": "{{ "{{handler}}" }}"}],
+            "datasource": "Prometheus"
+          },
+          {
+            "title": "Request Latency p95",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+            "targets": [{"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "p95"}],
+            "datasource": "Prometheus",
+            "fieldConfig": {"defaults": {"unit": "s"}}
+          },
+          {
+            "title": "Open Positions",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+            "targets": [{"expr": "stockradar_open_positions", "legendFormat": "positions"}],
+            "datasource": "Prometheus"
+          },
+          {
+            "title": "Signals / min",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            "targets": [{"expr": "rate(stockradar_signals_detected_total[5m]) * 60", "legendFormat": "{{ "{{signal_type}}" }}"}],
+            "datasource": "Prometheus"
+          },
+          {
+            "title": "Trades / min",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            "targets": [{"expr": "rate(stockradar_trades_executed_total[5m]) * 60", "legendFormat": "{{ "{{side}}" }}"}],
+            "datasource": "Prometheus"
+          },
+          {
+            "title": "Risk Rejections / min",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+            "targets": [{"expr": "rate(stockradar_risk_rejections_total[5m]) * 60", "legendFormat": "{{ "{{reason}}" }}"}],
+            "datasource": "Prometheus"
+          },
+          {
+            "title": "Avg Trade PnL (1h)",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
+            "targets": [{"expr": "rate(stockradar_trade_pnl_dollars_sum[1h]) / rate(stockradar_trade_pnl_dollars_count[1h])", "legendFormat": "avg pnl"}],
+            "datasource": "Prometheus",
+            "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+          },
+          {
+            "title": "ML Model Status",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 6, "x": 18, "y": 16},
+            "targets": [{"expr": "stockradar_ml_model_trained", "legendFormat": "trained"}],
+            "datasource": "Prometheus",
+            "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "Not Trained", "color": "orange"}, "1": {"text": "Trained", "color": "green"}}}]}}
+          },
+          {
+            "title": "Scheduler Job Duration",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+            "targets": [{"expr": "rate(stockradar_scheduler_job_duration_seconds_sum[5m]) / rate(stockradar_scheduler_job_duration_seconds_count[5m])", "legendFormat": "{{ "{{job}}" }}"}],
+            "datasource": "Prometheus",
+            "fieldConfig": {"defaults": {"unit": "s"}}
+          },
+          {
+            "title": "Scheduler Errors / min",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+            "targets": [{"expr": "rate(stockradar_scheduler_job_errors_total[5m]) * 60", "legendFormat": "{{ "{{job}}" }}"}],
+            "datasource": "Prometheus"
+          }
+        ],
+        "schemaVersion": 39,
+        "version": 1
+      }
+    }

@@ -1,0 +1,62 @@
+"""Prometheus business metrics for Stock Radar System."""
+
+from prometheus_client import Counter, Gauge, Histogram
+
+# -- Signals --
+SIGNALS_DETECTED = Counter(
+    "stockradar_signals_detected_total",
+    "Total signals detected",
+    ["signal_type"],
+)
+
+# -- Trades --
+TRADES_EXECUTED = Counter(
+    "stockradar_trades_executed_total",
+    "Total trades executed",
+    ["side"],
+)
+
+TRADE_PNL = Histogram(
+    "stockradar_trade_pnl_dollars",
+    "Realized P&L per closed trade in dollars",
+    buckets=[-500, -200, -100, -50, -20, -10, 0, 10, 20, 50, 100, 200, 500, 1000],
+)
+
+# -- Positions --
+OPEN_POSITIONS = Gauge(
+    "stockradar_open_positions",
+    "Current number of open positions",
+)
+
+# -- Risk --
+RISK_REJECTIONS = Counter(
+    "stockradar_risk_rejections_total",
+    "Total trades rejected by risk manager",
+    ["reason"],
+)
+
+# -- ML --
+ML_MODEL_TRAINED = Gauge(
+    "stockradar_ml_model_trained",
+    "Whether the ML model is trained (1) or not (0)",
+)
+
+ML_RETRAIN_TOTAL = Counter(
+    "stockradar_ml_retrain_total",
+    "Total ML model retraining runs",
+    ["status"],
+)
+
+# -- Scheduler --
+SCHEDULER_JOB_DURATION = Histogram(
+    "stockradar_scheduler_job_duration_seconds",
+    "Duration of scheduler jobs",
+    ["job"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+)
+
+SCHEDULER_JOB_ERRORS = Counter(
+    "stockradar_scheduler_job_errors_total",
+    "Total scheduler job errors",
+    ["job"],
+)

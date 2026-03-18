@@ -15,3 +15,6 @@ dependencies:
   - name: frontend
     version: 0.1.0
     condition: frontend.enabled
+  - name: monitoring
+    version: 0.1.0
+    condition: monitoring.enabled
