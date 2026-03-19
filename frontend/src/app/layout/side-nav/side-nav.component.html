@@ -1,12 +1,22 @@
 <nav [class.collapsed]="collapsed()">
-  <mat-nav-list>
+  <ul>
     @for (item of menuItems(); track item.route) {
-      <a mat-list-item [routerLink]="item.route" routerLinkActive="active-link">
-        <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
-        @if (!collapsed()) {
-          <span matListItemTitle>{{ item.label }}</span>
-        }
-      </a>
+      @if (item.section) {
+        <li class="section-header">
+          <div class="divider"></div>
+          @if (!collapsed()) {
+            <span class="section-label">{{ item.section }}</span>
+          }
+        </li>
+      }
+      <li>
+        <a [routerLink]="item.route" routerLinkActive="active">
+          <mat-icon class="icon">{{ item.icon }}</mat-icon>
+          @if (!collapsed()) {
+            <span class="label">{{ item.label }}</span>
+          }
+        </a>
+      </li>
     }
-  </mat-nav-list>
+  </ul>
 </nav>

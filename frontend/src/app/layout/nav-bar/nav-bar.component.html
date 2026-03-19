@@ -1,10 +1,13 @@
-<mat-toolbar color="primary">
-  <button mat-icon-button (click)="menuToggled.emit()" matTooltip="Toggle menu">
-    <mat-icon>menu</mat-icon>
-  </button>
-  <span class="brand">Stock Radar</span>
-  <span class="spacer"></span>
-  <button mat-icon-button (click)="themeToggled.emit()" [matTooltip]="isDark() ? 'Light mode' : 'Dark mode'">
-    <mat-icon>{{ isDark() ? 'light_mode' : 'dark_mode' }}</mat-icon>
-  </button>
-</mat-toolbar>
+<nav class="nav">
+  <div class="nav-left">
+    <button class="menu-toggle" (click)="menuToggled.emit()" title="Toggle sidebar">
+      <mat-icon>menu</mat-icon>
+    </button>
+    <span class="brand">Stock Radar</span>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" (click)="themeToggled.emit()" [title]="isDark() ? 'Light mode' : 'Dark mode'">
+      <mat-icon>{{ isDark() ? 'light_mode' : 'dark_mode' }}</mat-icon>
+    </button>
+  </div>
+</nav>
