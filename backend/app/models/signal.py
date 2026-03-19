@@ -28,6 +28,8 @@ class Signal(Base):
     volume_acceleration: Mapped[float] = mapped_column(Float, nullable=True)
     order_aggression: Mapped[float] = mapped_column(Float, nullable=True)
     ml_confidence: Mapped[float] = mapped_column(Float, nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     acted_on: Mapped[bool] = mapped_column(Boolean, default=False)
     outcome_pnl: Mapped[float] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

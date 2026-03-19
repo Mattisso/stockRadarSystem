@@ -145,3 +145,12 @@ class BrokerInterface(ABC):
     @abstractmethod
     async def unsubscribe_market_data(self, tickers: list[str]) -> None:
         """Unsubscribe from market data for the given tickers."""
+
+    async def subscribe_l2_depth(self, ticker: str) -> None:
+        """Subscribe to deep L2 order book for a specific ticker.
+
+        Default no-op — override for brokers with separate L2 subscriptions.
+        """
+
+    async def unsubscribe_l2_depth(self, ticker: str) -> None:
+        """Unsubscribe from L2 depth for a specific ticker."""

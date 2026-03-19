@@ -16,6 +16,7 @@ from app.core.metrics import (
 )
 from app.data.tick_buffer import MarketSnapshot, TickBuffer
 from app.engine.signal_detector import SignalDetector
+from app.engine.state_machine import StateMachine, SymbolStage
 from app.models.signal import Signal
 from app.models.signal import SignalType as DBSignalType
 from app.models.trade import Trade, TradeSide, TradeStatus
@@ -53,12 +54,14 @@ class TradeExecutor:
         signal_detector: SignalDetector,
         risk_manager: RiskManager,
         db_session_factory,
+        state_machine: StateMachine | None = None,
     ) -> None:
         self.broker = broker
         self.tick_buffer = tick_buffer
         self.signal_detector = signal_detector
         self.risk_manager = risk_manager
         self.db_session_factory = db_session_factory
+        self.state_machine = state_machine
         self._open_positions: dict[str, OpenPosition] = {}
 
     async def collect_market_data(self, tickers: list[str]) -> None:
@@ -77,13 +80,32 @@ class TradeExecutor:
                 log.exception("trade_executor.data_collection_error", ticker=ticker)
 
     async def scan_signals(self, tickers: list[str]) -> None:
-        """Compute signals for all tickers, persist, and execute entries."""
+        """Compute signals for all tickers, persist, and execute entries.
+
+        When a StateMachine is attached, tickers must progress through
+        Normal -> Watching -> Candidate -> L2 Confirm -> ReadyToBuy before
+        a trade is considered. Without a state machine, the legacy behavior
+        (immediate action on BREAKOUT score) is preserved.
+        """
         db: Session = self.db_session_factory()
         try:
             for ticker in tickers:
-                feature = self.signal_detector.compute_signal(ticker)
-                if feature is None:
-                    continue
+                # --- Evaluate via state machine (or legacy) ---
+                if self.state_machine is not None:
+                    state = await self.state_machine.evaluate(ticker)
+                    feature = state.feature_vector
+                    if feature is None:
+                        continue
+                    stage_value = state.stage.value
+                    reason_value = state.reason
+                    is_actionable = state.stage == SymbolStage.READY_TO_BUY
+                else:
+                    feature = self.signal_detector.compute_signal(ticker)
+                    if feature is None:
+                        continue
+                    stage_value = None
+                    reason_value = None
+                    is_actionable = feature.signal_type.value == "breakout"
 
                 # Persist signal (all types for ML training data)
                 db_signal_type = (
@@ -101,13 +123,15 @@ class TradeExecutor:
                     volume_acceleration=feature.volume_acceleration,
                     order_aggression=feature.order_aggression,
                     ml_confidence=feature.ml_confidence,
+                    stage=stage_value,
+                    reason=reason_value,
                 )
                 db.add(signal_record)
                 db.flush()
                 SIGNALS_DETECTED.labels(signal_type=feature.signal_type.value).inc()
 
-                # Only act on BREAKOUT signals
-                if feature.signal_type.value != "breakout":
+                # Only act on actionable signals
+                if not is_actionable:
                     continue
 
                 # Skip if already in position
@@ -191,6 +215,7 @@ class TradeExecutor:
                     quantity=params.quantity,
                     price=order.fill_price,
                     score=feature.composite_score,
+                    stage=stage_value,
                 )
 
             db.commit()

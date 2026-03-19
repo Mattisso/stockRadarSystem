@@ -9,5 +9,5 @@ import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 })
 export class StatusBadgeComponent {
   label = input.required<string>();
-  color = input<'green' | 'red' | 'orange' | 'grey'>('grey');
+  color = input<'green' | 'red' | 'orange' | 'amber' | 'blue' | 'grey'>('grey');
 }

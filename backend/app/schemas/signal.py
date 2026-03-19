@@ -22,6 +22,8 @@ class SignalCreate(SignalBase):
 
 class SignalRead(SignalBase):
     id: int
+    stage: str | None = None
+    reason: str | None = None
     ml_confidence: float | None = None
     acted_on: bool
     outcome_pnl: float | None = None

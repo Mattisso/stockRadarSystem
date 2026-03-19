@@ -35,6 +35,13 @@ RISK_REJECTIONS = Counter(
     ["reason"],
 )
 
+# -- State Machine --
+STATE_TRANSITIONS = Counter(
+    "stockradar_state_transitions_total",
+    "State machine transitions",
+    ["from_state", "to_state"],
+)
+
 # -- ML --
 ML_MODEL_TRAINED = Gauge(
     "stockradar_ml_model_trained",

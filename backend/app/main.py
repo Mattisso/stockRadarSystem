@@ -14,6 +14,7 @@ from app.core.logging import get_logger, setup_logging
 from app.core.metrics import ML_MODEL_TRAINED, SCHEDULER_JOB_DURATION, SCHEDULER_JOB_ERRORS
 from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
+from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
 from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
@@ -63,16 +64,23 @@ async def lifespan(app: FastAPI):
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
+    state_machine = StateMachine(
+        tick_buffer=tick_buffer,
+        signal_detector=signal_detector,
+        broker=broker,
+    )
     trade_executor = TradeExecutor(
         broker=broker,
         tick_buffer=tick_buffer,
         signal_detector=signal_detector,
         risk_manager=risk_manager,
         db_session_factory=SessionLocal,
+        state_machine=state_machine,
     )
 
     app.state.tick_buffer = tick_buffer
     app.state.signal_detector = signal_detector
+    app.state.state_machine = state_machine
     app.state.risk_manager = risk_manager
     app.state.trade_executor = trade_executor
 

@@ -52,6 +52,27 @@ def get_signals(limit: int = 50, db: Session = Depends(get_db)):
     return db.query(Signal).order_by(Signal.created_at.desc()).limit(limit).all()
 
 
+@router.get("/state-machine")
+async def get_state_machine_status(request: Request):
+    """Get current state machine status for all tracked tickers."""
+    sm = getattr(request.app.state, "state_machine", None)
+    if sm is None:
+        return []
+    return [
+        {
+            "ticker": s.ticker,
+            "stage": s.stage.value,
+            "score": round(s.score, 4),
+            "entered_at": s.entered_at.isoformat(),
+            "consecutive_ticks": s.consecutive_ticks,
+            "decay_ticks": s.decay_ticks,
+            "reason": s.reason,
+        }
+        for s in sm.all_states()
+        if s.stage.value != "normal"
+    ]
+
+
 @router.get("/portfolio")
 async def get_portfolio(request: Request):
     """Get current portfolio — delegates to the active broker instance."""

@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     ibkr_timeout: int = 30
     ibkr_max_reconnect_attempts: int = 10
 
+    # --- State Machine ---
+    state_watching_threshold: float = 0.30
+    state_candidate_threshold: float = 0.55
+    state_l2_confirm_threshold: float = 0.65
+    state_ready_to_buy_threshold: float = 0.75
+    state_decay_ticks: int = 3
+    state_l2_bid_stacking_min: float = 0.6
+    state_l2_liquidity_imbalance_min: float = 0.6
+    state_l2_order_aggression_min: float = 0.5
+    state_l2_spread_compression_min: float = 0.5
+
     # --- ML ---
     ml_enabled: bool = True
     ml_min_training_samples: int = 50

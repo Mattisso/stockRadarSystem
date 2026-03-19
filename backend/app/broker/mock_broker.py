@@ -63,6 +63,7 @@ class MockBroker(BrokerInterface):
         self._orders: dict[str, OrderResult] = {}
         self._prices: dict[str, float] = {}
         self._subscribed: set[str] = set()
+        self._l2_subscribed: set[str] = set()
         self._daily_pnl: float = 0.0
         self._tick_count: int = 0
 
@@ -255,3 +256,11 @@ class MockBroker(BrokerInterface):
     async def unsubscribe_market_data(self, tickers: list[str]) -> None:
         self._subscribed -= set(tickers)
         log.info("mock_broker.unsubscribed", count=len(tickers))
+
+    async def subscribe_l2_depth(self, ticker: str) -> None:
+        self._l2_subscribed.add(ticker)
+        log.info("mock_broker.l2_subscribed", ticker=ticker, active=len(self._l2_subscribed))
+
+    async def unsubscribe_l2_depth(self, ticker: str) -> None:
+        self._l2_subscribed.discard(ticker)
+        log.info("mock_broker.l2_unsubscribed", ticker=ticker, active=len(self._l2_subscribed))
