@@ -7,7 +7,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from dataclasses import asdict
+
 from app.api.routes import router
+from app.api.websocket import ConnectionManager
+from app.api.websocket import router as ws_router
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
@@ -18,7 +22,11 @@ from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
 from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
+from app.models.signal import Signal
+from app.models.trade import Trade
 from app.risk.risk_manager import RiskManager
+from app.schemas.signal import SignalRead
+from app.schemas.trade import TradeRead
 
 log = get_logger(__name__)
 
@@ -78,6 +86,9 @@ async def lifespan(app: FastAPI):
         state_machine=state_machine,
     )
 
+    ws_manager = ConnectionManager()
+    app.state.ws_manager = ws_manager
+
     app.state.tick_buffer = tick_buffer
     app.state.signal_detector = signal_detector
     app.state.state_machine = state_machine
@@ -119,6 +130,33 @@ async def lifespan(app: FastAPI):
 
             await trade_executor.collect_market_data(tickers)
             await trade_executor.scan_signals(tickers)
+
+            # Broadcast signal + state_machine updates via WebSocket
+            if ws_manager.active_count:
+                try:
+                    db = SessionLocal()
+                    try:
+                        signals = db.query(Signal).order_by(Signal.created_at.desc()).limit(50).all()
+                        await ws_manager.broadcast("signal", [SignalRead.model_validate(s).model_dump(mode="json") for s in signals])
+                    finally:
+                        db.close()
+
+                    states = [
+                        {
+                            "ticker": s.ticker,
+                            "stage": s.stage.value,
+                            "score": round(s.score, 4),
+                            "entered_at": s.entered_at.isoformat(),
+                            "consecutive_ticks": s.consecutive_ticks,
+                            "decay_ticks": s.decay_ticks,
+                            "reason": s.reason,
+                        }
+                        for s in state_machine.all_states()
+                        if s.stage.value != "normal"
+                    ]
+                    await ws_manager.broadcast("state_machine", states)
+                except Exception:
+                    log.exception("ws.broadcast_scan_error")
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="signal_scan").inc()
             log.exception("scheduler.signal_scan_error")
@@ -129,6 +167,21 @@ async def lifespan(app: FastAPI):
         start = time.monotonic()
         try:
             await trade_executor.monitor_positions()
+
+            # Broadcast trade + portfolio updates via WebSocket
+            if ws_manager.active_count:
+                try:
+                    db = SessionLocal()
+                    try:
+                        trades = db.query(Trade).order_by(Trade.created_at.desc()).limit(50).all()
+                        await ws_manager.broadcast("trade", [TradeRead.model_validate(t).model_dump(mode="json") for t in trades])
+                    finally:
+                        db.close()
+
+                    summary = await broker.get_account_summary()
+                    await ws_manager.broadcast("portfolio", asdict(summary))
+                except Exception:
+                    log.exception("ws.broadcast_monitor_error")
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="position_monitor").inc()
             log.exception("scheduler.position_monitor_error")
@@ -186,3 +239,4 @@ Instrumentator(
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 app.include_router(router, prefix="/api")
+app.include_router(ws_router, prefix="/api")

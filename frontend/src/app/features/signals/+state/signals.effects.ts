@@ -1,14 +1,17 @@
 import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
-import { of, interval } from 'rxjs';
+import { of } from 'rxjs';
 import { map, switchMap, catchError, takeUntil } from 'rxjs/operators';
 import { SignalsActions } from './signals.actions';
 import { SignalsApiService } from '../signals-api.service';
+import { WebSocketService } from '../../../core/websocket.service';
+import { ISignal } from '../../../shared/models';
 
 @Injectable()
 export class SignalsEffects {
   private readonly actions$ = inject(Actions);
   private readonly signalsApi = inject(SignalsApiService);
+  private readonly ws = inject(WebSocketService);
 
   loadSignals$ = createEffect(() =>
     this.actions$.pipe(
@@ -24,13 +27,13 @@ export class SignalsEffects {
     )
   );
 
-  polling$ = createEffect(() =>
+  wsSignals$ = createEffect(() =>
     this.actions$.pipe(
       ofType(SignalsActions.startPolling),
       switchMap(() =>
-        interval(10000).pipe(
+        this.ws.topic$<ISignal[]>('signal').pipe(
           takeUntil(this.actions$.pipe(ofType(SignalsActions.stopPolling))),
-          map(() => SignalsActions.loadSignals()),
+          map(signals => SignalsActions.wsSignalsReceived({ signals })),
         )
       ),
     )

@@ -29,6 +29,24 @@ export const dashboardFeature = createFeature({
       loading: false,
       error,
     })),
+
+    on(DashboardActions.wsPortfolioUpdate, (state, { portfolio }) => ({
+      ...state,
+      portfolio,
+      lastUpdated: new Date().toISOString(),
+    })),
+
+    on(DashboardActions.wsTradesUpdate, (state, { trades }) => ({
+      ...state,
+      recentTrades: trades.slice(0, 5),
+      lastUpdated: new Date().toISOString(),
+    })),
+
+    on(DashboardActions.wsSignalsUpdate, (state, { signals }) => ({
+      ...state,
+      activeSignals: signals.slice(0, 10),
+      lastUpdated: new Date().toISOString(),
+    })),
   ),
 });
 

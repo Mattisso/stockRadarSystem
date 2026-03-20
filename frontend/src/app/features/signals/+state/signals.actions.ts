@@ -10,5 +10,6 @@ export const SignalsActions = createActionGroup({
     'Start Polling': emptyProps(),
     'Stop Polling': emptyProps(),
     'Select Signal': props<{ id: number | null }>(),
+    'Ws Signals Received': props<{ signals: ISignal[] }>(),
   },
 });

@@ -27,6 +27,10 @@ export const signalsFeature = createFeature({
       ...state,
       selectedSignalId: id,
     })),
+
+    on(SignalsActions.wsSignalsReceived, (state, { signals }) =>
+      signalsAdapter.setAll(signals, { ...state, loading: false })
+    ),
   ),
   extraSelectors: ({ selectSignalsState, selectSelectedSignalId }) => {
     const adapterSelectors = signalsAdapter.getSelectors(selectSignalsState);
