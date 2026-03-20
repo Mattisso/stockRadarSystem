@@ -1,0 +1,18 @@
+:host {
+  display: block;
+}
+
+table {
+  width: 100%;
+}
+
+.ticker-cell {
+  font-weight: 500;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+  font-style: italic;
+}

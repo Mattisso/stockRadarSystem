@@ -28,6 +28,11 @@ export const routes: Routes = [
           import('./features/signals/signals.routes').then(m => m.SIGNALS_ROUTES),
       },
       {
+        path: 'state-monitor',
+        loadChildren: () =>
+          import('./features/state-monitor/state-monitor.routes').then(m => m.STATE_MONITOR_ROUTES),
+      },
+      {
         path: 'analytics',
         loadChildren: () =>
           import('./features/analytics/analytics.routes').then(m => m.ANALYTICS_ROUTES),

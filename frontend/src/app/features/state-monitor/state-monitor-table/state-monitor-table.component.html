@@ -1,0 +1,47 @@
+<table mat-table [dataSource]="entries()" class="mat-elevation-z1">
+  <ng-container matColumnDef="ticker">
+    <th mat-header-cell *matHeaderCellDef>Ticker</th>
+    <td mat-cell *matCellDef="let row" class="ticker-cell">{{ row.ticker }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="stage">
+    <th mat-header-cell *matHeaderCellDef>Stage</th>
+    <td mat-cell *matCellDef="let row">
+      <app-status-badge [label]="row.stage | stageBadge" [color]="stageColor(row.stage)" />
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="score">
+    <th mat-header-cell *matHeaderCellDef>Score</th>
+    <td mat-cell *matCellDef="let row">
+      <app-score-bar [value]="row.score" />
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="consecutive_ticks">
+    <th mat-header-cell *matHeaderCellDef>Consec. Ticks</th>
+    <td mat-cell *matCellDef="let row">{{ row.consecutive_ticks }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="decay_ticks">
+    <th mat-header-cell *matHeaderCellDef>Decay Ticks</th>
+    <td mat-cell *matCellDef="let row">{{ row.decay_ticks }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="entered_at">
+    <th mat-header-cell *matHeaderCellDef>Time in Stage</th>
+    <td mat-cell *matCellDef="let row">{{ row.entered_at | timeAgo }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="reason">
+    <th mat-header-cell *matHeaderCellDef>Reason</th>
+    <td mat-cell *matCellDef="let row">{{ row.reason ?? '-' }}</td>
+  </ng-container>
+
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+</table>
+
+@if (entries().length === 0) {
+  <p class="empty-state">No tickers in pipeline — all symbols in Normal stage.</p>
+}

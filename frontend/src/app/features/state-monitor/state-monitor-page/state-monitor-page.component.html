@@ -1,0 +1,29 @@
+<div class="state-monitor">
+  <h2>State Monitor</h2>
+
+  @if (loading()) {
+    <app-loading />
+  } @else {
+    @if (error(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+
+    <div class="stage-cards">
+      @for (s of stages; track s.key) {
+        <mat-card class="stage-card">
+          <mat-card-content>
+            <div class="stage-card__icon">
+              <mat-icon>{{ s.icon }}</mat-icon>
+            </div>
+            <div class="stage-card__info">
+              <span class="stage-card__count">{{ distribution()[s.key] }}</span>
+              <span class="stage-card__label">{{ s.label }}</span>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+
+    <app-state-monitor-table [entries]="entries()" />
+  }
+</div>
