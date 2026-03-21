@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
+from app.core.auth import verify_token
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -54,6 +55,17 @@ class ConnectionManager:
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    # Authenticate via query param: /api/ws?token=<jwt>
+    token = ws.query_params.get("token")
+    if not token:
+        await ws.close(code=4001, reason="Missing token")
+        return
+    try:
+        verify_token(token)
+    except Exception:
+        await ws.close(code=4001, reason="Invalid token")
+        return
+
     manager: ConnectionManager = ws.app.state.ws_manager
     await manager.connect(ws)
     try:

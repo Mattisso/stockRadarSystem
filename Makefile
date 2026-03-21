@@ -12,6 +12,19 @@ up:
 		--from-literal=PGPASSWORD=postgres \
 		--namespace=$(NAMESPACE) \
 		--dry-run=client -o yaml | kubectl apply -f -
+	@if ! kubectl get secret api-secret -n $(NAMESPACE) > /dev/null 2>&1; then \
+		API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
+		kubectl create secret generic api-secret \
+			--from-literal=API_SECRET_KEY="$$API_KEY" \
+			--namespace=$(NAMESPACE); \
+		echo ""; \
+		echo "╔══════════════════════════════════════════════════════════════╗"; \
+		echo "║  API key generated. Retrieve it with:                      ║"; \
+		echo "║  kubectl get secret api-secret -n $(NAMESPACE)             ║"; \
+		echo "║    -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d        ║"; \
+		echo "╚══════════════════════════════════════════════════════════════╝"; \
+		echo ""; \
+	fi
 	tilt up --host=0.0.0.0
 
 down:
@@ -166,6 +179,21 @@ tunnel-k8s:
 tunnel-status:
 	@tmux ls 2>/dev/null | grep cf- || echo "No active tunnels."
 	@ps aux | grep port-forward | grep -v grep || echo "No active port-forwards."
+
+# ── API Key Management ─────────────────────────────────────────────
+.PHONY: rotate-api-key show-api-key
+
+rotate-api-key:
+	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
+	kubectl create secret generic api-secret \
+		--from-literal=API_SECRET_KEY="$$API_KEY" \
+		--namespace=$(NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -; \
+	kubectl rollout restart deployment/stock-radar-api -n $(NAMESPACE); \
+	echo "API key rotated. New key: $$API_KEY"
+
+show-api-key:
+	@kubectl get secret api-secret -n $(NAMESPACE) -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d; echo
 
 # ── VPS Deployment ─────────────────────────────────────────────────
 .PHONY: deploy-vps deploy-engine

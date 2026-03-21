@@ -1,7 +1,8 @@
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import { Observable, Subject, timer, EMPTY } from 'rxjs';
 import { filter, map, retryWhen, switchMap, tap } from 'rxjs/operators';
 import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
+import { AuthService } from './auth.service';
 
 export interface WsMessage<T = unknown> {
   topic: string;
@@ -10,6 +11,7 @@ export interface WsMessage<T = unknown> {
 
 @Injectable({ providedIn: 'root' })
 export class WebSocketService implements OnDestroy {
+  private readonly auth = inject(AuthService);
   private socket$: WebSocketSubject<WsMessage> | null = null;
   private readonly messages$ = new Subject<WsMessage>();
   private readonly destroy$ = new Subject<void>();
@@ -21,7 +23,8 @@ export class WebSocketService implements OnDestroy {
 
   private get wsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/api/ws`;
+    const token = this.auth.token;
+    return `${proto}//${location.host}/api/ws?token=${token}`;
   }
 
   private connect(): void {

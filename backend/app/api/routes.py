@@ -2,9 +2,15 @@
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.auth import (
+    TokenRequest,
+    TokenResponse,
+    create_access_token,
+    require_auth,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.ml.analytics import TradeAnalytics
@@ -23,12 +29,28 @@ from app.schemas.signal import SignalRead
 from app.schemas.symbol import SymbolRead
 from app.schemas.trade import TradeRead
 
-router = APIRouter()
+# ── Public routes (no auth) ──────────────────────────────────────────
+
+public_router = APIRouter()
 
 
-@router.get("/health")
+@public_router.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@public_router.post("/auth/token", response_model=TokenResponse)
+async def login(body: TokenRequest):
+    """Exchange API key for a JWT access token."""
+    if body.api_key != settings.api_secret_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+    token = create_access_token()
+    return TokenResponse(access_token=token)
+
+
+# ── Protected routes (require JWT) ───────────────────────────────────
+
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/health/broker")

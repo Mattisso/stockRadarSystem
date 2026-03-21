@@ -50,6 +50,11 @@ spec:
               value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ .Values.env.PGHOST }}:{{ .Values.env.PGPORT }}/{{ .Values.env.PGDATABASE }}"
             - name: TRADING_MODE
               value: {{ .Values.env.TRADING_MODE | quote }}
+            - name: API_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiSecretName }}
+                  key: API_SECRET_KEY
           livenessProbe:
             httpGet:
               path: /api/health

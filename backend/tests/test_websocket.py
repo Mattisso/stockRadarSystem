@@ -6,6 +6,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.api.websocket import ConnectionManager
+from app.core.auth import create_access_token
 from app.main import app
 
 
@@ -30,11 +31,19 @@ class TestConnectionManager:
 
 class TestWebSocketEndpoint:
     def test_connect_and_receive(self, client):
-        with client.websocket_connect("/api/ws") as ws:
+        token = create_access_token()
+        with client.websocket_connect(f"/api/ws?token={token}") as ws:
             # Connection should be accepted — send a ping to exercise the loop
             ws.send_text("ping")
 
     def test_disconnect_cleanup(self, client):
         """After closing, manager should remove the connection."""
-        with client.websocket_connect("/api/ws"):
+        token = create_access_token()
+        with client.websocket_connect(f"/api/ws?token={token}"):
             pass  # disconnect happens on context exit
+
+    def test_ws_rejects_without_token(self, client):
+        """WebSocket should reject connections without a token."""
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/ws"):
+                pass

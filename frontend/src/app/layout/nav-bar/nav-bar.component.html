@@ -9,5 +9,8 @@
     <button class="theme-toggle" (click)="themeToggled.emit()" [title]="isDark() ? 'Light mode' : 'Dark mode'">
       <mat-icon>{{ isDark() ? 'light_mode' : 'dark_mode' }}</mat-icon>
     </button>
+    <button class="theme-toggle" (click)="logout()" title="Logout">
+      <mat-icon>logout</mat-icon>
+    </button>
   </div>
 </nav>

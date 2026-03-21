@@ -51,3 +51,4 @@ env:
   TRADING_MODE: "paper"
 
 secretName: "postgres-secret"
+apiSecretName: "api-secret"

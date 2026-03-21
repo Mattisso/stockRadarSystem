@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dataclasses import asdict
 
-from app.api.routes import router
+from app.api.routes import public_router, router
 from app.api.websocket import ConnectionManager
 from app.api.websocket import router as ws_router
 from app.core.config import settings
@@ -238,5 +238,6 @@ Instrumentator(
     excluded_handlers=["/metrics"],
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
+app.include_router(public_router, prefix="/api")
 app.include_router(router, prefix="/api")
 app.include_router(ws_router, prefix="/api")
