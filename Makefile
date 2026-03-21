@@ -140,6 +140,33 @@ tunnel-frontend:
 	@echo "Starting Cloudflare quick tunnel for frontend (port 4200)..."
 	cloudflared tunnel --url http://localhost:4200
 
+# ── K8s Tunneling (Public Access) ───────────────────────────────────
+.PHONY: tunnel-k8s tunnel-status
+
+tunnel-k8s:
+	@echo "Restarting K8s Port-Forwards and Tunnels..."
+	-pkill -f "kubectl port-forward"
+	-pkill -f "cloudflared"
+	-tmux kill-session -t cf-backend 2>/dev/null || true
+	-tmux kill-session -t cf-frontend 2>/dev/null || true
+	@sleep 2
+	# Start Port-Forwards
+	kubectl port-forward svc/stock-radar-api 8000:8000 -n $(NAMESPACE) --address 0.0.0.0 > /dev/null 2>&1 &
+	kubectl port-forward svc/stock-radar-frontend 4201:4200 -n $(NAMESPACE) --address 0.0.0.0 > /dev/null 2>&1 &
+	@sleep 3
+	# Start Tunnels in Tmux
+	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:8000 --no-autoupdate 2>&1 | tee /tmp/cf_be.log'
+	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:4201 --no-autoupdate 2>&1 | tee /tmp/cf_fe.log'
+	@echo "Waiting for URLs..."
+	@sleep 12
+	@echo "\n🚀 PUBLIC LINKS:"
+	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_fe.log | head -n 1)"
+	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)/docs\n"
+
+tunnel-status:
+	@tmux ls 2>/dev/null | grep cf- || echo "No active tunnels."
+	@ps aux | grep port-forward | grep -v grep || echo "No active port-forwards."
+
 # ── Cleanup ─────────────────────────────────────────────────────────
 .PHONY: clean prune
 
