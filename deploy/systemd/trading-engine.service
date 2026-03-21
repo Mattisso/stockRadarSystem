@@ -1,0 +1,24 @@
+[Unit]
+Description=Stock Radar Trading Engine
+After=network-online.target ibgateway.service
+Wants=network-online.target
+Requires=ibgateway.service
+
+[Service]
+Type=simple
+User=stockradar
+Group=stockradar
+WorkingDirectory=/opt/stock-radar/backend
+EnvironmentFile=/opt/stock-radar/backend/.env
+ExecStart=/opt/stock-radar/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/stock-radar
+
+[Install]
+WantedBy=multi-user.target

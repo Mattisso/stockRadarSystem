@@ -95,6 +95,10 @@ class AccountSummary:
 class BrokerInterface(ABC):
     """Abstract broker interface. Implement for mock or live broker."""
 
+    def is_connected(self) -> bool:
+        """Return True if the broker connection is active."""
+        return getattr(self, "_connected", False)
+
     @abstractmethod
     async def connect(self) -> None:
         """Establish connection to the broker."""

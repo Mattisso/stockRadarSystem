@@ -167,6 +167,25 @@ tunnel-status:
 	@tmux ls 2>/dev/null | grep cf- || echo "No active tunnels."
 	@ps aux | grep port-forward | grep -v grep || echo "No active port-forwards."
 
+# ── VPS Deployment ─────────────────────────────────────────────────
+.PHONY: deploy-vps deploy-engine
+
+VPS_HOST ?= your-vps-host
+VPS_USER ?= root
+
+deploy-vps:
+	@echo "Deploying VPS setup files to $(VPS_USER)@$(VPS_HOST)..."
+	rsync -avz --mkpath deploy/ $(VPS_USER)@$(VPS_HOST):/opt/stock-radar/deploy/
+	ssh $(VPS_USER)@$(VPS_HOST) "bash /opt/stock-radar/deploy/setup-vps.sh"
+
+deploy-engine:
+	@echo "Deploying backend to $(VPS_USER)@$(VPS_HOST)..."
+	rsync -avz --exclude='__pycache__' --exclude='.env' --exclude='*.pyc' \
+		backend/ $(VPS_USER)@$(VPS_HOST):/opt/stock-radar/backend/
+	ssh $(VPS_USER)@$(VPS_HOST) "\
+		/opt/stock-radar/venv/bin/pip install -q -r /opt/stock-radar/backend/requirements.txt && \
+		systemctl restart trading-engine"
+
 # ── Cleanup ─────────────────────────────────────────────────────────
 .PHONY: clean prune
 

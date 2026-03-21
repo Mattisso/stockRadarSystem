@@ -1,0 +1,25 @@
+[Unit]
+Description=IB Gateway via IBC
+Documentation=https://github.com/IbcAlpha/IBC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ibc
+Group=ibc
+WorkingDirectory=/opt/ibc
+Environment=DISPLAY=:1
+ExecStart=/opt/ibc/scripts/ibcstart.sh -g --ibc-ini=/opt/ibc/ibc.ini --ibc-path=/opt/ibc --mode=paper
+ExecStop=/opt/ibc/scripts/ibcstop.sh
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=120
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ibc /home/ibc
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+# IBC Configuration — Stock Radar System
+# Copy to ibc.ini and fill in your credentials.
+# See: https://github.com/IbcAlpha/IBC/blob/master/userguide.md
+#
+# NEVER commit ibc.ini with real credentials to version control.
+
+# --- Login ---
+FIX=no
+IbLoginId=YOUR_IB_USERNAME
+IbPassword=YOUR_IB_PASSWORD
+# For two-factor auth (IBKR mobile app):
+SecondFactorDevice=
+
+# --- Trading Mode ---
+# paper = Paper Trading, live = Live Trading
+TradingMode=paper
+
+# --- IB Gateway Settings ---
+# Which IB application to start: IB Gateway or TWS
+IbAutoClosedown=no
+ClosedownAt=Saturday 05:00
+
+# --- API Settings ---
+# Accept incoming API connections (required for Stock Radar)
+AcceptIncomingConnectionAction=accept
+# Allow connections from localhost only (secure default)
+IbDir=
+AcceptNonBrokerageAccountWarning=yes
+AllowBlindTrading=yes
+DismissPasswordExpiryWarning=yes
+DismissNSEComplianceNotice=yes
+
+# --- Ports ---
+# Gateway paper: 4002, Gateway live: 4001
+# TWS paper: 7497, TWS live: 7496
+OverrideTwsApiPort=
+# Read-only API: set to "yes" for safety during initial testing
+ReadOnlyApi=no
+
+# --- Logging ---
+LogToConsole=yes

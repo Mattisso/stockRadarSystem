@@ -1,5 +1,9 @@
 implementation_plan.md
-
+agent.md
+infrastructure_plan.md
+buildGuide.docx
+BuildRecommendation.docx
+docs
 # Python
 __pycache__/
 *.pyc
@@ -39,6 +43,9 @@ helm/**/*.tgz
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+
+# IBC credentials (never commit)
+deploy/ibc/ibc.ini
 
 # Misc
 *.log

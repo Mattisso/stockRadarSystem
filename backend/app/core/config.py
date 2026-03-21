@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # --- IBKR ---
     ibkr_host: str = "127.0.0.1"
-    ibkr_port: int = 7497  # 7497=paper, 7496=live
+    ibkr_port: int = 7497  # TWS: 7497=paper, 7496=live | Gateway: 4002=paper, 4001=live
     ibkr_client_id: int = 1
     ibkr_timeout: int = 30
     ibkr_max_reconnect_attempts: int = 10

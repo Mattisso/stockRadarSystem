@@ -31,6 +31,18 @@ async def health_check():
     return {"status": "ok"}
 
 
+@router.get("/health/broker")
+async def broker_health(request: Request):
+    """Report IB Gateway / broker connection status."""
+    broker = request.app.state.broker
+    return {
+        "broker_type": settings.broker_type,
+        "connected": broker.is_connected(),
+        "host": settings.ibkr_host if settings.broker_type == "ibkr" else None,
+        "port": settings.ibkr_port if settings.broker_type == "ibkr" else None,
+    }
+
+
 @router.get("/universe", response_model=list[SymbolRead])
 def get_universe(active_only: bool = True, db: Session = Depends(get_db)):
     """Get all symbols in the universe."""
