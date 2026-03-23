@@ -100,6 +100,9 @@ async def lifespan(app: FastAPI):
     app.state.polygon_client = polygon_client
 
     # ── Core components ─────────────────────────────────────────────
+    from app.engine.breakout_engine import BreakoutEngine
+
+    breakout_engine = BreakoutEngine(cache=cache)
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -121,6 +124,7 @@ async def lifespan(app: FastAPI):
     ws_manager = ConnectionManager()
     app.state.ws_manager = ws_manager
 
+    app.state.breakout_engine = breakout_engine
     app.state.tick_buffer = tick_buffer
     app.state.signal_detector = signal_detector
     app.state.state_machine = state_machine
@@ -162,8 +166,20 @@ async def lifespan(app: FastAPI):
             if not tickers:
                 return
 
-            await trade_executor.collect_market_data(tickers)
-            await trade_executor.scan_signals(tickers)
+            # L1 breakout pre-filter: ingest from cache, scan for candidates
+            await breakout_engine.ingest_from_cache(tickers)
+            breakout_events = breakout_engine.scan(tickers)
+
+            # Deep analysis: only candidates from breakout engine + already-tracked tickers
+            candidate_tickers = {e.ticker for e in breakout_events}
+            tracked_tickers = {
+                s.ticker for s in state_machine.all_states() if s.stage.value != "normal"
+            }
+            deep_tickers = list((candidate_tickers | tracked_tickers) & set(tickers))
+
+            # Collect full market data (L1 + L2) for deep analysis tickers
+            await trade_executor.collect_market_data(deep_tickers if deep_tickers else tickers)
+            await trade_executor.scan_signals(deep_tickers if deep_tickers else tickers)
 
             # Broadcast signal + state_machine updates via WebSocket
             if ws_manager.active_count:

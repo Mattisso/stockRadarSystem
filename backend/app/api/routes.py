@@ -115,6 +115,29 @@ async def get_portfolio(request: Request):
     return asdict(summary)
 
 
+# ── Breakout Engine Endpoints ─────────────────────────────────────────
+
+
+@router.get("/breakouts")
+async def get_breakout_candidates(request: Request):
+    """Get current L1 breakout candidates from the breakout engine."""
+    engine = getattr(request.app.state, "breakout_engine", None)
+    if engine is None:
+        return []
+    events = engine.scan()
+    return [
+        {
+            "ticker": e.ticker,
+            "breakout_score": e.breakout_score,
+            "pct_change_1m": e.pct_change_1m,
+            "pct_change_5m": e.pct_change_5m,
+            "volume_ratio": e.volume_ratio,
+            "timestamp": e.timestamp.isoformat(),
+        }
+        for e in events
+    ]
+
+
 # ── ML Endpoints ─────────────────────────────────────────────────────
 
 
