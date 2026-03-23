@@ -49,6 +49,19 @@ class Settings(BaseSettings):
     state_l2_order_aggression_min: float = 0.5
     state_l2_spread_compression_min: float = 0.5
 
+    # --- Polygon ---
+    polygon_api_key: str = ""  # Empty = disabled
+    polygon_mode: str = "rest"  # "rest" | "websocket"
+    polygon_rest_poll_interval: float = 1.0
+    polygon_ws_url: str = "wss://socket.polygon.io/stocks"
+    polygon_rest_url: str = "https://api.polygon.io"
+    polygon_reconnect_max_delay: float = 30.0
+
+    # --- Redis ---
+    redis_url: str = ""  # Empty = use in-memory cache
+    redis_l1_ttl: int = 10
+    redis_l2_ttl: int = 10
+
     # --- ML ---
     ml_enabled: bool = True
     ml_min_training_samples: int = 50

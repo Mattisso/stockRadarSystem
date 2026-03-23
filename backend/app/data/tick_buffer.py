@@ -9,10 +9,14 @@ from app.broker.interface import OrderBook, Quote
 
 @dataclass
 class MarketSnapshot:
-    """A single point-in-time market data snapshot."""
+    """A single point-in-time market data snapshot.
+
+    order_book is None when only L1 data is available (e.g. Polygon feed).
+    L2 data arrives separately from IBKR for confirmed candidates.
+    """
 
     quote: Quote
-    order_book: OrderBook
+    order_book: OrderBook | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 

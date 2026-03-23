@@ -110,6 +110,8 @@ class SignalDetector:
 
         High value → more bid-side liquidity → bullish pressure.
         """
+        if snap.order_book is None:
+            return 0.5
         bids = snap.order_book.bids
         asks = snap.order_book.asks
         if not bids or not asks:
@@ -151,6 +153,8 @@ class SignalDetector:
 
         Large bids stacked near the top → support / accumulation.
         """
+        if snap.order_book is None:
+            return 0.0
         bids = snap.order_book.bids
         if len(bids) < 3:
             return 0.0
@@ -199,6 +203,10 @@ class SignalDetector:
 
         first = recent[0]
         last = recent[-1]
+
+        # Return neutral if L2 data is missing
+        if first.order_book is None or last.order_book is None:
+            return 0.5
 
         first_ask_total = sum(l.size for l in first.order_book.asks) if first.order_book.asks else 1
         last_ask_total = sum(l.size for l in last.order_book.asks) if last.order_book.asks else 1

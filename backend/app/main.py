@@ -1,5 +1,6 @@
 """Stock Radar System — FastAPI entry point."""
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 
@@ -68,6 +69,36 @@ async def lifespan(app: FastAPI):
     app.state.classifier = classifier
     app.state.trainer = trainer
 
+    # ── Cache (Redis or in-memory) ───────────────────────────────────
+    if settings.redis_url:
+        from app.data.redis_cache import RedisCache
+
+        cache = RedisCache(settings.redis_url, l1_ttl=settings.redis_l1_ttl, l2_ttl=settings.redis_l2_ttl)
+    else:
+        from app.data.cache import InMemoryCache
+
+        cache = InMemoryCache(ttl=settings.redis_l1_ttl)
+    await cache.connect()
+    app.state.cache = cache
+
+    # ── Polygon L1 (optional) ────────────────────────────────────────
+    polygon_client = None
+    if settings.polygon_api_key:
+        from app.data.polygon_client import PolygonClient
+
+        polygon_client = PolygonClient(
+            api_key=settings.polygon_api_key,
+            mode=settings.polygon_mode,
+            cache=cache,
+            queue=asyncio.Queue(maxsize=10_000),
+            ws_url=settings.polygon_ws_url,
+            rest_url=settings.polygon_rest_url,
+            rest_poll_interval=settings.polygon_rest_poll_interval,
+            reconnect_max_delay=settings.polygon_reconnect_max_delay,
+        )
+        await polygon_client.start()
+    app.state.polygon_client = polygon_client
+
     # ── Core components ─────────────────────────────────────────────
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
@@ -84,6 +115,7 @@ async def lifespan(app: FastAPI):
         risk_manager=risk_manager,
         db_session_factory=SessionLocal,
         state_machine=state_machine,
+        cache=cache,
     )
 
     ws_manager = ConnectionManager()
@@ -106,6 +138,8 @@ async def lifespan(app: FastAPI):
                 engine = UniverseFilterEngine(broker, db)
                 tickers = await engine.refresh_universe()
                 await broker.subscribe_market_data(tickers)
+                if polygon_client:
+                    polygon_client.update_subscriptions(tickers)
                 log.info("scheduler.universe_refreshed", count=len(tickers))
             finally:
                 db.close()
@@ -213,6 +247,9 @@ async def lifespan(app: FastAPI):
     yield
 
     scheduler.shutdown(wait=False)
+    if polygon_client:
+        await polygon_client.stop()
+    await cache.disconnect()
     await broker.disconnect()
 
 

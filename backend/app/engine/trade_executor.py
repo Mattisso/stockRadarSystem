@@ -55,6 +55,7 @@ class TradeExecutor:
         risk_manager: RiskManager,
         db_session_factory,
         state_machine: StateMachine | None = None,
+        cache=None,
     ) -> None:
         self.broker = broker
         self.tick_buffer = tick_buffer
@@ -62,14 +63,30 @@ class TradeExecutor:
         self.risk_manager = risk_manager
         self.db_session_factory = db_session_factory
         self.state_machine = state_machine
+        self.cache = cache
         self._open_positions: dict[str, OpenPosition] = {}
 
     async def collect_market_data(self, tickers: list[str]) -> None:
-        """Fetch quotes + order books and push to tick buffer."""
+        """Fetch quotes + order books and push to tick buffer.
+
+        L1 quotes: prefer cache (Polygon-sourced) when available, fall back to broker.
+        L2 order books: always from broker (IBKR).
+        """
         for ticker in tickers:
             try:
-                quote = await self.broker.get_quote(ticker)
-                order_book = await self.broker.get_order_book(ticker)
+                # L1: cache-first (Polygon), fallback to broker
+                quote = None
+                if self.cache:
+                    quote = await self.cache.get_l1(ticker)
+                if quote is None:
+                    quote = await self.broker.get_quote(ticker)
+
+                # L2: always from broker (IBKR)
+                try:
+                    order_book = await self.broker.get_order_book(ticker)
+                except Exception:
+                    order_book = None
+
                 snapshot = MarketSnapshot(
                     quote=quote,
                     order_book=order_book,
