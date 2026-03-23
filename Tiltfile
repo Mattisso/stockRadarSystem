@@ -113,7 +113,7 @@ k8s_resource(
 )
 
 k8s_resource(
-    "check-postgres-secret",
+    "check-secrets",
     resource_deps=["rbac"],
     labels=["infra"],
 )
