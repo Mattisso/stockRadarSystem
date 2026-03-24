@@ -52,3 +52,15 @@ env:
 
 secretName: "postgres-secret"
 apiSecretName: "api-secret"
+
+polygon:
+  enabled: false
+  secretName: "polygon-secret"
+  apiKeySecretKey: "POLYGON_API_KEY"
+  mode: "websocket"
+  wsUrl: "wss://socket.polygon.io/stocks"
+  restUrl: "https://api.polygon.io"
+  restPollInterval: "1.0"
+  reconnectMaxDelay: "30.0"
+  subscriptionBatchSize: "500"
+  queueMaxsize: "10000"

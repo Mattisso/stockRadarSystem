@@ -55,6 +55,27 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.apiSecretName }}
                   key: API_SECRET_KEY
+            {{- if .Values.polygon.enabled }}
+            - name: POLYGON_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.polygon.secretName }}
+                  key: {{ .Values.polygon.apiKeySecretKey }}
+            - name: POLYGON_MODE
+              value: {{ .Values.polygon.mode | quote }}
+            - name: POLYGON_WS_URL
+              value: {{ .Values.polygon.wsUrl | quote }}
+            - name: POLYGON_REST_URL
+              value: {{ .Values.polygon.restUrl | quote }}
+            - name: POLYGON_REST_POLL_INTERVAL
+              value: {{ .Values.polygon.restPollInterval | quote }}
+            - name: POLYGON_RECONNECT_MAX_DELAY
+              value: {{ .Values.polygon.reconnectMaxDelay | quote }}
+            - name: POLYGON_SUBSCRIPTION_BATCH_SIZE
+              value: {{ .Values.polygon.subscriptionBatchSize | quote }}
+            - name: POLYGON_QUEUE_MAXSIZE
+              value: {{ .Values.polygon.queueMaxsize | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /api/health

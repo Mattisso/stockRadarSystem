@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -125,3 +126,97 @@ async def test_rest_poll_mocked(client, cache):
     gevo = await cache.get_l1("GEVO")
     assert gevo is not None
     assert gevo.last == 1.90
+
+
+@pytest.mark.asyncio
+async def test_handle_ws_payload_dispatches_batch(client, cache, queue):
+    await cache.connect()
+    now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+    await client._handle_ws_payload([
+        {"ev": "status", "message": "connected"},
+        {"ev": "Q", "sym": "LCID", "bp": 3.47, "ap": 3.48, "z": 100000, "t": now_ms},
+    ])
+
+    cached = await cache.get_l1("LCID")
+    assert cached is not None
+    assert cached.bid == 3.47
+    queued = queue.get_nowait()
+    assert queued.ticker == "LCID"
+
+
+class _RetryWebSocket:
+    def __init__(self, client):
+        self._client = client
+        self._messages = [(
+            '[{"ev":"Q","sym":"AAPL","bp":150.0,"ap":150.1,"z":1000,"t":1000}]'
+        )]
+
+    async def send(self, payload: str) -> None:
+        return None
+
+    async def recv(self) -> str:
+        return '{"status":"auth_success"}'
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._messages:
+            return self._messages.pop(0)
+        self._client._running = False
+        raise StopAsyncIteration
+
+
+class _RetryConnectionManager:
+    def __init__(self, client):
+        self.client = client
+        self.open_calls = 0
+        self.subscribe_calls: list[list[str]] = []
+
+    @asynccontextmanager
+    async def open(self):
+        self.open_calls += 1
+        if self.open_calls == 1:
+            raise RuntimeError("boom")
+        yield _RetryWebSocket(self.client)
+
+    async def subscribe(self, ws, symbols):
+        self.subscribe_calls.append(list(symbols))
+
+
+@pytest.mark.asyncio
+async def test_ws_loop_retries_and_resubscribes(cache, queue):
+    await cache.connect()
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        symbols=["AAPL", "TSLA"],
+        cache=cache,
+        queue=queue,
+    )
+    manager = _RetryConnectionManager(client)
+    client._connection_manager = manager
+
+    with patch("app.data.polygon_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+        client._running = True
+        await client._ws_loop()
+
+    assert manager.open_calls == 2
+    assert manager.subscribe_calls == [["AAPL", "TSLA"]]
+    sleep_mock.assert_awaited_once()
+    cached = await cache.get_l1("AAPL")
+    assert cached is not None
+    assert cached.bid == 150.0
+
+
+@pytest.mark.asyncio
+async def test_start_and_stop_websocket_mode(cache, queue):
+    client = PolygonClient(api_key="test-key", mode="websocket", cache=cache, queue=queue)
+
+    with patch.object(client, "_ws_loop", new=AsyncMock()) as ws_loop:
+        await client.start()
+        await asyncio.sleep(0)
+        await client.stop()
+
+    ws_loop.assert_awaited_once()

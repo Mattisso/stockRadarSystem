@@ -1,15 +1,16 @@
 """Polygon.io L1 data ingestion — WebSocket streaming or REST polling."""
 
 import asyncio
-import json
 from datetime import datetime, timezone
 
 import httpx
-import websockets
+from websockets.exceptions import ConnectionClosed
 
 from app.broker.interface import Quote
 from app.core.logging import get_logger
 from app.data.cache import CacheInterface
+from app.data.polygon_connection import PolygonConnectionManager
+from app.data.polygon_parser import PolygonMessageParser
 
 log = get_logger(__name__)
 
@@ -35,6 +36,9 @@ class PolygonClient:
         rest_url: str = "https://api.polygon.io",
         rest_poll_interval: float = 1.0,
         reconnect_max_delay: float = 30.0,
+        subscription_batch_size: int = 500,
+        parser: PolygonMessageParser | None = None,
+        connection_manager: PolygonConnectionManager | None = None,
     ) -> None:
         self._api_key = api_key
         self._mode = mode
@@ -45,8 +49,16 @@ class PolygonClient:
         self._rest_url = rest_url
         self._rest_poll_interval = rest_poll_interval
         self._reconnect_max_delay = reconnect_max_delay
+        self._parser = parser or PolygonMessageParser()
+        self._connection_manager = connection_manager or PolygonConnectionManager(
+            api_key=api_key,
+            ws_url=ws_url,
+            subscription_batch_size=subscription_batch_size,
+        )
         self._task: asyncio.Task | None = None
         self._running = False
+        self._ws_quote_count = 0
+        self._last_ws_quote_log_at = 0.0
 
     async def start(self) -> None:
         """Launch the background ingestion task."""
@@ -79,53 +91,62 @@ class PolygonClient:
         """Connect to Polygon WebSocket and stream quotes."""
         delay = 1.0
         while self._running:
+            ws_quote_count_before_session = self._ws_quote_count
             try:
-                async with websockets.connect(f"{self._ws_url}") as ws:
-                    # Authenticate
-                    await ws.send(json.dumps({"action": "auth", "params": self._api_key}))
-                    auth_resp = await ws.recv()
-                    log.info("polygon.ws_auth", response=str(auth_resp)[:100])
-
-                    # Subscribe to quotes for all symbols (Q.* = all, or Q.AAPL,Q.TSLA,...)
-                    if self._symbols:
-                        subs = ",".join(f"Q.{s}" for s in self._symbols)
-                    else:
-                        subs = "Q.*"
-                    await ws.send(json.dumps({"action": "subscribe", "params": subs}))
-
+                async with self._connection_manager.open() as ws:
+                    await self._connection_manager.subscribe(ws, self._symbols)
                     delay = 1.0  # Reset backoff on success
                     async for raw in ws:
                         if not self._running:
                             break
-                        messages = json.loads(raw)
-                        if isinstance(messages, list):
-                            for msg in messages:
-                                await self._handle_ws_message(msg)
-                        else:
-                            await self._handle_ws_message(messages)
+                        await self._handle_ws_payload(raw)
+                    log.info(
+                        "polygon.ws_loop_ended",
+                        quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                    )
 
             except asyncio.CancelledError:
                 break
+            except ConnectionClosed as exc:
+                log.warning(
+                    "polygon.ws_closed",
+                    code=exc.code,
+                    reason=exc.reason,
+                    quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                    delay=delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self._reconnect_max_delay)
             except Exception:
-                log.exception("polygon.ws_error", delay=delay)
+                log.exception(
+                    "polygon.ws_error",
+                    delay=delay,
+                    quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
 
-    async def _handle_ws_message(self, msg: dict) -> None:
-        """Parse a Polygon WebSocket quote message."""
-        ev = msg.get("ev")
-        if ev != "Q":
+    async def _handle_ws_payload(self, payload: str | bytes | dict | list[dict]) -> None:
+        """Parse and dispatch all quotes found in a WebSocket payload."""
+        quotes = self._parser.parse_messages(payload)
+        if not quotes:
             return
 
-        quote = Quote(
-            ticker=msg.get("sym", ""),
-            bid=msg.get("bp", 0.0),
-            ask=msg.get("ap", 0.0),
-            last=msg.get("bp", 0.0),  # Polygon Q events don't have last; use bid
-            volume=msg.get("z", 0),
-            timestamp=datetime.fromtimestamp(msg.get("t", 0) / 1000, tz=timezone.utc),
-        )
-        await self._dispatch(quote)
+        self._ws_quote_count += len(quotes)
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        if now - self._last_ws_quote_log_at >= 10:
+            self._last_ws_quote_log_at = now
+            log.info("polygon.ws_quotes_received", total=self._ws_quote_count, batch_size=len(quotes))
+
+        for quote in quotes:
+            await self._dispatch(quote)
+
+    async def _handle_ws_message(self, msg: dict) -> None:
+        """Parse a Polygon WebSocket quote message."""
+        quote = self._parser.parse_message(msg)
+        if quote is not None:
+            await self._dispatch(quote)
 
     # ── REST Mode (free tier) ────────────────────────────────────────
 
@@ -176,4 +197,4 @@ class PolygonClient:
             try:
                 self._queue.put_nowait(quote)
             except asyncio.QueueFull:
-                pass  # Drop oldest — consumer will catch up
+                pass  # Drop the new quote rather than blocking the reader

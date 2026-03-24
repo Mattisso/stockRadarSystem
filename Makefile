@@ -29,7 +29,6 @@ up:
 
 down:
 	tilt down
-	-kubectl delete namespace $(NAMESPACE) --ignore-not-found
 
 logs:
 	tilt logs -f

@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     polygon_ws_url: str = "wss://socket.polygon.io/stocks"
     polygon_rest_url: str = "https://api.polygon.io"
     polygon_reconnect_max_delay: float = 30.0
+    polygon_subscription_batch_size: int = 500
+    polygon_queue_maxsize: int = 10_000
 
     # --- Redis ---
     redis_url: str = ""  # Empty = use in-memory cache

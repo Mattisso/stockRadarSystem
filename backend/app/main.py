@@ -83,26 +83,34 @@ async def lifespan(app: FastAPI):
 
     # ── Polygon L1 (optional) ────────────────────────────────────────
     polygon_client = None
+    polygon_queue_consumer = None
     if settings.polygon_api_key:
         from app.data.polygon_client import PolygonClient
 
+        polygon_queue = asyncio.Queue(maxsize=settings.polygon_queue_maxsize)
         polygon_client = PolygonClient(
             api_key=settings.polygon_api_key,
             mode=settings.polygon_mode,
             cache=cache,
-            queue=asyncio.Queue(maxsize=10_000),
+            queue=polygon_queue,
             ws_url=settings.polygon_ws_url,
             rest_url=settings.polygon_rest_url,
             rest_poll_interval=settings.polygon_rest_poll_interval,
             reconnect_max_delay=settings.polygon_reconnect_max_delay,
+            subscription_batch_size=settings.polygon_subscription_batch_size,
         )
-        await polygon_client.start()
     app.state.polygon_client = polygon_client
 
     # ── Core components ─────────────────────────────────────────────
     from app.engine.breakout_engine import BreakoutEngine
 
     breakout_engine = BreakoutEngine(cache=cache)
+    if polygon_client:
+        from app.data.polygon_queue_consumer import BreakoutQueueConsumer
+
+        polygon_queue_consumer = BreakoutQueueConsumer(polygon_queue, breakout_engine)
+        await polygon_queue_consumer.start()
+        await polygon_client.start()
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -130,6 +138,7 @@ async def lifespan(app: FastAPI):
     app.state.state_machine = state_machine
     app.state.risk_manager = risk_manager
     app.state.trade_executor = trade_executor
+    app.state.polygon_queue_consumer = polygon_queue_consumer
 
     # ── Scheduler ───────────────────────────────────────────────────
     scheduler = AsyncIOScheduler()
@@ -265,6 +274,8 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
     if polygon_client:
         await polygon_client.stop()
+    if polygon_queue_consumer:
+        await polygon_queue_consumer.stop()
     await cache.disconnect()
     await broker.disconnect()
 
