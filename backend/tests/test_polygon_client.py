@@ -119,6 +119,11 @@ async def test_rest_poll_mocked(client, cache):
 
     await client._rest_poll(mock_client)
 
+    mock_client.get.assert_awaited_once_with(
+        "https://api.polygon.io/v3/snapshot",
+        params={"ticker.any_of": "LCID,GEVO", "apiKey": "test-key"},
+    )
+
     lcid = await cache.get_l1("LCID")
     assert lcid is not None
     assert lcid.last == 3.50

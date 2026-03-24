@@ -164,11 +164,16 @@ class PolygonClient:
 
     async def _rest_poll(self, client: httpx.AsyncClient) -> None:
         """Fetch snapshot of all tickers in one call."""
-        url = f"{self._rest_url}/v3/snapshot?ticker.any_of={','.join(self._symbols[:500])}&apiKey={self._api_key}"
         if not self._symbols:
             return
 
-        resp = await client.get(url)
+        resp = await client.get(
+            f"{self._rest_url}/v3/snapshot",
+            params={
+                "ticker.any_of": ",".join(self._symbols[:500]),
+                "apiKey": self._api_key,
+            },
+        )
         if resp.status_code != 200:
             log.warning("polygon.rest_error", status=resp.status_code)
             return
