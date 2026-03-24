@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # --- Polygon ---
     polygon_api_key: str = ""  # Empty = disabled
-    polygon_mode: str = "rest"  # "rest" | "websocket"
+    polygon_mode: str = "rest"  # "rest" | "websocket" | "dev" | "sandbox"
     polygon_rest_poll_interval: float = 1.0
     polygon_ws_url: str = "wss://socket.polygon.io/stocks"
     polygon_rest_url: str = "https://api.polygon.io"

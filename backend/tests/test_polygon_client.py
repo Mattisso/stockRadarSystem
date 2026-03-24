@@ -134,6 +134,57 @@ async def test_rest_poll_mocked(client, cache):
 
 
 @pytest.mark.asyncio
+async def test_dev_poll_mocked(client, cache):
+    await cache.connect()
+    client._mode = "dev"
+
+    response_by_symbol = {
+        "LCID": {
+            "results": [
+                {"c": 3.50, "v": 200000, "t": int(datetime.now(tz=timezone.utc).timestamp() * 1000)}
+            ]
+        },
+        "GEVO": {
+            "results": [
+                {"c": 1.90, "v": 150000, "t": int(datetime.now(tz=timezone.utc).timestamp() * 1000)}
+            ]
+        },
+    }
+
+    async def fake_get(url, params):
+        symbol = url.rstrip("/").split("/")[-2]
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = lambda: response_by_symbol[symbol]
+        return mock_response
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=fake_get)
+
+    await client._dev_poll(mock_client)
+
+    lcid = await cache.get_l1("LCID")
+    assert lcid is not None
+    assert lcid.last == 3.50
+
+    gevo = await cache.get_l1("GEVO")
+    assert gevo is not None
+    assert gevo.last == 1.90
+
+
+@pytest.mark.asyncio
+async def test_start_uses_dev_mode_loop(cache, queue):
+    client = PolygonClient(api_key="test-key", mode="dev", cache=cache, queue=queue)
+
+    with patch.object(client, "_dev_poll_loop", new=AsyncMock()) as dev_loop:
+        await client.start()
+        await asyncio.sleep(0)
+        await client.stop()
+
+    dev_loop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_handle_ws_payload_dispatches_batch(client, cache, queue):
     await cache.connect()
     now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)

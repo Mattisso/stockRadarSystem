@@ -65,6 +65,8 @@ class PolygonClient:
         self._running = True
         if self._mode == "websocket":
             self._task = asyncio.create_task(self._ws_loop())
+        elif self._mode in {"dev", "sandbox"}:
+            self._task = asyncio.create_task(self._dev_poll_loop())
         else:
             self._task = asyncio.create_task(self._rest_poll_loop())
         log.info("polygon.started", mode=self._mode, symbols=len(self._symbols))
@@ -188,6 +190,58 @@ class PolygonClient:
                 last=session.get("close", 0.0),
                 volume=session.get("volume", 0),
                 timestamp=datetime.now(tz=timezone.utc),
+            )
+            await self._dispatch(quote)
+
+    # ── Dev / Sandbox Mode ──────────────────────────────────────────
+
+    async def _dev_poll_loop(self) -> None:
+        """Poll a lightweight previous-day endpoint for local development."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            while self._running:
+                try:
+                    await self._dev_poll(client)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    log.exception("polygon.dev_poll_error")
+                await asyncio.sleep(self._rest_poll_interval)
+
+    async def _dev_poll(self, client: httpx.AsyncClient) -> None:
+        """Fetch previous-day aggregates per symbol for dev/sandbox mode."""
+        if not self._symbols:
+            return
+
+        for symbol in self._symbols:
+            resp = await client.get(
+                f"{self._rest_url}/v2/aggs/ticker/{symbol}/prev",
+                params={
+                    "adjusted": "true",
+                    "apiKey": self._api_key,
+                },
+            )
+            if resp.status_code != 200:
+                log.warning("polygon.dev_error", status=resp.status_code, symbol=symbol)
+                continue
+
+            data = resp.json()
+            results = data.get("results", [])
+            if not results:
+                continue
+
+            bar = results[0]
+            timestamp = bar.get("t")
+            quote = Quote(
+                ticker=symbol,
+                bid=bar.get("c", 0.0),
+                ask=bar.get("c", 0.0),
+                last=bar.get("c", 0.0),
+                volume=bar.get("v", 0),
+                timestamp=(
+                    datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+                    if timestamp is not None
+                    else datetime.now(tz=timezone.utc)
+                ),
             )
             await self._dispatch(quote)
 

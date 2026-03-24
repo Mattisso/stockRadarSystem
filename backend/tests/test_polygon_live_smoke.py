@@ -26,6 +26,21 @@ async def test_polygon_live_smoke():
     symbol = os.getenv("POLYGON_SMOKE_SYMBOL", "AAPL")
     mode = _live_mode()
 
+    if mode in {"dev", "sandbox"}:
+        rest_url = os.getenv("POLYGON_REST_URL", "https://api.polygon.io")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"{rest_url}/v2/aggs/ticker/{symbol}/prev",
+                params={"adjusted": "true", "apiKey": api_key},
+            )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        results = body.get("results", [])
+        assert results, body
+        assert results[0].get("c") is not None, body
+        return
+
     if mode == "websocket":
         ws_url = os.getenv("POLYGON_WS_URL", "wss://socket.polygon.io/stocks")
         async with websockets.connect(ws_url) as ws:
