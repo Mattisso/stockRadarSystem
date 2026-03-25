@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     polygon_reconnect_max_delay: float = 30.0
     polygon_subscription_batch_size: int = 500
     polygon_queue_maxsize: int = 10_000
+    polygon_dev_max_symbols: int = 3
 
     # --- Redis ---
     redis_url: str = ""  # Empty = use in-memory cache

@@ -137,6 +137,7 @@ async def test_rest_poll_mocked(client, cache):
 async def test_dev_poll_mocked(client, cache):
     await cache.connect()
     client._mode = "dev"
+    client._dev_max_symbols = 2
 
     response_by_symbol = {
         "LCID": {
@@ -162,6 +163,16 @@ async def test_dev_poll_mocked(client, cache):
     mock_client.get = AsyncMock(side_effect=fake_get)
 
     await client._dev_poll(mock_client)
+
+    mock_client.get.assert_any_await(
+        "https://api.polygon.io/v2/aggs/ticker/LCID/prev",
+        params={"adjusted": "true", "apiKey": "test-key"},
+    )
+    mock_client.get.assert_any_await(
+        "https://api.polygon.io/v2/aggs/ticker/GEVO/prev",
+        params={"adjusted": "true", "apiKey": "test-key"},
+    )
+    assert mock_client.get.await_count == 2
 
     lcid = await cache.get_l1("LCID")
     assert lcid is not None

@@ -37,6 +37,7 @@ class PolygonClient:
         rest_poll_interval: float = 1.0,
         reconnect_max_delay: float = 30.0,
         subscription_batch_size: int = 500,
+        dev_max_symbols: int = 3,
         parser: PolygonMessageParser | None = None,
         connection_manager: PolygonConnectionManager | None = None,
     ) -> None:
@@ -49,6 +50,7 @@ class PolygonClient:
         self._rest_url = rest_url
         self._rest_poll_interval = rest_poll_interval
         self._reconnect_max_delay = reconnect_max_delay
+        self._dev_max_symbols = max(1, dev_max_symbols)
         self._parser = parser or PolygonMessageParser()
         self._connection_manager = connection_manager or PolygonConnectionManager(
             api_key=api_key,
@@ -85,7 +87,15 @@ class PolygonClient:
     def update_subscriptions(self, symbols: list[str]) -> None:
         """Update the list of symbols to track."""
         self._symbols = symbols
-        log.info("polygon.subscriptions_updated", count=len(symbols))
+        if self._mode in {"dev", "sandbox"}:
+            log.info(
+                "polygon.subscriptions_updated",
+                count=len(symbols),
+                active_count=min(len(symbols), self._dev_max_symbols),
+                mode=self._mode,
+            )
+        else:
+            log.info("polygon.subscriptions_updated", count=len(symbols))
 
     # ── WebSocket Mode (paid) ────────────────────────────────────────
 
@@ -212,7 +222,10 @@ class PolygonClient:
         if not self._symbols:
             return
 
-        for symbol in self._symbols:
+        active_symbols = self._symbols[: self._dev_max_symbols]
+        log.info("polygon.dev_poll_cycle", symbols=len(active_symbols), total_symbols=len(self._symbols))
+
+        for symbol in active_symbols:
             resp = await client.get(
                 f"{self._rest_url}/v2/aggs/ticker/{symbol}/prev",
                 params={

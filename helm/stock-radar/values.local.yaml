@@ -12,6 +12,7 @@ api:
   polygon:
     enabled: true
     mode: "dev"
+    restPollInterval: "30.0"
 
 frontend:
   image:

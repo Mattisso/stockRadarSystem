@@ -98,6 +98,7 @@ async def lifespan(app: FastAPI):
             rest_poll_interval=settings.polygon_rest_poll_interval,
             reconnect_max_delay=settings.polygon_reconnect_max_delay,
             subscription_batch_size=settings.polygon_subscription_batch_size,
+            dev_max_symbols=settings.polygon_dev_max_symbols,
         )
     app.state.polygon_client = polygon_client
 
