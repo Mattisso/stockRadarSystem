@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.metrics import STATE_TRANSITIONS
 from app.data.tick_buffer import TickBuffer
+from app.engine.l2_subscription_manager import L2SubscriptionManager
 from app.engine.signal_detector import FeatureVector, SignalDetector
 
 log = get_logger(__name__)
@@ -67,12 +68,14 @@ class StateMachine:
         tick_buffer: TickBuffer,
         signal_detector: SignalDetector,
         broker: BrokerInterface,
+        l2_manager: L2SubscriptionManager | None = None,
     ) -> None:
         self.tick_buffer = tick_buffer
         self.signal_detector = signal_detector
         self.broker = broker
+        self.l2_manager = l2_manager or L2SubscriptionManager(broker)
         self._states: dict[str, TickerState] = {}
-        self._l2_subscribed: set[str] = set()
+        self._l2_subscribed = self.l2_manager.active_symbols
 
     def get_state(self, ticker: str) -> TickerState:
         if ticker not in self._states:
@@ -90,6 +93,13 @@ class StateMachine:
 
         Returns the updated TickerState (never None).
         """
+        expired = await self.l2_manager.cleanup_expired()
+        for expired_ticker in expired:
+            expired_state = self._states.get(expired_ticker)
+            if expired_state and expired_state.stage.rank >= SymbolStage.CANDIDATE.rank:
+                expired_state.stage = SymbolStage.WATCHING
+                expired_state.reason = "l2 subscription expired without confirmation"
+
         state = self.get_state(ticker)
         feature = self.signal_detector.compute_signal(ticker)
 
@@ -179,11 +189,13 @@ class StateMachine:
 
         # Manage L2 subscriptions
         if new_stage == SymbolStage.CANDIDATE and state.ticker not in self._l2_subscribed:
-            await self.broker.subscribe_l2_depth(state.ticker)
-            self._l2_subscribed.add(state.ticker)
+            await self.l2_manager.subscribe(state.ticker)
+            self._l2_subscribed = self.l2_manager.active_symbols
         elif new_stage == SymbolStage.NORMAL and state.ticker in self._l2_subscribed:
-            await self.broker.unsubscribe_l2_depth(state.ticker)
-            self._l2_subscribed.discard(state.ticker)
+            await self.l2_manager.unsubscribe(state.ticker)
+            self._l2_subscribed = self.l2_manager.active_symbols
+        elif new_stage.rank >= SymbolStage.L2_CONFIRM.rank and state.ticker in self._l2_subscribed:
+            self.l2_manager.mark_confirmed(state.ticker)
 
     @staticmethod
     def _next_stage(stage: SymbolStage) -> SymbolStage | None:

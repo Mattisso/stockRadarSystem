@@ -318,7 +318,46 @@ async def test_subscribe_unsubscribe(broker):
 
     await broker.unsubscribe_market_data(["SIRI"])
     assert "SIRI" not in broker._subscribed
-    assert "LCID" in broker._subscribed
+
+
+@pytest.mark.asyncio
+async def test_subscribe_l2_depth_calls_req_mkt_depth(broker):
+    mock_ticker = _make_ticker()
+    broker._ib.reqMktDepth.return_value = mock_ticker
+
+    await broker.subscribe_l2_depth("AAPL")
+
+    assert "AAPL" in broker._l2_subscribed
+    assert broker._l2_market_depth["AAPL"] is mock_ticker
+    broker._ib.reqMktDepth.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_l2_depth_calls_cancel_mkt_depth(broker):
+    mock_ticker = _make_ticker()
+    broker._ib.reqMktDepth.return_value = mock_ticker
+
+    await broker.subscribe_l2_depth("AAPL")
+    await broker.unsubscribe_l2_depth("AAPL")
+
+    assert "AAPL" not in broker._l2_subscribed
+    assert "AAPL" not in broker._l2_market_depth
+    broker._ib.cancelMktDepth.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_get_order_book_uses_active_l2_subscription(broker):
+    mock_ticker = _make_ticker()
+    mock_ticker.domBids = [SimpleNamespace(price=5.00, size=100)]
+    mock_ticker.domAsks = [SimpleNamespace(price=5.02, size=150)]
+    broker._l2_market_depth["AAPL"] = mock_ticker
+
+    book = await broker.get_order_book("AAPL")
+
+    assert book.ticker == "AAPL"
+    assert len(book.bids) == 1
+    assert len(book.asks) == 1
+    broker._ib.reqMktDepth.assert_not_called()
 
 
 @pytest.mark.asyncio

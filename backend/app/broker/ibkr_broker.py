@@ -21,6 +21,7 @@ from app.broker.interface import (
     Quote,
 )
 from app.core.logging import get_logger
+from app.engine.order_book_builder import build_order_book_from_ticker
 
 log = get_logger(__name__)
 
@@ -60,6 +61,8 @@ class IBKRBroker(BrokerInterface):
 
         self._subscribed: dict[str, Contract] = {}
         self._market_data: dict[str, Ticker] = {}
+        self._l2_subscribed: dict[str, Contract] = {}
+        self._l2_market_depth: dict[str, Ticker] = {}
         self._qualified: dict[str, Contract] = {}
 
         self._universe_cache: list[str] = []
@@ -153,6 +156,7 @@ class IBKRBroker(BrokerInterface):
                     log.info("ibkr_broker.reconnected", attempt=attempt)
                     # Re-subscribe market data
                     self._resubscribe_market_data()
+                    self._resubscribe_l2_depth()
                     return
                 except Exception:
                     log.exception("ibkr_broker.reconnect_failed", attempt=attempt)
@@ -173,6 +177,17 @@ class IBKRBroker(BrokerInterface):
                 self._market_data[ticker] = ib_ticker
             except Exception:
                 log.exception("ibkr_broker.resubscribe_failed", ticker=ticker)
+
+    def _resubscribe_l2_depth(self) -> None:
+        """Re-subscribe all active L2 depth streams after reconnect."""
+        if not self._l2_subscribed:
+            return
+        for ticker, contract in list(self._l2_subscribed.items()):
+            try:
+                depth = self._ib.reqMktDepth(contract, numRows=10)
+                self._l2_market_depth[ticker] = depth
+            except Exception:
+                log.exception("ibkr_broker.resubscribe_l2_failed", ticker=ticker)
 
     # ── Contract helpers ─────────────────────────────────────────────
 
@@ -229,6 +244,9 @@ class IBKRBroker(BrokerInterface):
         )
 
     async def get_order_book(self, ticker: str) -> OrderBook:
+        if ticker in self._l2_market_depth:
+            return build_order_book_from_ticker(ticker, self._l2_market_depth[ticker])
+
         contract = await self._make_contract(ticker)
 
         async def _depth():
@@ -238,28 +256,14 @@ class IBKRBroker(BrokerInterface):
 
         ib_ticker = await self._run_on_ib_loop(_depth())
 
-        bids = [
-            OrderBookLevel(
-                price=_safe_float(row.price),
-                size=int(_safe_float(row.size)),
-            )
-            for row in ib_ticker.domBids
-        ]
-        asks = [
-            OrderBookLevel(
-                price=_safe_float(row.price),
-                size=int(_safe_float(row.size)),
-            )
-            for row in ib_ticker.domAsks
-        ]
+        order_book = build_order_book_from_ticker(ticker, ib_ticker)
 
-        # Cancel depth subscription
+        # Cancel depth snapshot request
         async def _cancel():
             self._ib.cancelMktDepth(contract)
 
         await self._run_on_ib_loop(_cancel())
-
-        return OrderBook(ticker=ticker, bids=bids, asks=asks, timestamp=datetime.now())
+        return order_book
 
     async def get_positions(self) -> list[Position]:
         async def _positions():
@@ -490,3 +494,29 @@ class IBKRBroker(BrokerInterface):
                 await self._run_on_ib_loop(_unsub())
 
         log.info("ibkr_broker.unsubscribed", count=len(tickers), active=len(self._subscribed))
+
+    async def subscribe_l2_depth(self, ticker: str) -> None:
+        if ticker in self._l2_subscribed:
+            return
+
+        contract = await self._make_contract(ticker)
+
+        async def _subscribe(c=contract):
+            return self._ib.reqMktDepth(c, numRows=10)
+
+        depth = await self._run_on_ib_loop(_subscribe())
+        self._l2_subscribed[ticker] = contract
+        self._l2_market_depth[ticker] = depth
+        log.info("ibkr_broker.l2_subscribed", ticker=ticker, active=len(self._l2_subscribed))
+
+    async def unsubscribe_l2_depth(self, ticker: str) -> None:
+        contract = self._l2_subscribed.pop(ticker, None)
+        self._l2_market_depth.pop(ticker, None)
+        if contract is None:
+            return
+
+        async def _unsub(c=contract):
+            self._ib.cancelMktDepth(c)
+
+        await self._run_on_ib_loop(_unsub())
+        log.info("ibkr_broker.l2_unsubscribed", ticker=ticker, active=len(self._l2_subscribed))

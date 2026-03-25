@@ -53,6 +53,14 @@ env:
 secretName: "postgres-secret"
 apiSecretName: "api-secret"
 
+broker:
+  type: "mock"
+  ibkrHost: "127.0.0.1"
+  ibkrPort: "7497"
+  ibkrClientId: "1"
+  ibkrTimeout: "30"
+  ibkrMaxReconnectAttempts: "10"
+
 polygon:
   enabled: false
   secretName: "polygon-secret"

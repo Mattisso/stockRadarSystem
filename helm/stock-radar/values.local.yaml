@@ -9,6 +9,13 @@ api:
     PGDATABASE: stock_radar
     TRADING_MODE: paper
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
+  broker:
+    type: "ibkr"
+    ibkrHost: "192.168.1.77"
+    ibkrPort: "7497"
+    ibkrClientId: "1"
+    ibkrTimeout: "30"
+    ibkrMaxReconnectAttempts: "10"
   polygon:
     enabled: true
     mode: "dev"

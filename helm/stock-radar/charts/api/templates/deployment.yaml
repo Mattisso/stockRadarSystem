@@ -50,6 +50,18 @@ spec:
               value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ .Values.env.PGHOST }}:{{ .Values.env.PGPORT }}/{{ .Values.env.PGDATABASE }}"
             - name: TRADING_MODE
               value: {{ .Values.env.TRADING_MODE | quote }}
+            - name: BROKER_TYPE
+              value: {{ .Values.broker.type | quote }}
+            - name: IBKR_HOST
+              value: {{ .Values.broker.ibkrHost | quote }}
+            - name: IBKR_PORT
+              value: {{ .Values.broker.ibkrPort | quote }}
+            - name: IBKR_CLIENT_ID
+              value: {{ .Values.broker.ibkrClientId | quote }}
+            - name: IBKR_TIMEOUT
+              value: {{ .Values.broker.ibkrTimeout | quote }}
+            - name: IBKR_MAX_RECONNECT_ATTEMPTS
+              value: {{ .Values.broker.ibkrMaxReconnectAttempts | quote }}
             - name: API_SECRET_KEY
               valueFrom:
                 secretKeyRef:
