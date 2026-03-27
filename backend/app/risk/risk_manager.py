@@ -88,11 +88,16 @@ class RiskManager:
                 reason=f"Already holding position in {ticker}",
             )
 
-        # Position sizing: max_position_size / entry_price, floored to whole shares
+        # Position sizing: scale notional between configured min/max based on signal strength.
         if entry_price <= 0:
             return RiskRejection(ticker=ticker, reason="Invalid entry price")
 
-        quantity = int(settings.max_position_size / entry_price)
+        score = max(0.0, min(1.0, signal_score))
+        min_notional = min(settings.min_position_size, settings.max_position_size)
+        notional_range = max(0.0, settings.max_position_size - min_notional)
+        target_notional = min_notional + notional_range * score
+
+        quantity = int(target_notional / entry_price)
         if quantity <= 0:
             return RiskRejection(
                 ticker=ticker,
@@ -111,6 +116,7 @@ class RiskManager:
             "risk_manager.trade_approved",
             ticker=ticker,
             quantity=quantity,
+            target_notional=round(target_notional, 2),
             stop=stop_loss_price,
             target=target_price,
         )

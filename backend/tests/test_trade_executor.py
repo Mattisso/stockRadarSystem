@@ -1,10 +1,18 @@
 """Tests for the TradeExecutor orchestrator."""
 
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
+from app.broker.interface import Quote
 from app.broker.mock_broker import MockBroker
 from app.data.tick_buffer import TickBuffer
+from app.engine.buy_agent import BuyExecutionOutcome
 from app.engine.signal_detector import SignalDetector
+from app.engine.signal_detector import FeatureVector, SignalType
+from app.engine.state_machine import SymbolStage
 from app.engine.trade_executor import TradeExecutor
 from app.models.signal import Signal
 from app.models.trade import Trade
@@ -105,3 +113,98 @@ async def test_full_lifecycle(executor, db_session_factory):
     # Trades may or may not exist depending on signal strength
     assert isinstance(trades, list)
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
+    """READY_TO_BUY signals should route through BuyAgent and open tracking."""
+    executor.state_machine = SimpleNamespace()
+    executor.state_machine.evaluate = AsyncMock(return_value=SimpleNamespace(
+        ticker="SIRI",
+        stage=SymbolStage.READY_TO_BUY,
+        reason="test",
+        feature_vector=FeatureVector(
+            ticker="SIRI",
+            liquidity_imbalance=0.8,
+            spread_compression=0.8,
+            bid_stacking=0.8,
+            volume_acceleration=0.8,
+            order_aggression=0.8,
+            composite_score=0.85,
+            signal_type=SignalType.BREAKOUT,
+        ),
+    ))
+
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=3.19,
+                ask=3.21,
+                last=3.20,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=None,
+            timestamp=datetime.now(),
+        ),
+    )
+    executor.buy_agent.execute = AsyncMock(return_value=BuyExecutionOutcome(
+        ticker="SIRI",
+        trade_id=7,
+        quantity=100,
+        fill_price=3.21,
+        stop_loss=3.00,
+        target=3.45,
+        order_id="ord-1",
+    ))
+
+    await executor.scan_signals(["SIRI"])
+
+    db = db_session_factory()
+    signal = db.query(Signal).filter_by(ticker="SIRI").one()
+    assert "SIRI" in executor._open_positions
+    assert signal.stage == "ready_to_buy"
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_monitor_positions_uses_sell_agent_and_closes_position(executor):
+    """Exit monitoring should route through SellAgent and drop closed positions."""
+    executor._open_positions["SIRI"] = SimpleNamespace(
+        ticker="SIRI",
+        trade_id=1,
+        quantity=100,
+        entry_price=3.0,
+        stop_loss=2.8,
+        target=3.4,
+        highest_price=3.1,
+    )
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=2.75,
+                ask=2.77,
+                last=2.76,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=None,
+            timestamp=datetime.now(),
+        ),
+    )
+    executor.sell_agent.assess_exit = lambda pos, latest: SimpleNamespace(
+        reason="stop_loss",
+        current_price=2.75,
+        stop_loss=2.8,
+        highest_price=3.1,
+    )
+    executor.sell_agent.execute_exit = AsyncMock(return_value=True)
+
+    await executor.monitor_positions()
+
+    executor.sell_agent.execute_exit.assert_awaited_once()
+    assert "SIRI" not in executor._open_positions

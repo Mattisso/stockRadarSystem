@@ -212,6 +212,35 @@ async def test_submit_limit_order(broker):
 
 
 @pytest.mark.asyncio
+async def test_submit_order_prefers_terminal_trade_log_status(broker):
+    mock_trade = MagicMock()
+    mock_trade.orderStatus.status = "Submitted"
+    mock_trade.order.orderId = 44
+    mock_trade.isDone.return_value = True
+    mock_trade.fills = []
+    mock_trade.log = [
+        SimpleNamespace(status="PendingSubmit", message="", errorCode=0),
+        SimpleNamespace(
+            status="Cancelled",
+            message="Error 10349, reqId 44: Order TIF was set to DAY based on order preset.",
+            errorCode=10349,
+        ),
+    ]
+    broker._ib.placeOrder.return_value = mock_trade
+
+    result = await broker.submit_order(
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        quantity=1,
+        order_type=OrderType.MARKET,
+    )
+
+    assert result.status == OrderStatus.CANCELLED
+    assert result.fill_price is None
+    assert result.filled_quantity == 0
+
+
+@pytest.mark.asyncio
 async def test_cancel_order(broker):
     mock_trade = MagicMock()
     mock_trade.order.orderId = 42

@@ -1,6 +1,4 @@
 """Trade execution orchestrator — signals → risk → broker → DB."""
-
-from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -15,26 +13,16 @@ from app.core.metrics import (
     TRADES_EXECUTED,
 )
 from app.data.tick_buffer import MarketSnapshot, TickBuffer
+from app.engine.buy_agent import BuyAgent
+from app.engine.sell_agent import OpenPosition, SellAgent
 from app.engine.signal_detector import SignalDetector
 from app.engine.state_machine import StateMachine, SymbolStage
 from app.models.signal import Signal
 from app.models.signal import SignalType as DBSignalType
-from app.models.trade import Trade, TradeSide, TradeStatus
-from app.risk.risk_manager import RiskManager, RiskRejection, TradeParameters
+from app.models.trade import Trade, TradeStatus
+from app.risk.risk_manager import RiskManager, RiskRejection
 
 log = get_logger(__name__)
-
-
-@dataclass
-class OpenPosition:
-    """In-memory tracking for fast exit monitoring."""
-
-    ticker: str
-    trade_id: int
-    quantity: int
-    entry_price: float
-    stop_loss: float
-    target: float
 
 
 class TradeExecutor:
@@ -56,6 +44,8 @@ class TradeExecutor:
         db_session_factory,
         state_machine: StateMachine | None = None,
         cache=None,
+        buy_agent: BuyAgent | None = None,
+        sell_agent: SellAgent | None = None,
     ) -> None:
         self.broker = broker
         self.tick_buffer = tick_buffer
@@ -64,6 +54,8 @@ class TradeExecutor:
         self.db_session_factory = db_session_factory
         self.state_machine = state_machine
         self.cache = cache
+        self.buy_agent = buy_agent or BuyAgent(broker=broker, risk_manager=risk_manager)
+        self.sell_agent = sell_agent or SellAgent(broker=broker, risk_manager=risk_manager)
         self._open_positions: dict[str, OpenPosition] = {}
 
     async def collect_market_data(self, tickers: list[str]) -> None:
@@ -159,13 +151,12 @@ class TradeExecutor:
                 if latest is None:
                     continue
 
-                entry_price = latest.quote.ask  # buy at ask
-
-                # Risk evaluation
-                result = await self.risk_manager.evaluate_trade(
-                    ticker=ticker,
-                    entry_price=entry_price,
+                result = await self.buy_agent.execute(
+                    db=db,
+                    signal_record=signal_record,
+                    latest=latest,
                     signal_score=feature.composite_score,
+                    stage=stage_value,
                 )
 
                 if isinstance(result, RiskRejection):
@@ -177,50 +168,18 @@ class TradeExecutor:
                     )
                     continue
 
-                # Execute entry
-                params: TradeParameters = result
-                order = await self.broker.submit_order(
-                    ticker=params.ticker,
-                    side=OrderSide.BUY,
-                    quantity=params.quantity,
-                    order_type=OrderType.MARKET,
-                )
-
-                if order.status != OrderStatus.FILLED:
-                    log.warning(
-                        "trade_executor.order_not_filled",
-                        ticker=ticker,
-                        status=order.status.value,
-                    )
+                if result is None:
                     continue
-
-                # Persist trade
-                trade_record = Trade(
-                    ticker=ticker,
-                    signal_id=signal_record.id,
-                    side=TradeSide.BUY,
-                    status=TradeStatus.FILLED,
-                    quantity=params.quantity,
-                    entry_price=order.fill_price,
-                    stop_loss_price=params.stop_loss_price,
-                    target_price=params.target_price,
-                    signal_score=feature.composite_score,
-                    entry_time=datetime.now(),
-                )
-                db.add(trade_record)
-                db.flush()
-
-                # Mark signal as acted on
-                signal_record.acted_on = True
 
                 # Track for exit monitoring
                 self._open_positions[ticker] = OpenPosition(
                     ticker=ticker,
-                    trade_id=trade_record.id,
-                    quantity=params.quantity,
-                    entry_price=order.fill_price,
-                    stop_loss=params.stop_loss_price,
-                    target=params.target_price,
+                    trade_id=result.trade_id,
+                    quantity=result.quantity,
+                    entry_price=result.fill_price,
+                    stop_loss=result.stop_loss,
+                    target=result.target,
+                    highest_price=result.fill_price,
                 )
 
                 TRADES_EXECUTED.labels(side="buy").inc()
@@ -228,11 +187,13 @@ class TradeExecutor:
 
                 log.info(
                     "trade_executor.entry_executed",
-                    ticker=ticker,
-                    quantity=params.quantity,
-                    price=order.fill_price,
+                    ticker=result.ticker,
+                    quantity=result.quantity,
+                    price=result.fill_price,
                     score=feature.composite_score,
                     stage=stage_value,
+                    trade_id=result.trade_id,
+                    order_id=result.order_id,
                 )
 
             db.commit()
@@ -243,7 +204,7 @@ class TradeExecutor:
             db.close()
 
     async def monitor_positions(self) -> None:
-        """Check open positions for stop-loss / take-profit exits."""
+        """Check open positions for sell-agent-managed exits."""
         if not self._open_positions:
             return
 
@@ -253,56 +214,45 @@ class TradeExecutor:
 
             for ticker, pos in self._open_positions.items():
                 try:
-                    quote = await self.broker.get_quote(ticker)
-                    current_price = quote.bid  # exit at bid
+                    latest = self.tick_buffer.get_latest(ticker)
+                    if latest is None:
+                        quote = await self.broker.get_quote(ticker)
+                        try:
+                            order_book = await self.broker.get_order_book(ticker)
+                        except Exception:
+                            order_book = None
+                        latest = MarketSnapshot(
+                            quote=quote,
+                            order_book=order_book,
+                            timestamp=datetime.now(),
+                        )
+                        self.tick_buffer.push(ticker, latest)
 
-                    exit_reason = self.risk_manager.check_exit_conditions(
-                        position=None,  # not needed for price check
-                        current_price=current_price,
-                        stop_loss=pos.stop_loss,
-                        target=pos.target,
-                    )
+                    assessment = self.sell_agent.assess_exit(pos, latest)
+                    pos.stop_loss = assessment.stop_loss
+                    pos.highest_price = assessment.highest_price
 
-                    if exit_reason is None:
+                    if assessment.reason is None:
                         continue
 
-                    # Submit sell order
-                    order = await self.broker.submit_order(
-                        ticker=ticker,
-                        side=OrderSide.SELL,
-                        quantity=pos.quantity,
-                        order_type=OrderType.MARKET,
+                    closed = await self.sell_agent.execute_exit(
+                        db=db,
+                        position=pos,
+                        assessment=assessment,
                     )
-
-                    if order.status != OrderStatus.FILLED:
+                    if not closed:
                         continue
-
-                    # Calculate P&L
-                    pnl = (order.fill_price - pos.entry_price) * pos.quantity
-                    self.risk_manager.record_pnl(pnl)
-
-                    # Update trade record in DB
-                    trade = db.query(Trade).filter_by(id=pos.trade_id).first()
-                    if trade:
-                        trade.status = TradeStatus.CLOSED
-                        trade.exit_price = order.fill_price
-                        trade.exit_time = datetime.now()
-                        trade.pnl = pnl
-
-                        # Backfill outcome on the originating signal
-                        if trade.signal_id:
-                            signal = db.query(Signal).filter_by(id=trade.signal_id).first()
-                            if signal:
-                                signal.outcome_pnl = pnl
 
                     TRADES_EXECUTED.labels(side="sell").inc()
+                    trade = db.query(Trade).filter_by(id=pos.trade_id).first()
+                    pnl = trade.pnl if trade and trade.pnl is not None else 0.0
                     TRADE_PNL.observe(pnl)
                     tickers_to_close.append(ticker)
 
                     log.info(
                         "trade_executor.exit_executed",
                         ticker=ticker,
-                        reason=exit_reason,
+                        reason=assessment.reason,
                         pnl=round(pnl, 2),
                     )
                 except Exception:

@@ -31,7 +31,7 @@ export class DashboardEffects {
     this.actions$.pipe(
       ofType(DashboardActions.startPolling),
       switchMap(() =>
-        this.ws.topic$<IPortfolio>('portfolio').pipe(
+        this.ws.channelTopic$<IPortfolio>('/ws/trades', 'portfolio').pipe(
           takeUntil(this.actions$.pipe(ofType(DashboardActions.stopPolling))),
           map(portfolio => DashboardActions.wsPortfolioUpdate({ portfolio })),
         )
@@ -43,7 +43,7 @@ export class DashboardEffects {
     this.actions$.pipe(
       ofType(DashboardActions.startPolling),
       switchMap(() =>
-        this.ws.topic$<ITrade[]>('trade').pipe(
+        this.ws.channelTopic$<ITrade[]>('/ws/trades', 'trade').pipe(
           takeUntil(this.actions$.pipe(ofType(DashboardActions.stopPolling))),
           map(trades => DashboardActions.wsTradesUpdate({ trades })),
         )
@@ -55,7 +55,7 @@ export class DashboardEffects {
     this.actions$.pipe(
       ofType(DashboardActions.startPolling),
       switchMap(() =>
-        this.ws.topic$<ISignal[]>('signal').pipe(
+        this.ws.channelTopic$<ISignal[]>('/ws/signals', 'signal').pipe(
           takeUntil(this.actions$.pipe(ofType(DashboardActions.stopPolling))),
           map(signals => DashboardActions.wsSignalsUpdate({ signals })),
         )

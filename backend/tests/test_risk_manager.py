@@ -39,8 +39,20 @@ async def test_position_sizing(risk_manager):
         ticker="SIRI", entry_price=5.0, signal_score=0.70
     )
     assert isinstance(result, TradeParameters)
-    expected_qty = int(settings.max_position_size / 5.0)
+    expected_notional = settings.min_position_size + (
+        settings.max_position_size - settings.min_position_size
+    ) * 0.70
+    expected_qty = int(expected_notional / 5.0)
     assert result.quantity == expected_qty
+
+
+@pytest.mark.asyncio
+async def test_position_sizing_honors_min_size(risk_manager):
+    result = await risk_manager.evaluate_trade(
+        ticker="SIRI", entry_price=4.0, signal_score=0.0
+    )
+    assert isinstance(result, TradeParameters)
+    assert result.quantity == int(settings.min_position_size / 4.0)
 
 
 @pytest.mark.asyncio

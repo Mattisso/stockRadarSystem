@@ -16,12 +16,20 @@ class Settings(BaseSettings):
 
     # --- Trading ---
     trading_mode: str = "paper"  # "paper" | "live"
-    max_position_size: float = 5000.0
+    min_position_size: float = 4000.0
+    max_position_size: float = 10000.0
     max_concurrent_positions: int = 5
     stop_loss_pct: float = 0.05
     daily_loss_limit: float = 500.0
     target_profit_per_share_min: float = 0.10
     target_profit_per_share_max: float = 0.25
+    buy_retry_attempts: int = 3
+    buy_retry_backoff_seconds: float = 0.2
+    max_entry_slippage_pct: float = 0.003
+    buy_order_style: str = "adaptive"  # "adaptive" | "market" | "limit"
+    trailing_stop_pct: float = 0.03
+    emergency_stop_loss_pct: float = 0.08
+    l2_exit_imbalance_threshold: float = 0.35
 
     # --- Universe Filter ---
     universe_min_price: float = 1.0

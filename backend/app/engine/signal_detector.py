@@ -5,6 +5,7 @@ from enum import Enum
 
 from app.data.tick_buffer import MarketSnapshot, TickBuffer
 from app.core.logging import get_logger
+from app.engine.l2_pattern_engine import L2PatternEngine
 
 log = get_logger(__name__)
 
@@ -50,6 +51,7 @@ class SignalDetector:
         self.tick_buffer = tick_buffer
         self.minimum_history = minimum_history
         self.ml_scorer = ml_scorer
+        self.l2_pattern_engine = L2PatternEngine()
 
     def compute_signal(self, ticker: str) -> FeatureVector | None:
         """Compute the feature vector for a ticker. Returns None if insufficient data."""
@@ -59,11 +61,12 @@ class SignalDetector:
         history = self.tick_buffer.get_history(ticker)
         latest = history[-1]
 
-        li = self._liquidity_imbalance(latest)
-        sc = self._spread_compression(latest, history)
-        bs = self._bid_stacking(latest)
+        l2_signal = self.l2_pattern_engine.analyze(latest.order_book)
+        li = l2_signal.liquidity_imbalance if l2_signal is not None else self._liquidity_imbalance(latest)
+        bs = l2_signal.bid_stacking if l2_signal is not None else self._bid_stacking(latest)
         va = self._volume_acceleration(latest, history)
-        oa = self._order_aggression(history)
+        sc = l2_signal.momentum_confirmation if l2_signal is not None else self._spread_compression(latest, history)
+        oa = (1.0 - l2_signal.spoofing_score) if l2_signal is not None else self._order_aggression(history)
 
         rule_score = (
             self.WEIGHTS["liquidity_imbalance"] * li

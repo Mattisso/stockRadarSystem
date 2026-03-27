@@ -36,6 +36,11 @@ class TestWebSocketEndpoint:
             # Connection should be accepted — send a ping to exercise the loop
             ws.send_text("ping")
 
+    def test_channel_connect_and_receive(self, client):
+        token = create_access_token()
+        with client.websocket_connect(f"/api/ws/signals?token={token}") as ws:
+            ws.send_text("ping")
+
     def test_disconnect_cleanup(self, client):
         """After closing, manager should remove the connection."""
         token = create_access_token()

@@ -1,60 +1,16 @@
-"""WebSocket endpoint for real-time streaming."""
-
-import json
-from dataclasses import asdict
-from typing import Any
+"""WebSocket endpoints for real-time streaming."""
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
 
 from app.core.auth import verify_token
 from app.core.logging import get_logger
+from app.api.ws_manager import ConnectionManager
 
 log = get_logger(__name__)
 
 router = APIRouter()
 
-
-class ConnectionManager:
-    """Manages active WebSocket connections and broadcasts messages."""
-
-    def __init__(self) -> None:
-        self._connections: set[WebSocket] = set()
-
-    @property
-    def active_count(self) -> int:
-        return len(self._connections)
-
-    async def connect(self, ws: WebSocket) -> None:
-        await ws.accept()
-        self._connections.add(ws)
-        log.info("ws.connected", active=self.active_count)
-
-    def disconnect(self, ws: WebSocket) -> None:
-        self._connections.discard(ws)
-        log.info("ws.disconnected", active=self.active_count)
-
-    async def broadcast(self, topic: str, data: Any) -> None:
-        """Send a message to all connected clients."""
-        if not self._connections:
-            return
-
-        payload = json.dumps({"topic": topic, "data": data}, default=str)
-        stale: list[WebSocket] = []
-
-        for ws in self._connections:
-            try:
-                if ws.client_state == WebSocketState.CONNECTED:
-                    await ws.send_text(payload)
-            except Exception:
-                stale.append(ws)
-
-        for ws in stale:
-            self._connections.discard(ws)
-
-
-@router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket) -> None:
+async def _serve_channel(ws: WebSocket, channel: str) -> None:
     # Authenticate via query param: /api/ws?token=<jwt>
     token = ws.query_params.get("token")
     if not token:
@@ -67,10 +23,35 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         return
 
     manager: ConnectionManager = ws.app.state.ws_manager
-    await manager.connect(ws)
+    await manager.connect(ws, channel=channel)
     try:
         while True:
             # Keep-alive loop — receive pings or future commands
             await ws.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(ws)
+        manager.disconnect(ws, channel=channel)
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket) -> None:
+    await _serve_channel(ws, "all")
+
+
+@router.websocket("/ws/l1")
+async def websocket_l1(ws: WebSocket) -> None:
+    await _serve_channel(ws, "l1")
+
+
+@router.websocket("/ws/l2")
+async def websocket_l2(ws: WebSocket) -> None:
+    await _serve_channel(ws, "l2")
+
+
+@router.websocket("/ws/signals")
+async def websocket_signals(ws: WebSocket) -> None:
+    await _serve_channel(ws, "signals")
+
+
+@router.websocket("/ws/trades")
+async def websocket_trades(ws: WebSocket) -> None:
+    await _serve_channel(ws, "trades")

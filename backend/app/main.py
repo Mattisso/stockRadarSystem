@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from dataclasses import asdict
 
 from app.api.routes import public_router, router
-from app.api.websocket import ConnectionManager
 from app.api.websocket import router as ws_router
+from app.api.ws_manager import ConnectionManager
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
@@ -130,7 +130,8 @@ async def lifespan(app: FastAPI):
         cache=cache,
     )
 
-    ws_manager = ConnectionManager()
+    ws_manager = ConnectionManager(redis_url=settings.redis_url or None)
+    await ws_manager.start()
     app.state.ws_manager = ws_manager
 
     app.state.breakout_engine = breakout_engine
@@ -197,7 +198,11 @@ async def lifespan(app: FastAPI):
                     db = SessionLocal()
                     try:
                         signals = db.query(Signal).order_by(Signal.created_at.desc()).limit(50).all()
-                        await ws_manager.broadcast("signal", [SignalRead.model_validate(s).model_dump(mode="json") for s in signals])
+                        await ws_manager.broadcast(
+                            "signal",
+                            [SignalRead.model_validate(s).model_dump(mode="json") for s in signals],
+                            channel="signals",
+                        )
                     finally:
                         db.close()
 
@@ -214,7 +219,35 @@ async def lifespan(app: FastAPI):
                         for s in state_machine.all_states()
                         if s.stage.value != "normal"
                     ]
-                    await ws_manager.broadcast("state_machine", states)
+                    await ws_manager.broadcast("state_machine", states, channel="signals")
+
+                    live_movers = [
+                        {
+                            "ticker": e.ticker,
+                            "breakout_score": e.breakout_score,
+                            "pct_change_1m": e.pct_change_1m,
+                            "pct_change_5m": e.pct_change_5m,
+                            "volume_ratio": e.volume_ratio,
+                            "timestamp": e.timestamp.isoformat(),
+                        }
+                        for e in breakout_events
+                    ]
+                    await ws_manager.broadcast("live_movers", live_movers, channel="l1")
+
+                    l2_books = []
+                    for ticker in deep_tickers:
+                        latest = tick_buffer.get_latest(ticker)
+                        if latest is None or latest.order_book is None:
+                            continue
+                        l2_books.append(
+                            {
+                                "ticker": latest.order_book.ticker,
+                                "timestamp": latest.order_book.timestamp.isoformat(),
+                                "bids": [asdict(level) for level in latest.order_book.bids[:10]],
+                                "asks": [asdict(level) for level in latest.order_book.asks[:10]],
+                            }
+                        )
+                    await ws_manager.broadcast("l2", l2_books, channel="l2")
                 except Exception:
                     log.exception("ws.broadcast_scan_error")
         except Exception:
@@ -234,12 +267,16 @@ async def lifespan(app: FastAPI):
                     db = SessionLocal()
                     try:
                         trades = db.query(Trade).order_by(Trade.created_at.desc()).limit(50).all()
-                        await ws_manager.broadcast("trade", [TradeRead.model_validate(t).model_dump(mode="json") for t in trades])
+                        await ws_manager.broadcast(
+                            "trade",
+                            [TradeRead.model_validate(t).model_dump(mode="json") for t in trades],
+                            channel="trades",
+                        )
                     finally:
                         db.close()
 
                     summary = await broker.get_account_summary()
-                    await ws_manager.broadcast("portfolio", asdict(summary))
+                    await ws_manager.broadcast("portfolio", asdict(summary), channel="trades")
                 except Exception:
                     log.exception("ws.broadcast_monitor_error")
         except Exception:
@@ -278,6 +315,7 @@ async def lifespan(app: FastAPI):
     if polygon_queue_consumer:
         await polygon_queue_consumer.stop()
     await cache.disconnect()
+    await ws_manager.stop()
     await broker.disconnect()
 
 

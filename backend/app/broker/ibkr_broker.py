@@ -364,7 +364,8 @@ class IBKRBroker(BrokerInterface):
 
         trade = await self._run_on_ib_loop(_place())
 
-        status = self._map_order_status(trade.orderStatus.status)
+        raw_status, error_message = self._extract_final_order_status(trade)
+        status = self._map_order_status(raw_status)
         fill_price = None
         filled_qty = 0
 
@@ -383,6 +384,8 @@ class IBKRBroker(BrokerInterface):
             order_type=order_type.value,
             status=status.value,
             order_id=order_id,
+            ib_status=raw_status,
+            error_message=error_message,
         )
 
         return OrderResult(
@@ -423,6 +426,19 @@ class IBKRBroker(BrokerInterface):
             "Inactive": OrderStatus.REJECTED,
         }
         return mapping.get(ib_status, OrderStatus.PENDING)
+
+    @staticmethod
+    def _extract_final_order_status(trade: Trade) -> tuple[str, str | None]:
+        """Prefer terminal trade log statuses over the initial order status snapshot."""
+        log_entries = list(getattr(trade, "log", []) or [])
+        if log_entries:
+            for entry in reversed(log_entries):
+                status = getattr(entry, "status", None)
+                if status in {"Cancelled", "ApiCancelled", "Inactive", "Filled"}:
+                    return status, getattr(entry, "message", None)
+
+        order_status = getattr(getattr(trade, "orderStatus", None), "status", None) or "PendingSubmit"
+        return order_status, None
 
     # ── Market data management ───────────────────────────────────────
 
