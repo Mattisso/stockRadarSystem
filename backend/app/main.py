@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
 from app.core.metrics import ML_MODEL_TRAINED, SCHEDULER_JOB_DURATION, SCHEDULER_JOB_ERRORS
+from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
 from app.engine.state_machine import StateMachine
@@ -36,6 +37,8 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     setup_logging()
+    runtime = RuntimeOrchestrator()
+    app.state.runtime = runtime
 
     # ── Broker ──────────────────────────────────────────────────────
     if settings.broker_type == "ibkr":
@@ -53,6 +56,7 @@ async def lifespan(app: FastAPI):
 
         broker = MockBroker()
     app.state.broker = broker
+    runtime.mark_service("broker", broker.is_connected(), detail=settings.broker_type)
 
     # ── ML components ────────────────────────────────────────────────
     classifier = BreakoutClassifier(model_dir=settings.ml_model_dir)
@@ -79,6 +83,7 @@ async def lifespan(app: FastAPI):
         cache = InMemoryCache(ttl=settings.redis_l1_ttl)
     await cache.connect()
     app.state.cache = cache
+    runtime.mark_service("cache", await cache.is_healthy(), detail=type(cache).__name__)
 
     # ── Polygon L1 (optional) ────────────────────────────────────────
     polygon_client = None
@@ -100,17 +105,24 @@ async def lifespan(app: FastAPI):
             dev_max_symbols=settings.polygon_dev_max_symbols,
         )
     app.state.polygon_client = polygon_client
+    runtime.mark_service(
+        "polygon",
+        polygon_client is not None,
+        detail=settings.polygon_mode if polygon_client else "disabled",
+    )
 
     # ── Core components ─────────────────────────────────────────────
     from app.engine.breakout_engine import BreakoutEngine
 
     breakout_engine = BreakoutEngine(cache=cache)
+    runtime.mark_service("breakout_engine", True)
     if polygon_client:
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
 
         polygon_queue_consumer = BreakoutQueueConsumer(polygon_queue, breakout_engine)
         await polygon_queue_consumer.start()
         await polygon_client.start()
+        runtime.mark_service("polygon_queue_consumer", True)
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -140,14 +152,19 @@ async def lifespan(app: FastAPI):
     app.state.risk_manager = risk_manager
     app.state.trade_executor = trade_executor
     app.state.polygon_queue_consumer = polygon_queue_consumer
+    runtime.mark_service("state_machine", True)
+    runtime.mark_service("agents", True)
 
     async def ensure_broker_connected() -> bool:
         if broker.is_connected():
+            runtime.mark_service("broker", True, detail=settings.broker_type)
             return True
         try:
             await broker.connect()
+            runtime.mark_service("broker", True, detail=settings.broker_type)
             return True
         except Exception:
+            runtime.mark_service("broker", False, detail="connect_failed")
             log.exception("broker.connect_failed")
             return False
 
@@ -323,10 +340,13 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
 
     scheduler.start()
+    runtime.mark_service("scheduler", True)
 
-    asyncio.create_task(connect_broker_background())
+    broker_task = asyncio.create_task(connect_broker_background())
+    runtime.register_task("broker_connect", broker_task)
     # Kick off the first universe refresh after startup so health probes can succeed
-    asyncio.create_task(refresh_universe_job())
+    initial_refresh_task = asyncio.create_task(refresh_universe_job())
+    runtime.register_task("initial_universe_refresh", initial_refresh_task)
 
     log.info("app.started", trading_mode=settings.trading_mode)
 
@@ -339,8 +359,12 @@ async def lifespan(app: FastAPI):
         await polygon_queue_consumer.stop()
     await cache.disconnect()
     await ws_manager.stop()
+    runtime.mark_service("cache", False, detail="shutdown")
+    runtime.mark_service("scheduler", False, detail="shutdown")
+    await runtime.shutdown_tasks()
     if broker.is_connected():
         await broker.disconnect()
+    runtime.mark_service("broker", False, detail="shutdown")
 
 
 app = FastAPI(

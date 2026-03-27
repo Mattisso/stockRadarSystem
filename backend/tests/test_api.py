@@ -25,7 +25,9 @@ def auth_headers():
 def test_health_check(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "system_status" in body
 
 
 # ── Auth ─────────────────────────────────────────────────────────────
@@ -69,3 +71,18 @@ def test_get_signals_empty(client, auth_headers):
     response = client.get("/api/signals", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_system_health_endpoint(client, auth_headers):
+    response = client.get("/api/health/system", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert "services" in body
+    assert "background_tasks" in body
+
+
+def test_portfolio_degrades_when_broker_disconnected(client, auth_headers):
+    client.app.state.broker._connected = False
+    response = client.get("/api/portfolio", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["positions"] == []

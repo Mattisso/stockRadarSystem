@@ -13,6 +13,7 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_db
+from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.ml.analytics import TradeAnalytics
 from app.ml.backtest import BacktestConfig, SignalBacktester
 from app.models.signal import Signal
@@ -35,8 +36,17 @@ public_router = APIRouter()
 
 
 @public_router.get("/health")
-async def health_check():
-    return {"status": "ok"}
+async def health_check(request: Request):
+    runtime = getattr(request.app.state, "runtime", None)
+    if runtime is None:
+        return {"status": "ok"}
+    services = runtime.snapshot()["services"]
+    healthy = all(service["healthy"] for service in services.values()) if services else True
+    return {
+        "status": "ok",
+        "system_status": "ok" if healthy else "degraded",
+        "services": services,
+    }
 
 
 @public_router.post("/auth/token", response_model=TokenResponse)
@@ -54,9 +64,8 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/health/broker")
-async def broker_health(request: Request):
+async def broker_health(broker=Depends(get_broker)):
     """Report IB Gateway / broker connection status."""
-    broker = request.app.state.broker
     return {
         "broker_type": settings.broker_type,
         "connected": broker.is_connected(),
@@ -87,9 +96,8 @@ def get_signals(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @router.get("/state-machine")
-async def get_state_machine_status(request: Request):
+async def get_state_machine_status(sm=Depends(get_state_machine)):
     """Get current state machine status for all tracked tickers."""
-    sm = getattr(request.app.state, "state_machine", None)
     if sm is None:
         return []
     return [
@@ -108,11 +116,24 @@ async def get_state_machine_status(request: Request):
 
 
 @router.get("/portfolio")
-async def get_portfolio(request: Request):
+async def get_portfolio(broker=Depends(get_broker)):
     """Get current portfolio — delegates to the active broker instance."""
-    broker = request.app.state.broker
+    if not broker.is_connected():
+        return {
+            "cash_balance": 0.0,
+            "total_value": 0.0,
+            "buying_power": 0.0,
+            "positions": [],
+            "daily_pnl": 0.0,
+        }
     summary = await broker.get_account_summary()
     return asdict(summary)
+
+
+@router.get("/health/system")
+async def system_health(runtime=Depends(get_runtime)):
+    """Detailed orchestration health including background worker state."""
+    return runtime.snapshot()
 
 
 # ── Breakout Engine Endpoints ─────────────────────────────────────────
