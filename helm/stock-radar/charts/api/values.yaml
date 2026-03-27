@@ -72,3 +72,17 @@ polygon:
   reconnectMaxDelay: "30.0"
   subscriptionBatchSize: "500"
   queueMaxsize: "10000"
+
+probes:
+  startup:
+    enabled: true
+    failureThreshold: 18
+    periodSeconds: 10
+  readiness:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    failureThreshold: 6
+  liveness:
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    failureThreshold: 3

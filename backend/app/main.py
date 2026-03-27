@@ -52,7 +52,6 @@ async def lifespan(app: FastAPI):
         from app.broker.mock_broker import MockBroker
 
         broker = MockBroker()
-    await broker.connect()
     app.state.broker = broker
 
     # ── ML components ────────────────────────────────────────────────
@@ -142,12 +141,31 @@ async def lifespan(app: FastAPI):
     app.state.trade_executor = trade_executor
     app.state.polygon_queue_consumer = polygon_queue_consumer
 
+    async def ensure_broker_connected() -> bool:
+        if broker.is_connected():
+            return True
+        try:
+            await broker.connect()
+            return True
+        except Exception:
+            log.exception("broker.connect_failed")
+            return False
+
+    async def connect_broker_background() -> None:
+        while not broker.is_connected():
+            connected = await ensure_broker_connected()
+            if connected:
+                return
+            await asyncio.sleep(5)
+
     # ── Scheduler ───────────────────────────────────────────────────
     scheduler = AsyncIOScheduler()
 
     async def refresh_universe_job():
         start = time.monotonic()
         try:
+            if not await ensure_broker_connected():
+                return
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)
@@ -167,6 +185,8 @@ async def lifespan(app: FastAPI):
     async def scan_job():
         start = time.monotonic()
         try:
+            if not broker.is_connected():
+                return
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)
@@ -259,6 +279,8 @@ async def lifespan(app: FastAPI):
     async def monitor_job():
         start = time.monotonic()
         try:
+            if not broker.is_connected():
+                return
             await trade_executor.monitor_positions()
 
             # Broadcast trade + portfolio updates via WebSocket
@@ -302,8 +324,9 @@ async def lifespan(app: FastAPI):
 
     scheduler.start()
 
-    # Run initial universe refresh at startup
-    await refresh_universe_job()
+    asyncio.create_task(connect_broker_background())
+    # Kick off the first universe refresh after startup so health probes can succeed
+    asyncio.create_task(refresh_universe_job())
 
     log.info("app.started", trading_mode=settings.trading_mode)
 
@@ -316,7 +339,8 @@ async def lifespan(app: FastAPI):
         await polygon_queue_consumer.stop()
     await cache.disconnect()
     await ws_manager.stop()
-    await broker.disconnect()
+    if broker.is_connected():
+        await broker.disconnect()
 
 
 app = FastAPI(

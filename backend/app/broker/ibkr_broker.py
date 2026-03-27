@@ -5,7 +5,10 @@ import math
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfoNotFoundError
 
+import ib_insync.decoder as ib_decoder
+import ib_insync.util as ib_util
 from ib_insync import IB, Contract, LimitOrder, MarketOrder, ScannerSubscription, Stock, Ticker, Trade
 
 from app.broker.interface import (
@@ -28,6 +31,22 @@ log = get_logger(__name__)
 # IB has a 100 active market data line limit
 _MARKET_DATA_WARN_THRESHOLD = 80
 _MARKET_DATA_MAX = 100
+
+_ORIGINAL_PARSE_IB_DATETIME = ib_util.parseIBDatetime
+
+
+def _patched_parse_ib_datetime(value: str):
+    """Normalize legacy IB timezone aliases such as US/Eastern."""
+    try:
+        return _ORIGINAL_PARSE_IB_DATETIME(value)
+    except ZoneInfoNotFoundError:
+        if " US/Eastern" in value:
+            return _ORIGINAL_PARSE_IB_DATETIME(value.replace(" US/Eastern", " America/New_York"))
+        raise
+
+
+ib_util.parseIBDatetime = _patched_parse_ib_datetime
+ib_decoder.parseIBDatetime = _patched_parse_ib_datetime
 
 
 def _safe_float(val: float, default: float = 0.0) -> float:

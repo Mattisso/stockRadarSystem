@@ -10,6 +10,14 @@ import pytest
 from app.broker.interface import OrderSide, OrderStatus, OrderType
 
 
+def test_parse_ib_datetime_alias_uses_iana_timezone():
+    from app.broker.ibkr_broker import _patched_parse_ib_datetime
+
+    parsed = _patched_parse_ib_datetime("20260327 14:56:16 US/Eastern")
+    assert parsed.tzinfo is not None
+    assert parsed.tzname() in {"EDT", "EST"}
+
+
 def _make_mock_ib():
     """Create a fully mocked ib_insync.IB instance."""
     ib = MagicMock()
