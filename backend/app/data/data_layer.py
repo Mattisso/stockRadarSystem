@@ -1,6 +1,6 @@
 """Persistence helpers for historical feature snapshots and performance metrics."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -58,7 +58,7 @@ class DataLayer:
             metric_scope=metric_scope,
             metric_value=metric_value,
             metric_unit=metric_unit,
-            as_of=as_of or datetime.utcnow(),
+            as_of=as_of or datetime.now(UTC),
             window_days=window_days,
         )
         self.db.add(metric)

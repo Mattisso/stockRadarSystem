@@ -1,10 +1,10 @@
-"""Breakout classifier — sklearn GradientBoosting wrapper."""
+"""Breakout classifier — sklearn LogisticRegression wrapper."""
 
 from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
 from app.core.logging import get_logger
@@ -15,11 +15,11 @@ MODEL_FILENAME = "breakout_classifier.joblib"
 
 
 class BreakoutClassifier:
-    """Wraps a GradientBoostingClassifier for breakout prediction."""
+    """Wraps a LogisticRegression classifier for breakout prediction."""
 
     def __init__(self, model_dir: str = "models") -> None:
         self.model_dir = Path(model_dir)
-        self._model: GradientBoostingClassifier | None = None
+        self._model: LogisticRegression | None = None
 
     @property
     def is_trained(self) -> bool:
@@ -27,10 +27,8 @@ class BreakoutClassifier:
 
     def train(self, X: np.ndarray, y: np.ndarray) -> dict:
         """Train the classifier. Returns metrics dict."""
-        self._model = GradientBoostingClassifier(
-            n_estimators=100,
-            max_depth=3,
-            learning_rate=0.1,
+        self._model = LogisticRegression(
+            max_iter=1000,
             random_state=42,
         )
         self._model.fit(X, y)
@@ -63,7 +61,11 @@ class BreakoutClassifier:
         if self._model is None:
             return None
         from app.ml.features import FEATURE_COLUMNS
-        return dict(zip(FEATURE_COLUMNS, self._model.feature_importances_.tolist()))
+        if hasattr(self._model, "feature_importances_"):
+            values = self._model.feature_importances_.tolist()
+        else:
+            values = np.abs(self._model.coef_[0]).tolist()
+        return dict(zip(FEATURE_COLUMNS, values))
 
     def save(self) -> Path:
         """Persist model to disk."""
