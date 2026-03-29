@@ -26,3 +26,6 @@ frontend:
     repository: localhost:32000/stock-radar-frontend
     tag: tilt
     pullPolicy: Never
+  runtimeConfig:
+    apiBaseUrl: "http://127.0.0.1:8100/api"
+    wsBaseUrl: "ws://127.0.0.1:8100/api"
