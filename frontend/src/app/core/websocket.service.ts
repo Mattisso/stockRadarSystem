@@ -3,6 +3,7 @@ import { Observable, Subject, timer } from 'rxjs';
 import { filter, map, retryWhen, switchMap, tap } from 'rxjs/operators';
 import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 import { AuthService } from './auth.service';
+import { runtimeConfig } from './runtime-config';
 
 export interface WsMessage<T = unknown> {
   topic: string;
@@ -71,9 +72,8 @@ export class WebSocketService implements OnDestroy {
   }
 
   private wsUrl(path: WsPath): string {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const token = this.auth.token;
-    return `${proto}//${location.host}/api${path}?token=${token}`;
+    return `${runtimeConfig.wsBaseUrl}${path}?token=${token}`;
   }
 
   ngOnDestroy(): void {
