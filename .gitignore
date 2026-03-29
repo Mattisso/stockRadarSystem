@@ -5,7 +5,7 @@ BuildGuide.docx
 BuildRecommendation.docx
 docs
 docs/build
- ng-guide/
+ng-guide/
 # Python
 __pycache__/
 *.pyc
