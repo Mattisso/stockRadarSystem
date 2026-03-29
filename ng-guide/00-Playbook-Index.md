@@ -9,7 +9,6 @@ angular_version: "20.x"
 playbook_version: "1.2"
 audience: [new-developers, experienced-developers, tech-leads]
 ---
-
 # ATD Angular Development Playbook
 
 **Document Version:** 1.0
