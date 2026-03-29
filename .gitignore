@@ -4,6 +4,8 @@ infrastructure_plan.md
 BuildGuide.docx
 BuildRecommendation.docx
 docs
+docs/build
+ng-guide
 # Python
 __pycache__/
 *.pyc

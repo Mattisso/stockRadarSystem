@@ -180,7 +180,7 @@ tunnel-status:
 	@ps aux | grep port-forward | grep -v grep || echo "No active port-forwards."
 
 # ── API Key Management ─────────────────────────────────────────────
-.PHONY: rotate-api-key show-api-key
+.PHONY: rotate-api-key show-api-key show-access-token
 
 rotate-api-key:
 	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
@@ -193,6 +193,9 @@ rotate-api-key:
 
 show-api-key:
 	@kubectl get secret api-secret -n $(NAMESPACE) -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d; echo
+
+show-access-token:
+	@kubectl exec -n $(NAMESPACE) deploy/stock-radar-api -- python3 -c "from app.core.auth import create_access_token; print(create_access_token())"
 
 # ── VPS Deployment ─────────────────────────────────────────────────
 .PHONY: deploy-vps deploy-engine
