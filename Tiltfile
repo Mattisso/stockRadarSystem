@@ -70,9 +70,11 @@ docker_build(
     context=".",
     dockerfile="frontend/Dockerfile_prod",
     only=[
+        "frontend/docker-entrypoint.sh",
         "frontend/src",
         "frontend/public",
         "frontend/angular.json",
+        "frontend/runtime-config.template.js",
         "frontend/tsconfig.json",
         "frontend/tsconfig.app.json",
         "frontend/package.json",
