@@ -3,8 +3,7 @@ agent.md
 infrastructure_plan.md
 BuildGuide.docx
 BuildRecommendation.docx
-docs
-docs/build
+docs/
 ng-guide/
 # Python
 __pycache__/
