@@ -47,6 +47,14 @@ def test_auth_token_invalid(client):
     assert response.status_code == 401
 
 
+def test_contract_metadata(client):
+    response = client.get("/api/contract")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rest_base"] == "/api"
+    assert "/api/ws/signals" in body["websocket_channels"]
+
+
 # ── Protected routes require auth ────────────────────────────────────
 
 
@@ -86,3 +94,9 @@ def test_portfolio_degrades_when_broker_disconnected(client, auth_headers):
     response = client.get("/api/portfolio", headers=auth_headers)
     assert response.status_code == 200
     assert response.json()["positions"] == []
+
+
+def test_signal_accuracy_typed_response(client, auth_headers):
+    response = client.get("/api/analytics/signal-accuracy", headers=auth_headers)
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

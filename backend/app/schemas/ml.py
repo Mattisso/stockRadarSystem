@@ -55,3 +55,20 @@ class KPIResponse(BaseModel):
     sharpe_ratio: float
     avg_hold_time_minutes: float
     days: int
+
+
+class SignalAccuracyBucketResponse(BaseModel):
+    range: str
+    total: int
+    wins: int
+    win_rate: float
+
+
+class ApiContractResponse(BaseModel):
+    rest_base: str
+    websocket_base: str
+    auth_token_path: str
+    websocket_auth: str
+    public_routes: list[str]
+    protected_routes: list[str]
+    websocket_channels: list[str]

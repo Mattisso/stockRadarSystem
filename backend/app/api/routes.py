@@ -20,11 +20,13 @@ from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.trade import Trade
 from app.schemas.ml import (
+    ApiContractResponse,
     BacktestRequest,
     BacktestResponse,
     KPIResponse,
     MLStatusResponse,
     RetrainResponse,
+    SignalAccuracyBucketResponse,
 )
 from app.schemas.signal import SignalRead
 from app.schemas.symbol import SymbolRead
@@ -56,6 +58,44 @@ async def login(body: TokenRequest):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
     token = create_access_token()
     return TokenResponse(access_token=token)
+
+
+@public_router.get("/contract", response_model=ApiContractResponse)
+async def contract_metadata():
+    """Public API contract metadata for independent clients."""
+    return ApiContractResponse(
+        rest_base="/api",
+        websocket_base="/api/ws",
+        auth_token_path="/api/auth/token",
+        websocket_auth="query_param_token",
+        public_routes=[
+            "/api/health",
+            "/api/auth/token",
+            "/api/contract",
+        ],
+        protected_routes=[
+            "/api/health/broker",
+            "/api/health/system",
+            "/api/universe",
+            "/api/trades",
+            "/api/signals",
+            "/api/state-machine",
+            "/api/portfolio",
+            "/api/breakouts",
+            "/api/ml/status",
+            "/api/ml/retrain",
+            "/api/ml/backtest",
+            "/api/analytics/kpis",
+            "/api/analytics/signal-accuracy",
+        ],
+        websocket_channels=[
+            "/api/ws",
+            "/api/ws/l1",
+            "/api/ws/l2",
+            "/api/ws/signals",
+            "/api/ws/trades",
+        ],
+    )
 
 
 # ── Protected routes (require JWT) ───────────────────────────────────
@@ -226,7 +266,7 @@ def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
     return TradeAnalytics(db).compute_kpis(days=days)
 
 
-@router.get("/analytics/signal-accuracy")
+@router.get("/analytics/signal-accuracy", response_model=list[SignalAccuracyBucketResponse])
 def analytics_signal_accuracy(db: Session = Depends(get_db)):
     """Get win rate by signal score bucket."""
     return TradeAnalytics(db).signal_accuracy_by_bucket()
