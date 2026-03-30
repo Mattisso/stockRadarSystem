@@ -2,19 +2,19 @@ api:
   ingress:
     enabled: true
     hosts:
-      - host: api.example.com
+      - host: stock-radar.example.com
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
 
 frontend:
   ingress:
     enabled: true
     hosts:
-      - host: ui.example.com
+      - host: stock-radar.example.com
         paths:
           - path: /
             pathType: Prefix
   runtimeConfig:
-    apiBaseUrl: "https://api.example.com/api"
-    wsBaseUrl: "wss://api.example.com/api"
+    apiBaseUrl: "https://stock-radar.example.com/api"
+    wsBaseUrl: "wss://stock-radar.example.com/api"

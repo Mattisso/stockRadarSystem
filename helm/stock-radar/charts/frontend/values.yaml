@@ -10,6 +10,15 @@ service:
   port: 4200
   containerPort: 4200
 
+ingress:
+  enabled: false
+  className: nginx
+  hosts:
+    - host: stock-radar-ui.local
+      paths:
+        - path: /
+          pathType: Prefix
+
 runtimeConfig:
   apiBaseUrl: "/api"
   wsBaseUrl: ""
