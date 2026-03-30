@@ -122,7 +122,7 @@ k8s_resource(
 
 k8s_resource(
     "stock-radar-api",
-    port_forwards=["8100:8000"],
+    port_forwards=["18100:8000"],
     resource_deps=["rbac"],
     labels=["app"],
 )
