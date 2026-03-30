@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_secret_key: str = "change-me-in-production"
+    cors_allowed_origins: str = (
+        "http://127.0.0.1:14201,"
+        "http://localhost:14201,"
+        "http://127.0.0.1:4201,"
+        "http://localhost:4201"
+    )
 
     # --- Trading ---
     trading_mode: str = "paper"  # "paper" | "live"

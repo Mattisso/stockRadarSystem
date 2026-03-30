@@ -7,6 +7,9 @@ default_registry("localhost:32000")
 NAMESPACE = "stock-radar"
 REGISTRY = "localhost:32000"
 LOCAL_API_FORWARD_PORT = "18100"
+LOCAL_FRONTEND_FORWARD_PORT = "14201"
+LOCAL_PROMETHEUS_FORWARD_PORT = "19090"
+LOCAL_GRAFANA_FORWARD_PORT = "13000"
 
 # ── Global ignores ──────────────────────────────────────────────────
 WATCH_IGNORES = [
@@ -130,14 +133,14 @@ k8s_resource(
 
 k8s_resource(
     "stock-radar-frontend",
-    port_forwards=["4201:4200"],
+    port_forwards=[LOCAL_FRONTEND_FORWARD_PORT + ":4200"],
     resource_deps=["rbac", "stock-radar-api"],
     labels=["app"],
 )
 
 k8s_resource(
     "stock-radar-prometheus",
-    port_forwards=["9090:9090"],
+    port_forwards=[LOCAL_PROMETHEUS_FORWARD_PORT + ":9090"],
     labels=["monitoring"],
     objects=[
         "stock-radar-prometheus-config:configmap",
@@ -146,7 +149,7 @@ k8s_resource(
 
 k8s_resource(
     "stock-radar-grafana",
-    port_forwards=["3000:3000"],
+    port_forwards=[LOCAL_GRAFANA_FORWARD_PORT + ":3000"],
     resource_deps=["stock-radar-prometheus"],
     labels=["monitoring"],
     objects=[

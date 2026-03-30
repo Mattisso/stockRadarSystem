@@ -30,6 +30,19 @@ def test_health_check(client):
     assert "system_status" in body
 
 
+def test_cors_preflight_allows_local_frontend_origin(client):
+    response = client.options(
+        "/api/portfolio",
+        headers={
+            "Origin": "http://127.0.0.1:14201",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:14201"
+
+
 # ── Auth ─────────────────────────────────────────────────────────────
 
 
