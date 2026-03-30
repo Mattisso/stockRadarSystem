@@ -1,0 +1,4 @@
+frontend:
+  runtimeConfig:
+    apiBaseUrl: "https://api.example.com/api"
+    wsBaseUrl: "wss://api.example.com/api"

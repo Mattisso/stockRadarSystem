@@ -6,6 +6,7 @@ default_registry("localhost:32000")
 
 NAMESPACE = "stock-radar"
 REGISTRY = "localhost:32000"
+LOCAL_API_FORWARD_PORT = "18100"
 
 # ── Global ignores ──────────────────────────────────────────────────
 WATCH_IGNORES = [
@@ -122,7 +123,7 @@ k8s_resource(
 
 k8s_resource(
     "stock-radar-api",
-    port_forwards=["18100:8000"],
+    port_forwards=[LOCAL_API_FORWARD_PORT + ":8000"],
     resource_deps=["rbac"],
     labels=["app"],
 )

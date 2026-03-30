@@ -1,0 +1,4 @@
+frontend:
+  runtimeConfig:
+    apiBaseUrl: "http://127.0.0.1:18100/api"
+    wsBaseUrl: "ws://127.0.0.1:18100/api"
