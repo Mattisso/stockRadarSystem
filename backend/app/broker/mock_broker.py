@@ -8,6 +8,8 @@ import numpy as np
 
 from app.broker.interface import (
     AccountSummary,
+    BracketOrderRequest,
+    BracketOrderResult,
     BrokerInterface,
     OrderBook,
     OrderBookLevel,
@@ -64,6 +66,7 @@ class MockBroker(BrokerInterface):
         self._prices: dict[str, float] = {}
         self._subscribed: set[str] = set()
         self._l2_subscribed: set[str] = set()
+        self._brackets: dict[str, dict[str, str | float | bool]] = {}
         self._daily_pnl: float = 0.0
         self._tick_count: int = 0
 
@@ -220,6 +223,70 @@ class MockBroker(BrokerInterface):
             self._orders[order_id].status = OrderStatus.CANCELLED
             return True
         return False
+
+    async def submit_bracket_order(self, request: BracketOrderRequest) -> BracketOrderResult:
+        parent = await self.submit_order(
+            ticker=request.ticker,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.entry_order_type,
+            limit_price=request.entry_price,
+        )
+        target_order_id = str(uuid.uuid4())
+        stop_order_id = str(uuid.uuid4())
+        self._orders[target_order_id] = OrderResult(
+            order_id=target_order_id,
+            ticker=request.ticker,
+            side=OrderSide.SELL if request.side == OrderSide.BUY else OrderSide.BUY,
+            quantity=request.quantity,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.PENDING,
+            timestamp=datetime.now(),
+        )
+        self._orders[stop_order_id] = OrderResult(
+            order_id=stop_order_id,
+            ticker=request.ticker,
+            side=OrderSide.SELL if request.side == OrderSide.BUY else OrderSide.BUY,
+            quantity=request.quantity,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.PENDING,
+            timestamp=datetime.now(),
+        )
+        self._brackets[parent.order_id] = {
+            "ticker": request.ticker,
+            "target_order_id": target_order_id,
+            "stop_order_id": stop_order_id,
+            "target_price": request.target_price,
+            "stop_price": request.stop_price,
+            "runner_mode": False,
+        }
+        return BracketOrderResult(
+            parent=parent,
+            target_order_id=target_order_id,
+            stop_order_id=stop_order_id,
+            target_price=request.target_price,
+            stop_price=request.stop_price,
+        )
+
+    async def cancel_target_leg(self, parent_order_id: str) -> bool:
+        bracket = self._brackets.get(parent_order_id)
+        if bracket is None:
+            return False
+        target_order_id = str(bracket["target_order_id"])
+        success = await self.cancel_order(target_order_id)
+        if success:
+            bracket["runner_mode"] = True
+        return success
+
+    async def revise_stop_leg(self, parent_order_id: str, new_stop_price: float) -> bool:
+        bracket = self._brackets.get(parent_order_id)
+        if bracket is None:
+            return False
+        current_stop_price = float(bracket["stop_price"])
+        if new_stop_price < current_stop_price:
+            return False
+        bracket["stop_price"] = new_stop_price
+        return True
 
     async def get_positions(self) -> list[Position]:
         # Update market values

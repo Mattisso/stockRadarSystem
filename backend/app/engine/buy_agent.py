@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.broker.interface import OrderResult, OrderSide, OrderStatus, OrderType
+from app.broker.interface import BracketOrderRequest, BracketOrderResult, OrderResult, OrderSide, OrderStatus, OrderType
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.data.tick_buffer import MarketSnapshot
@@ -28,6 +28,8 @@ class BuyExecutionOutcome:
     stop_loss: float
     target: float
     order_id: str
+    target_order_id: str | None = None
+    stop_order_id: str | None = None
 
 
 class BuyAgent:
@@ -72,6 +74,60 @@ class BuyAgent:
             params = risk_result
             trade_record = self._create_pending_trade(db, signal_record, params, signal_score)
             order_type, limit_price = self._build_order(latest)
+
+            if settings.buy_use_brackets:
+                bracket_result = await self._submit_bracket_entry(
+                    ticker=ticker,
+                    quantity=params.quantity,
+                    order_type=order_type,
+                    limit_price=limit_price,
+                    stop_loss=params.stop_loss_price,
+                    target=params.target_price,
+                )
+                trade_record.entry_order_id = bracket_result.parent.order_id
+                trade_record.target_order_id = bracket_result.target_order_id
+                trade_record.stop_order_id = bracket_result.stop_order_id
+
+                if (
+                    bracket_result.parent.status == OrderStatus.FILLED
+                    and bracket_result.parent.fill_price is not None
+                ):
+                    trade_record.status = TradeStatus.FILLED
+                    trade_record.entry_price = bracket_result.parent.fill_price
+                    trade_record.entry_time = datetime.now()
+                    trade_record.execution_phase = "managed"
+                    signal_record.acted_on = True
+                    db.flush()
+                    log.info(
+                        "buy_agent.entry_filled",
+                        ticker=ticker,
+                        trade_id=trade_record.id,
+                        quantity=params.quantity,
+                        fill_price=bracket_result.parent.fill_price,
+                        order_id=bracket_result.parent.order_id,
+                        stage=stage,
+                    )
+                    return BuyExecutionOutcome(
+                        ticker=ticker,
+                        trade_id=trade_record.id,
+                        quantity=params.quantity,
+                        fill_price=bracket_result.parent.fill_price,
+                        stop_loss=params.stop_loss_price,
+                        target=params.target_price,
+                        order_id=bracket_result.parent.order_id,
+                        target_order_id=bracket_result.target_order_id,
+                        stop_order_id=bracket_result.stop_order_id,
+                    )
+
+                trade_record.status = _to_trade_status(bracket_result.parent.status)
+                db.flush()
+                log.warning(
+                    "buy_agent.bracket_entry_failed",
+                    ticker=ticker,
+                    final_status=bracket_result.parent.status.value,
+                    order_id=bracket_result.parent.order_id,
+                )
+                return None
 
             final_order: OrderResult | None = None
             for attempt in range(1, settings.buy_retry_attempts + 1):
@@ -172,6 +228,28 @@ class BuyAgent:
         db.add(trade_record)
         db.flush()
         return trade_record
+
+    async def _submit_bracket_entry(
+        self,
+        *,
+        ticker: str,
+        quantity: int,
+        order_type: OrderType,
+        limit_price: float | None,
+        stop_loss: float,
+        target: float,
+    ) -> BracketOrderResult:
+        return await self.broker.submit_bracket_order(
+            BracketOrderRequest(
+                ticker=ticker,
+                side=OrderSide.BUY,
+                quantity=quantity,
+                entry_order_type=order_type,
+                entry_price=limit_price,
+                target_price=target,
+                stop_price=stop_loss,
+            )
+        )
 
     def _build_order(self, latest: MarketSnapshot) -> tuple[OrderType, float | None]:
         """Choose a market or marketable limit order based on current spread."""

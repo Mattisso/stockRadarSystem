@@ -193,6 +193,77 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
 
 
 @pytest.mark.asyncio
+async def test_scan_signals_tracks_bracket_child_ids_in_execution_state(executor, db_session_factory):
+    executor.state_machine = SimpleNamespace()
+    executor.state_machine.evaluate = AsyncMock(return_value=SimpleNamespace(
+        ticker="SIRI",
+        stage=SymbolStage.READY_TO_BUY,
+        reason="test",
+        feature_vector=FeatureVector(
+            ticker="SIRI",
+            liquidity_imbalance=0.8,
+            spread_compression=0.8,
+            bid_stacking=0.8,
+            volume_acceleration=0.8,
+            order_aggression=0.8,
+            composite_score=0.85,
+            signal_type=SignalType.BREAKOUT,
+        ),
+    ))
+
+    db = db_session_factory()
+    db.add(
+        Trade(
+            id=8,
+            ticker="SIRI",
+            side=TradeSide.BUY,
+            status=TradeStatus.FILLED,
+            quantity=100,
+            entry_price=3.21,
+            stop_loss_price=3.0,
+            target_price=3.45,
+        )
+    )
+    db.commit()
+    db.close()
+
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=3.19,
+                ask=3.21,
+                last=3.20,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=None,
+            timestamp=datetime.now(),
+        ),
+    )
+    executor.buy_agent.execute = AsyncMock(return_value=BuyExecutionOutcome(
+        ticker="SIRI",
+        trade_id=8,
+        quantity=100,
+        fill_price=3.21,
+        stop_loss=3.00,
+        target=3.45,
+        order_id="ord-parent",
+        target_order_id="ord-target",
+        stop_order_id="ord-stop",
+    ))
+
+    await executor.scan_signals(["SIRI"])
+
+    state = executor._execution_states["SIRI"]
+    assert state.order_id == "ord-parent"
+    assert state.target_order_id == "ord-target"
+    assert state.stop_order_id == "ord-stop"
+    assert state.current_stop_price == 3.0
+
+
+@pytest.mark.asyncio
 async def test_monitor_positions_uses_sell_agent_and_closes_position(executor):
     """Exit monitoring should route through SellAgent and drop closed positions."""
     executor._open_positions["SIRI"] = SimpleNamespace(

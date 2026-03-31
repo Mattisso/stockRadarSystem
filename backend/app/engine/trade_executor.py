@@ -190,6 +190,9 @@ class TradeExecutor:
                     trade_id=result.trade_id,
                     order_id=result.order_id,
                     filled_at=datetime.now(),
+                    target_order_id=result.target_order_id,
+                    stop_order_id=result.stop_order_id,
+                    current_stop_price=result.stop_loss,
                 )
                 self._execution_states[ticker].mark_managed()
                 trade = db.query(Trade).filter_by(id=result.trade_id).first()
@@ -249,6 +252,8 @@ class TradeExecutor:
                     pos.highest_price = assessment.highest_price
 
                     state = self._execution_states.get(ticker)
+                    if state is not None and hasattr(state, "update_stop_price"):
+                        state.update_stop_price(pos.stop_loss)
                     if (
                         assessment.reason is None
                         and state is not None

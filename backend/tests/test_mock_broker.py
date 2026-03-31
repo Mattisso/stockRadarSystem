@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.broker.interface import OrderSide, OrderStatus, OrderType
+from app.broker.interface import BracketOrderRequest, OrderSide, OrderStatus, OrderType
 from app.broker.mock_broker import MockBroker
 
 
@@ -101,3 +101,62 @@ async def test_limit_order_rejected_when_price_exceeds_limit(broker):
         limit_price=0.01,  # Way below market — should reject
     )
     assert result.status == OrderStatus.REJECTED
+
+
+@pytest.mark.asyncio
+async def test_submit_bracket_order_tracks_child_orders(broker):
+    result = await broker.submit_bracket_order(
+        BracketOrderRequest(
+            ticker="SIRI",
+            side=OrderSide.BUY,
+            quantity=100,
+            entry_order_type=OrderType.MARKET,
+            target_price=3.8,
+            stop_price=3.0,
+        )
+    )
+
+    assert result.parent.status == OrderStatus.FILLED
+    assert result.target_order_id in broker._orders
+    assert result.stop_order_id in broker._orders
+    assert broker._orders[result.target_order_id].status == OrderStatus.PENDING
+    assert broker._orders[result.stop_order_id].status == OrderStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_cancel_target_leg_marks_runner_mode(broker):
+    result = await broker.submit_bracket_order(
+        BracketOrderRequest(
+            ticker="SIRI",
+            side=OrderSide.BUY,
+            quantity=100,
+            entry_order_type=OrderType.MARKET,
+            target_price=3.8,
+            stop_price=3.0,
+        )
+    )
+
+    success = await broker.cancel_target_leg(result.parent.order_id)
+
+    assert success is True
+    assert broker._orders[result.target_order_id].status == OrderStatus.CANCELLED
+    assert broker._brackets[result.parent.order_id]["runner_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_revise_stop_leg_is_monotonic(broker):
+    result = await broker.submit_bracket_order(
+        BracketOrderRequest(
+            ticker="SIRI",
+            side=OrderSide.BUY,
+            quantity=100,
+            entry_order_type=OrderType.MARKET,
+            target_price=3.8,
+            stop_price=3.0,
+        )
+    )
+
+    assert await broker.revise_stop_leg(result.parent.order_id, 3.1) is True
+    assert broker._brackets[result.parent.order_id]["stop_price"] == 3.1
+    assert await broker.revise_stop_leg(result.parent.order_id, 2.9) is False
+    assert broker._brackets[result.parent.order_id]["stop_price"] == 3.1

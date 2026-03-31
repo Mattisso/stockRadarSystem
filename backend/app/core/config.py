@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     buy_retry_backoff_seconds: float = 0.2
     max_entry_slippage_pct: float = 0.003
     buy_order_style: str = "adaptive"  # "adaptive" | "market" | "limit"
+    buy_use_brackets: bool = False
     trailing_stop_pct: float = 0.03
     emergency_stop_loss_pct: float = 0.08
     l2_exit_imbalance_threshold: float = 0.35

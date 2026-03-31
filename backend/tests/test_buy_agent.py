@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.broker.interface import OrderResult, OrderSide, OrderStatus, OrderType, Quote
+from app.broker.interface import BracketOrderResult, OrderResult, OrderSide, OrderStatus, OrderType, Quote
 from app.broker.mock_broker import MockBroker
 from app.data.tick_buffer import MarketSnapshot
 from app.engine.buy_agent import BuyAgent
@@ -171,5 +171,59 @@ async def test_execute_retries_pending_then_fills(buy_agent, broker, db_session_
     assert outcome is not None
     assert submit.await_count == 2
     cancel.assert_awaited_once_with("pending-1")
+    assert trade.status == TradeStatus.FILLED
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_uses_bracket_entry_and_persists_child_order_ids(
+    buy_agent, broker, db_session_factory, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.engine.buy_agent.settings.buy_use_brackets",
+        True,
+    )
+    monkeypatch.setattr(
+        broker,
+        "submit_bracket_order",
+        AsyncMock(
+            return_value=BracketOrderResult(
+                parent=OrderResult(
+                    order_id="parent-1",
+                    ticker="AAPL",
+                    side=OrderSide.BUY,
+                    quantity=820,
+                    order_type=OrderType.MARKET,
+                    status=OrderStatus.FILLED,
+                    fill_price=10.02,
+                    filled_quantity=820,
+                ),
+                target_order_id="target-1",
+                stop_order_id="stop-1",
+                target_price=10.3,
+                stop_price=9.5,
+            )
+        ),
+    )
+
+    db = db_session_factory()
+    signal = _signal(db, "AAPL")
+
+    outcome = await buy_agent.execute(
+        db=db,
+        signal_record=signal,
+        latest=_snapshot("AAPL"),
+        signal_score=0.5,
+        stage="ready_to_buy",
+    )
+
+    trade = db.query(Trade).filter_by(ticker="AAPL").one()
+    assert outcome is not None
+    assert outcome.order_id == "parent-1"
+    assert outcome.target_order_id == "target-1"
+    assert outcome.stop_order_id == "stop-1"
+    assert trade.entry_order_id == "parent-1"
+    assert trade.target_order_id == "target-1"
+    assert trade.stop_order_id == "stop-1"
     assert trade.status == TradeStatus.FILLED
     db.close()

@@ -21,6 +21,9 @@ class ManagedExecutionState:
     trade_id: int
     order_id: str
     filled_at: datetime
+    target_order_id: str | None = None
+    stop_order_id: str | None = None
+    current_stop_price: float | None = None
     phase: ExecutionPhase = ExecutionPhase.ENTRY_FILLED
     runner_mode_started_at: datetime | None = None
     last_reason: str | None = None
@@ -43,4 +46,8 @@ class ManagedExecutionState:
     def mark_closed(self, reason: str | None) -> None:
         self.phase = ExecutionPhase.CLOSED
         self.last_reason = reason
+        self.last_updated_at = datetime.now()
+
+    def update_stop_price(self, stop_price: float) -> None:
+        self.current_stop_price = stop_price
         self.last_updated_at = datetime.now()
