@@ -71,6 +71,26 @@ class OrderResult:
 
 
 @dataclass
+class BracketOrderRequest:
+    ticker: str
+    side: OrderSide
+    quantity: int
+    entry_order_type: OrderType = OrderType.LIMIT
+    entry_price: float | None = None
+    target_price: float = 0.0
+    stop_price: float = 0.0
+
+
+@dataclass
+class BracketOrderResult:
+    parent: OrderResult
+    target_order_id: str
+    stop_order_id: str
+    target_price: float
+    stop_price: float
+
+
+@dataclass
 class Position:
     """Current position in a symbol."""
 
@@ -158,3 +178,15 @@ class BrokerInterface(ABC):
 
     async def unsubscribe_l2_depth(self, ticker: str) -> None:
         """Unsubscribe from L2 depth for a specific ticker."""
+
+    async def submit_bracket_order(self, request: BracketOrderRequest) -> BracketOrderResult:
+        """Submit a parent + target + stop bracket order."""
+        raise NotImplementedError("Bracket orders are not implemented for this broker")
+
+    async def cancel_target_leg(self, parent_order_id: str) -> bool:
+        """Cancel the target leg of a working bracket order."""
+        raise NotImplementedError("Target leg cancellation is not implemented for this broker")
+
+    async def revise_stop_leg(self, parent_order_id: str, new_stop_price: float) -> bool:
+        """Revise the stop leg of a working bracket order."""
+        raise NotImplementedError("Stop revision is not implemented for this broker")

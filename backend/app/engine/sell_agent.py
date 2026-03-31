@@ -27,6 +27,7 @@ class OpenPosition:
     stop_loss: float
     target: float
     highest_price: float
+    entry_time: datetime
 
 
 @dataclass
@@ -57,6 +58,18 @@ class SellAgent:
 
         if current_price <= emergency_stop:
             return ExitAssessment("emergency_exit", current_price, effective_stop, highest_price)
+
+        elapsed_seconds = max(0.0, (latest.timestamp - position.entry_time).total_seconds())
+        min_progress_price = round(
+            position.entry_price * (1.0 + settings.execution_min_progress_pct),
+            4,
+        )
+        if (
+            elapsed_seconds >= settings.execution_time_stop_seconds
+            and highest_price < min_progress_price
+            and current_price <= position.entry_price
+        ):
+            return ExitAssessment("time_stop", current_price, effective_stop, highest_price)
 
         l2_reason = self._detect_l2_weakness(latest.order_book)
         if l2_reason is not None:

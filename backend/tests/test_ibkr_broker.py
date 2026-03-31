@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.broker.interface import OrderSide, OrderStatus, OrderType
+from app.broker.interface import BracketOrderRequest, OrderSide, OrderStatus, OrderType
+from app.broker.order_registry import OrderChainState
 
 
 def test_parse_ib_datetime_alias_uses_iana_timezone():
@@ -36,6 +37,8 @@ def _make_mock_ib():
     ib.pnl = MagicMock(return_value=[])
     ib.openTrades = MagicMock(return_value=[])
     ib.reqScannerDataAsync = AsyncMock(return_value=[])
+    ib.reqIdsAsync = AsyncMock(return_value=None)
+    ib.client = SimpleNamespace(getReqId=MagicMock(return_value=500))
     ib.disconnectedEvent = MagicMock()
     ib.disconnectedEvent.__iadd__ = MagicMock(return_value=ib.disconnectedEvent)
     ib.disconnectedEvent.__isub__ = MagicMock(return_value=ib.disconnectedEvent)
@@ -257,6 +260,123 @@ async def test_cancel_order(broker):
     success = await broker.cancel_order("42")
     assert success is True
     broker._ib.cancelOrder.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_bracket_order_registers_chain(broker):
+    mock_trade = MagicMock()
+    mock_trade.orderStatus.status = "Submitted"
+    mock_trade.order.orderId = 500
+    mock_trade.fills = []
+    mock_trade.log = []
+    broker._ib.placeOrder.return_value = mock_trade
+
+    result = await broker.submit_bracket_order(
+        BracketOrderRequest(
+            ticker="AAPL",
+            side=OrderSide.BUY,
+            quantity=10,
+            entry_order_type=OrderType.LIMIT,
+            entry_price=10.0,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+
+    assert result.parent.order_id == "500"
+    assert result.target_order_id == "501"
+    assert result.stop_order_id == "502"
+    chain = broker._order_registry.get("500")
+    assert chain is not None
+    assert chain.target_order_id == "501"
+    assert chain.stop_order_id == "502"
+    assert chain.parent_side == OrderSide.BUY.value
+    assert broker._ib.placeOrder.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_cancel_target_leg_marks_runner_mode(broker):
+    broker._order_registry.register(
+        OrderChainState(
+            ticker="AAPL",
+            parent_order_id="500",
+            target_order_id="501",
+            stop_order_id="502",
+            parent_side=OrderSide.BUY.value,
+            entry_order_type=OrderType.LIMIT.value,
+            quantity=10,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+    target_trade = MagicMock()
+    target_trade.order.orderId = 501
+    broker._ib.openTrades.return_value = [target_trade]
+
+    success = await broker.cancel_target_leg("500")
+
+    chain = broker._order_registry.get("500")
+    assert success is True
+    assert chain is not None
+    assert chain.runner_mode is True
+    broker._ib.cancelOrder.assert_called_once_with(target_trade.order)
+
+
+@pytest.mark.asyncio
+async def test_revise_stop_leg_updates_ib_order_and_registry(broker):
+    broker._order_registry.register(
+        OrderChainState(
+            ticker="AAPL",
+            parent_order_id="500",
+            target_order_id="501",
+            stop_order_id="502",
+            parent_side=OrderSide.BUY.value,
+            entry_order_type=OrderType.LIMIT.value,
+            quantity=10,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+
+    success = await broker.revise_stop_leg("500", 9.8)
+
+    chain = broker._order_registry.get("500")
+    assert success is True
+    assert chain is not None
+    assert chain.stop_price == 9.8
+    revised_contract = broker._qualified["AAPL"]
+    broker._ib.placeOrder.assert_called_once()
+    contract_arg, order_arg = broker._ib.placeOrder.call_args.args
+    assert contract_arg is revised_contract
+    assert order_arg.orderId == 502
+    assert order_arg.parentId == 500
+    assert order_arg.action == "SELL"
+    assert order_arg.auxPrice == 9.8
+
+
+@pytest.mark.asyncio
+async def test_revise_stop_leg_rejects_lower_stop_without_ib_update(broker):
+    broker._order_registry.register(
+        OrderChainState(
+            ticker="AAPL",
+            parent_order_id="500",
+            target_order_id="501",
+            stop_order_id="502",
+            parent_side=OrderSide.BUY.value,
+            entry_order_type=OrderType.LIMIT.value,
+            quantity=10,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+
+    success = await broker.revise_stop_leg("500", 9.4)
+
+    chain = broker._order_registry.get("500")
+    assert success is False
+    assert chain is not None
+    assert chain.stop_price == 9.5
+    broker._ib.placeOrder.assert_not_called()
 
 
 @pytest.mark.asyncio

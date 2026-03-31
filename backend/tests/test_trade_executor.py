@@ -10,6 +10,7 @@ from app.broker.interface import Quote
 from app.broker.mock_broker import MockBroker
 from app.data.tick_buffer import TickBuffer
 from app.engine.buy_agent import BuyExecutionOutcome
+from app.engine.execution_state import ExecutionPhase
 from app.engine.signal_detector import SignalDetector
 from app.engine.signal_detector import FeatureVector, SignalType
 from app.engine.state_machine import SymbolStage
@@ -165,6 +166,8 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
     db = db_session_factory()
     signal = db.query(Signal).filter_by(ticker="SIRI").one()
     assert "SIRI" in executor._open_positions
+    assert "SIRI" in executor._execution_states
+    assert executor._execution_states["SIRI"].phase == ExecutionPhase.MANAGED
     assert signal.stage == "ready_to_buy"
     db.close()
 
@@ -208,3 +211,47 @@ async def test_monitor_positions_uses_sell_agent_and_closes_position(executor):
 
     executor.sell_agent.execute_exit.assert_awaited_once()
     assert "SIRI" not in executor._open_positions
+
+
+@pytest.mark.asyncio
+async def test_monitor_positions_promotes_runner_mode(executor):
+    executor._open_positions["SIRI"] = SimpleNamespace(
+        ticker="SIRI",
+        trade_id=7,
+        quantity=100,
+        entry_price=10.0,
+        stop_loss=9.6,
+        target=11.0,
+        highest_price=10.0,
+        entry_time=datetime.now(),
+    )
+    executor._execution_states["SIRI"] = SimpleNamespace(
+        trade_id=7,
+        order_id="ord-7",
+        phase=ExecutionPhase.MANAGED,
+        mark_runner_mode=lambda: setattr(executor._execution_states["SIRI"], "phase", ExecutionPhase.RUNNER_MODE),
+    )
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=10.35,
+                ask=10.37,
+                last=10.4,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=None,
+            timestamp=datetime.now(),
+        ),
+    )
+    executor.broker.cancel_target_leg = AsyncMock(return_value=True)
+    executor.broker.revise_stop_leg = AsyncMock(return_value=True)
+
+    await executor.monitor_positions()
+
+    executor.broker.cancel_target_leg.assert_awaited_once_with("ord-7")
+    executor.broker.revise_stop_leg.assert_awaited_once_with("ord-7", 10.0)
+    assert executor._execution_states["SIRI"].phase == ExecutionPhase.RUNNER_MODE
+    assert executor._open_positions["SIRI"].stop_loss >= 10.0

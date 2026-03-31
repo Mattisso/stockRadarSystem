@@ -1,6 +1,6 @@
 """Tests for the sell-side exit agent."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -44,6 +44,7 @@ def _position() -> OpenPosition:
         stop_loss=9.5,
         target=10.8,
         highest_price=10.0,
+        entry_time=datetime.now(),
     )
 
 
@@ -86,6 +87,18 @@ async def test_assess_exit_triggers_l2_weakness(sell_agent):
     )
     assessment = sell_agent.assess_exit(pos, _snapshot(bid=9.98, ask=10.0, order_book=order_book))
     assert assessment.reason == "l2_weakness"
+
+
+@pytest.mark.asyncio
+async def test_assess_exit_triggers_time_stop_for_non_proving_trade(sell_agent):
+    pos = _position()
+    pos.entry_time = datetime.now().replace(microsecond=0)
+    stale_snapshot = _snapshot(bid=9.99, ask=10.0, last=10.0)
+    stale_snapshot.timestamp = pos.entry_time + timedelta(seconds=21)
+
+    assessment = sell_agent.assess_exit(pos, stale_snapshot)
+
+    assert assessment.reason == "time_stop"
 
 
 @pytest.mark.asyncio

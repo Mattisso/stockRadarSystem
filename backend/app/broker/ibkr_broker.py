@@ -9,10 +9,12 @@ from zoneinfo import ZoneInfoNotFoundError
 
 import ib_insync.decoder as ib_decoder
 import ib_insync.util as ib_util
-from ib_insync import IB, Contract, LimitOrder, MarketOrder, ScannerSubscription, Stock, Ticker, Trade
+from ib_insync import IB, Contract, LimitOrder, MarketOrder, ScannerSubscription, Stock, StopOrder, Ticker, Trade
 
 from app.broker.interface import (
     AccountSummary,
+    BracketOrderRequest,
+    BracketOrderResult,
     BrokerInterface,
     OrderBook,
     OrderBookLevel,
@@ -23,6 +25,8 @@ from app.broker.interface import (
     Position,
     Quote,
 )
+from app.broker.bracket_builder import build_bracket_orders
+from app.broker.order_registry import OrderChainState, OrderRegistry
 from app.core.logging import get_logger
 from app.engine.order_book_builder import build_order_book_from_ticker
 
@@ -83,6 +87,7 @@ class IBKRBroker(BrokerInterface):
         self._l2_subscribed: dict[str, Contract] = {}
         self._l2_market_depth: dict[str, Ticker] = {}
         self._qualified: dict[str, Contract] = {}
+        self._order_registry = OrderRegistry()
 
         self._universe_cache: list[str] = []
         self._universe_cache_time: float = 0.0
@@ -419,6 +424,90 @@ class IBKRBroker(BrokerInterface):
             timestamp=datetime.now(),
         )
 
+    async def submit_bracket_order(self, request: BracketOrderRequest) -> BracketOrderResult:
+        contract = await self._make_contract(request.ticker)
+
+        async def _next_id() -> int:
+            await self._ib.reqIdsAsync(1)
+            return int(self._ib.client.getReqId())
+
+        order_id = await self._run_on_ib_loop(_next_id())
+        bracket = build_bracket_orders(
+            order_id=order_id,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.entry_order_type,
+            entry_price=request.entry_price,
+            target_price=request.target_price,
+            stop_price=request.stop_price,
+        )
+
+        async def _place_bracket():
+            parent_trade: Trade = self._ib.placeOrder(contract, bracket.parent)
+            self._ib.placeOrder(contract, bracket.target)
+            self._ib.placeOrder(contract, bracket.stop)
+            return parent_trade
+
+        parent_trade = await self._run_on_ib_loop(_place_bracket())
+        raw_status, error_message = self._extract_final_order_status(parent_trade)
+        status = self._map_order_status(raw_status)
+        fill_price = None
+        filled_qty = 0
+        if parent_trade.fills:
+            fill_price = sum(f.execution.price * f.execution.shares for f in parent_trade.fills) / sum(
+                f.execution.shares for f in parent_trade.fills
+            )
+            filled_qty = int(sum(f.execution.shares for f in parent_trade.fills))
+
+        parent_order_id = str(bracket.parent.orderId)
+        chain = OrderChainState(
+            ticker=request.ticker,
+            parent_order_id=parent_order_id,
+            target_order_id=str(bracket.target.orderId),
+            stop_order_id=str(bracket.stop.orderId),
+            parent_side=request.side.value,
+            entry_order_type=request.entry_order_type.value,
+            quantity=request.quantity,
+            target_price=request.target_price,
+            stop_price=request.stop_price,
+        )
+        self._order_registry.register(chain)
+        self._order_registry.update_fill(
+            parent_order_id,
+            fill_price=fill_price,
+            filled_quantity=filled_qty,
+            status=status.value,
+        )
+
+        log.info(
+            "ibkr_broker.bracket_submitted",
+            ticker=request.ticker,
+            parent_order_id=parent_order_id,
+            target_order_id=chain.target_order_id,
+            stop_order_id=chain.stop_order_id,
+            status=status.value,
+            ib_status=raw_status,
+            error_message=error_message,
+        )
+
+        return BracketOrderResult(
+            parent=OrderResult(
+                order_id=parent_order_id,
+                ticker=request.ticker,
+                side=request.side,
+                quantity=request.quantity,
+                order_type=request.entry_order_type,
+                status=status,
+                fill_price=fill_price,
+                filled_quantity=filled_qty,
+                timestamp=datetime.now(),
+            ),
+            target_order_id=chain.target_order_id,
+            stop_order_id=chain.stop_order_id,
+            target_price=request.target_price,
+            stop_price=request.stop_price,
+        )
+
     async def cancel_order(self, order_id: str) -> bool:
         async def _cancel():
             for trade in self._ib.openTrades():
@@ -430,6 +519,46 @@ class IBKRBroker(BrokerInterface):
         result = await self._run_on_ib_loop(_cancel())
         log.info("ibkr_broker.cancel_order", order_id=order_id, success=result)
         return result
+
+    async def cancel_target_leg(self, parent_order_id: str) -> bool:
+        chain = self._order_registry.get(parent_order_id)
+        if chain is None:
+            return False
+        success = await self.cancel_order(chain.target_order_id)
+        if success:
+            self._order_registry.mark_runner_mode(parent_order_id)
+            log.info(
+                "ibkr_broker.target_leg_cancelled",
+                parent_order_id=parent_order_id,
+                target_order_id=chain.target_order_id,
+            )
+        return success
+
+    async def revise_stop_leg(self, parent_order_id: str, new_stop_price: float) -> bool:
+        chain = self._order_registry.get(parent_order_id)
+        if chain is None:
+            return False
+        if not self._order_registry.update_stop(parent_order_id, new_stop_price):
+            return False
+
+        contract = await self._make_contract(chain.ticker)
+        action = "SELL" if chain.parent_side == OrderSide.BUY.value else "BUY"
+        revised_stop = StopOrder(action, chain.quantity, new_stop_price)
+        revised_stop.orderId = int(chain.stop_order_id)
+        revised_stop.parentId = int(chain.parent_order_id)
+        revised_stop.transmit = True
+
+        async def _place_revised_stop() -> None:
+            self._ib.placeOrder(contract, revised_stop)
+
+        await self._run_on_ib_loop(_place_revised_stop())
+        log.info(
+            "ibkr_broker.stop_leg_revised",
+            parent_order_id=parent_order_id,
+            stop_order_id=chain.stop_order_id,
+            stop_price=new_stop_price,
+        )
+        return True
 
     @staticmethod
     def _map_order_status(ib_status: str) -> OrderStatus:

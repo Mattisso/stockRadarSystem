@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.broker.interface import BrokerInterface, OrderSide, OrderStatus, OrderType
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.metrics import (
     OPEN_POSITIONS,
@@ -14,6 +15,7 @@ from app.core.metrics import (
 )
 from app.data.tick_buffer import MarketSnapshot, TickBuffer
 from app.engine.buy_agent import BuyAgent
+from app.engine.execution_state import ExecutionPhase, ManagedExecutionState
 from app.engine.sell_agent import OpenPosition, SellAgent
 from app.engine.signal_detector import SignalDetector
 from app.engine.state_machine import StateMachine, SymbolStage
@@ -57,6 +59,7 @@ class TradeExecutor:
         self.buy_agent = buy_agent or BuyAgent(broker=broker, risk_manager=risk_manager)
         self.sell_agent = sell_agent or SellAgent(broker=broker, risk_manager=risk_manager)
         self._open_positions: dict[str, OpenPosition] = {}
+        self._execution_states: dict[str, ManagedExecutionState] = {}
 
     async def collect_market_data(self, tickers: list[str]) -> None:
         """Fetch quotes + order books and push to tick buffer.
@@ -180,7 +183,15 @@ class TradeExecutor:
                     stop_loss=result.stop_loss,
                     target=result.target,
                     highest_price=result.fill_price,
+                    entry_time=datetime.now(),
                 )
+                self._execution_states[ticker] = ManagedExecutionState(
+                    ticker=ticker,
+                    trade_id=result.trade_id,
+                    order_id=result.order_id,
+                    filled_at=datetime.now(),
+                )
+                self._execution_states[ticker].mark_managed()
 
                 TRADES_EXECUTED.labels(side="buy").inc()
                 OPEN_POSITIONS.set(len(self._open_positions))
@@ -232,8 +243,19 @@ class TradeExecutor:
                     pos.stop_loss = assessment.stop_loss
                     pos.highest_price = assessment.highest_price
 
+                    state = self._execution_states.get(ticker)
+                    if (
+                        assessment.reason is None
+                        and state is not None
+                        and state.phase == ExecutionPhase.MANAGED
+                    ):
+                        await self._maybe_transition_runner(ticker, pos, state)
+
                     if assessment.reason is None:
                         continue
+
+                    if state is not None:
+                        state.mark_exit_pending(assessment.reason)
 
                     closed = await self.sell_agent.execute_exit(
                         db=db,
@@ -248,6 +270,8 @@ class TradeExecutor:
                     pnl = trade.pnl if trade and trade.pnl is not None else 0.0
                     TRADE_PNL.observe(pnl)
                     tickers_to_close.append(ticker)
+                    if state is not None:
+                        state.mark_closed(assessment.reason)
 
                     log.info(
                         "trade_executor.exit_executed",
@@ -261,6 +285,7 @@ class TradeExecutor:
             # Remove closed positions
             for ticker in tickers_to_close:
                 del self._open_positions[ticker]
+                self._execution_states.pop(ticker, None)
             if tickers_to_close:
                 OPEN_POSITIONS.set(len(self._open_positions))
 
@@ -270,6 +295,40 @@ class TradeExecutor:
             log.exception("trade_executor.monitor_positions_error")
         finally:
             db.close()
+
+    async def _maybe_transition_runner(
+        self,
+        ticker: str,
+        position: OpenPosition,
+        state: ManagedExecutionState,
+    ) -> None:
+        trigger_price = round(
+            position.entry_price * (1.0 + settings.runner_trigger_profit_pct),
+            4,
+        )
+        if position.highest_price < trigger_price:
+            return
+
+        try:
+            await self.broker.cancel_target_leg(state.order_id)
+        except NotImplementedError:
+            pass
+
+        breakeven_stop = round(position.entry_price, 4)
+        try:
+            await self.broker.revise_stop_leg(state.order_id, breakeven_stop)
+        except NotImplementedError:
+            pass
+
+        position.stop_loss = max(position.stop_loss, breakeven_stop)
+        state.mark_runner_mode()
+        log.info(
+            "trade_executor.runner_mode_started",
+            ticker=ticker,
+            trade_id=state.trade_id,
+            order_id=state.order_id,
+            stop_loss=position.stop_loss,
+        )
 
 
 def _classify_rejection(reason: str) -> str:
