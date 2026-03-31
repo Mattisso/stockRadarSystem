@@ -93,6 +93,61 @@ class IBKRBroker(BrokerInterface):
         self._universe_cache_time: float = 0.0
         self._universe_cache_ttl: float = 60.0
 
+    @staticmethod
+    def _compute_fill_summary(trade: Trade) -> tuple[float | None, int]:
+        fills = list(getattr(trade, "fills", []) or [])
+        if not fills:
+            return None, 0
+        total_shares = sum(f.execution.shares for f in fills)
+        if total_shares <= 0:
+            return None, 0
+        avg_price = sum(f.execution.price * f.execution.shares for f in fills) / total_shares
+        return avg_price, int(total_shares)
+
+    def _subscribe_trade_event(self, event, handler) -> None:
+        if event is None:
+            return
+        try:
+            event += handler
+        except Exception:
+            return
+
+    def _attach_trade_lifecycle(self, trade: Trade) -> None:
+        self._subscribe_trade_event(getattr(trade, "statusEvent", None), self._on_trade_status_event)
+        self._subscribe_trade_event(getattr(trade, "fillEvent", None), self._on_trade_fill_event)
+        self._subscribe_trade_event(getattr(trade, "filledEvent", None), self._on_trade_status_event)
+        self._subscribe_trade_event(getattr(trade, "cancelledEvent", None), self._on_trade_status_event)
+
+    def _sync_order_chain_from_trade(self, trade: Trade) -> None:
+        order = getattr(trade, "order", None)
+        if order is None:
+            return
+        order_id = str(getattr(order, "orderId", "") or "")
+        if not order_id:
+            return
+        chain = self._order_registry.by_child_order_id(order_id)
+        if chain is None:
+            return
+
+        raw_status, _ = self._extract_final_order_status(trade)
+        mapped_status = self._map_order_status(raw_status).value
+        self._order_registry.update_order_status(order_id, mapped_status)
+
+        fill_price, filled_qty = self._compute_fill_summary(trade)
+        if order_id == chain.parent_order_id:
+            self._order_registry.update_fill(
+                chain.parent_order_id,
+                fill_price=fill_price,
+                filled_quantity=filled_qty,
+                status=mapped_status,
+            )
+
+    def _on_trade_status_event(self, trade: Trade, *args) -> None:
+        self._sync_order_chain_from_trade(trade)
+
+    def _on_trade_fill_event(self, trade: Trade, fill=None, *args) -> None:
+        self._sync_order_chain_from_trade(trade)
+
     # ── Event loop bridging ──────────────────────────────────────────
 
     def _run_on_ib_loop(self, coro):
@@ -390,14 +445,7 @@ class IBKRBroker(BrokerInterface):
 
         raw_status, error_message = self._extract_final_order_status(trade)
         status = self._map_order_status(raw_status)
-        fill_price = None
-        filled_qty = 0
-
-        if trade.fills:
-            fill_price = sum(f.execution.price * f.execution.shares for f in trade.fills) / sum(
-                f.execution.shares for f in trade.fills
-            )
-            filled_qty = int(sum(f.execution.shares for f in trade.fills))
+        fill_price, filled_qty = self._compute_fill_summary(trade)
 
         order_id = str(trade.order.orderId)
         log.info(
@@ -444,20 +492,17 @@ class IBKRBroker(BrokerInterface):
 
         async def _place_bracket():
             parent_trade: Trade = self._ib.placeOrder(contract, bracket.parent)
-            self._ib.placeOrder(contract, bracket.target)
-            self._ib.placeOrder(contract, bracket.stop)
-            return parent_trade
+            target_trade: Trade = self._ib.placeOrder(contract, bracket.target)
+            stop_trade: Trade = self._ib.placeOrder(contract, bracket.stop)
+            return parent_trade, target_trade, stop_trade
 
-        parent_trade = await self._run_on_ib_loop(_place_bracket())
+        parent_trade, target_trade, stop_trade = await self._run_on_ib_loop(_place_bracket())
+        self._attach_trade_lifecycle(parent_trade)
+        self._attach_trade_lifecycle(target_trade)
+        self._attach_trade_lifecycle(stop_trade)
         raw_status, error_message = self._extract_final_order_status(parent_trade)
         status = self._map_order_status(raw_status)
-        fill_price = None
-        filled_qty = 0
-        if parent_trade.fills:
-            fill_price = sum(f.execution.price * f.execution.shares for f in parent_trade.fills) / sum(
-                f.execution.shares for f in parent_trade.fills
-            )
-            filled_qty = int(sum(f.execution.shares for f in parent_trade.fills))
+        fill_price, filled_qty = self._compute_fill_summary(parent_trade)
 
         parent_order_id = str(bracket.parent.orderId)
         chain = OrderChainState(
@@ -478,6 +523,8 @@ class IBKRBroker(BrokerInterface):
             filled_quantity=filled_qty,
             status=status.value,
         )
+        self._sync_order_chain_from_trade(target_trade)
+        self._sync_order_chain_from_trade(stop_trade)
 
         log.info(
             "ibkr_broker.bracket_submitted",

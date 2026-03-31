@@ -115,6 +115,9 @@ class SellAgent:
             trade.exit_price = order.fill_price
             trade.exit_time = datetime.now()
             trade.pnl = pnl
+            trade.last_stop_price = position.stop_loss
+            trade.execution_phase = "closed"
+            trade.close_reason = assessment.reason
 
             if trade.signal_id:
                 signal = db.query(Signal).filter_by(id=trade.signal_id).first()

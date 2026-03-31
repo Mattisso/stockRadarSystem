@@ -156,5 +156,8 @@ async def test_execute_exit_closes_trade_and_updates_signal(
     assert closed is True
     assert trade.status == TradeStatus.CLOSED
     assert trade.exit_price == 10.5
+    assert trade.execution_phase == "closed"
+    assert trade.close_reason is not None
+    assert trade.last_stop_price == 9.5
     assert signal.outcome_pnl == 5.0
     db.close()

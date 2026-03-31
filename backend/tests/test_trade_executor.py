@@ -16,7 +16,7 @@ from app.engine.signal_detector import FeatureVector, SignalType
 from app.engine.state_machine import SymbolStage
 from app.engine.trade_executor import TradeExecutor
 from app.models.signal import Signal
-from app.models.trade import Trade
+from app.models.trade import Trade, TradeSide, TradeStatus
 from app.risk.risk_manager import RiskManager
 
 
@@ -136,6 +136,22 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
         ),
     ))
 
+    db = db_session_factory()
+    db.add(
+        Trade(
+            id=7,
+            ticker="SIRI",
+            side=TradeSide.BUY,
+            status=TradeStatus.FILLED,
+            quantity=100,
+            entry_price=3.21,
+            stop_loss_price=3.0,
+            target_price=3.45,
+        )
+    )
+    db.commit()
+    db.close()
+
     executor.tick_buffer.push(
         "SIRI",
         SimpleNamespace(
@@ -165,9 +181,13 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
 
     db = db_session_factory()
     signal = db.query(Signal).filter_by(ticker="SIRI").one()
+    trade = db.query(Trade).filter_by(id=7).one()
     assert "SIRI" in executor._open_positions
     assert "SIRI" in executor._execution_states
     assert executor._execution_states["SIRI"].phase == ExecutionPhase.MANAGED
+    assert trade.execution_phase == "managed"
+    assert trade.entry_order_id == "ord-1"
+    assert trade.last_stop_price == 3.0
     assert signal.stage == "ready_to_buy"
     db.close()
 
@@ -183,6 +203,7 @@ async def test_monitor_positions_uses_sell_agent_and_closes_position(executor):
         stop_loss=2.8,
         target=3.4,
         highest_price=3.1,
+        entry_time=datetime.now(),
     )
     executor.tick_buffer.push(
         "SIRI",
@@ -255,3 +276,66 @@ async def test_monitor_positions_promotes_runner_mode(executor):
     executor.broker.revise_stop_leg.assert_awaited_once_with("ord-7", 10.0)
     assert executor._execution_states["SIRI"].phase == ExecutionPhase.RUNNER_MODE
     assert executor._open_positions["SIRI"].stop_loss >= 10.0
+
+
+@pytest.mark.asyncio
+async def test_monitor_positions_persists_runner_mode(executor, db_session_factory):
+    db = db_session_factory()
+    db.add(
+        Trade(
+            id=7,
+            ticker="SIRI",
+            side=TradeSide.BUY,
+            status=TradeStatus.FILLED,
+            quantity=100,
+            entry_price=10.0,
+            stop_loss_price=9.6,
+            target_price=11.0,
+        )
+    )
+    db.commit()
+    db.close()
+
+    executor._open_positions["SIRI"] = SimpleNamespace(
+        ticker="SIRI",
+        trade_id=7,
+        quantity=100,
+        entry_price=10.0,
+        stop_loss=9.6,
+        target=11.0,
+        highest_price=10.0,
+        entry_time=datetime.now(),
+    )
+    state = SimpleNamespace(
+        trade_id=7,
+        order_id="ord-7",
+        phase=ExecutionPhase.MANAGED,
+    )
+    state.mark_runner_mode = lambda: setattr(state, "phase", ExecutionPhase.RUNNER_MODE)
+    executor._execution_states["SIRI"] = state
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=10.35,
+                ask=10.37,
+                last=10.4,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=None,
+            timestamp=datetime.now(),
+        ),
+    )
+    executor.broker.cancel_target_leg = AsyncMock(return_value=True)
+    executor.broker.revise_stop_leg = AsyncMock(return_value=True)
+
+    await executor.monitor_positions()
+
+    db = db_session_factory()
+    trade = db.query(Trade).filter_by(id=7).one()
+    assert trade.runner_mode == "true"
+    assert trade.execution_phase == "runner_mode"
+    assert trade.last_stop_price >= 10.0
+    db.close()

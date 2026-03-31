@@ -192,6 +192,11 @@ class TradeExecutor:
                     filled_at=datetime.now(),
                 )
                 self._execution_states[ticker].mark_managed()
+                trade = db.query(Trade).filter_by(id=result.trade_id).first()
+                if trade is not None:
+                    trade.execution_phase = ExecutionPhase.MANAGED.value
+                    trade.entry_order_id = result.order_id
+                    trade.last_stop_price = result.stop_loss
 
                 TRADES_EXECUTED.labels(side="buy").inc()
                 OPEN_POSITIONS.set(len(self._open_positions))
@@ -322,6 +327,19 @@ class TradeExecutor:
 
         position.stop_loss = max(position.stop_loss, breakeven_stop)
         state.mark_runner_mode()
+        db: Session = self.db_session_factory()
+        try:
+            trade = db.query(Trade).filter_by(id=state.trade_id).first()
+            if trade is not None:
+                trade.runner_mode = "true"
+                trade.execution_phase = ExecutionPhase.RUNNER_MODE.value
+                trade.last_stop_price = position.stop_loss
+                db.commit()
+        except Exception:
+            db.rollback()
+            log.exception("trade_executor.runner_mode_persist_failed", ticker=ticker, trade_id=state.trade_id)
+        finally:
+            db.close()
         log.info(
             "trade_executor.runner_mode_started",
             ticker=ticker,

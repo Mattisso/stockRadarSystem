@@ -47,3 +47,24 @@ def test_order_registry_stop_updates_are_monotonic():
     assert chain.stop_price == 9.75
     assert registry.update_stop("20", 9.4) is False
     assert chain.stop_price == 9.75
+
+
+def test_order_registry_updates_child_order_statuses():
+    registry = OrderRegistry()
+    chain = OrderChainState(
+        ticker="AAPL",
+        parent_order_id="30",
+        target_order_id="31",
+        stop_order_id="32",
+        parent_side="buy",
+        entry_order_type="limit",
+        quantity=100,
+        target_price=12.0,
+        stop_price=9.5,
+    )
+    registry.register(chain)
+
+    assert registry.update_order_status("31", "cancelled") is True
+    assert registry.update_order_status("32", "pending") is True
+    assert chain.target_status == "cancelled"
+    assert chain.stop_status == "pending"

@@ -64,6 +64,15 @@ def _make_contract(symbol="AAPL", con_id=12345):
     return contract
 
 
+class _DummyEvent:
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+
 @pytest.fixture
 async def broker():
     """Create an IBKRBroker with mocked IB instance — skip real thread/loop."""
@@ -264,12 +273,22 @@ async def test_cancel_order(broker):
 
 @pytest.mark.asyncio
 async def test_submit_bracket_order_registers_chain(broker):
-    mock_trade = MagicMock()
-    mock_trade.orderStatus.status = "Submitted"
-    mock_trade.order.orderId = 500
-    mock_trade.fills = []
-    mock_trade.log = []
-    broker._ib.placeOrder.return_value = mock_trade
+    def make_trade(order_id: int, status: str = "Submitted"):
+        trade = MagicMock()
+        trade.orderStatus.status = status
+        trade.order.orderId = order_id
+        trade.fills = []
+        trade.log = []
+        trade.statusEvent = _DummyEvent()
+        trade.fillEvent = _DummyEvent()
+        trade.filledEvent = _DummyEvent()
+        trade.cancelledEvent = _DummyEvent()
+        return trade
+
+    parent_trade = make_trade(500)
+    target_trade = make_trade(501)
+    stop_trade = make_trade(502)
+    broker._ib.placeOrder.side_effect = [parent_trade, target_trade, stop_trade]
 
     result = await broker.submit_bracket_order(
         BracketOrderRequest(
@@ -291,6 +310,9 @@ async def test_submit_bracket_order_registers_chain(broker):
     assert chain.target_order_id == "501"
     assert chain.stop_order_id == "502"
     assert chain.parent_side == OrderSide.BUY.value
+    assert len(parent_trade.statusEvent.handlers) == 1
+    assert len(target_trade.statusEvent.handlers) == 1
+    assert len(stop_trade.statusEvent.handlers) == 1
     assert broker._ib.placeOrder.call_count == 3
 
 
@@ -377,6 +399,63 @@ async def test_revise_stop_leg_rejects_lower_stop_without_ib_update(broker):
     assert chain is not None
     assert chain.stop_price == 9.5
     broker._ib.placeOrder.assert_not_called()
+
+
+def test_sync_order_chain_from_trade_updates_parent_fill_state(broker):
+    broker._order_registry.register(
+        OrderChainState(
+            ticker="AAPL",
+            parent_order_id="500",
+            target_order_id="501",
+            stop_order_id="502",
+            parent_side=OrderSide.BUY.value,
+            entry_order_type=OrderType.LIMIT.value,
+            quantity=10,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+    trade = MagicMock()
+    trade.order.orderId = 500
+    trade.orderStatus.status = "Filled"
+    trade.log = []
+    trade.fills = [SimpleNamespace(execution=SimpleNamespace(price=10.25, shares=10))]
+
+    broker._sync_order_chain_from_trade(trade)
+
+    chain = broker._order_registry.get("500")
+    assert chain is not None
+    assert chain.status == OrderStatus.FILLED.value
+    assert chain.fill_price == 10.25
+    assert chain.filled_quantity == 10
+    assert chain.filled_at is not None
+
+
+def test_sync_order_chain_from_trade_updates_child_statuses(broker):
+    broker._order_registry.register(
+        OrderChainState(
+            ticker="AAPL",
+            parent_order_id="500",
+            target_order_id="501",
+            stop_order_id="502",
+            parent_side=OrderSide.BUY.value,
+            entry_order_type=OrderType.LIMIT.value,
+            quantity=10,
+            target_price=11.0,
+            stop_price=9.5,
+        )
+    )
+    trade = MagicMock()
+    trade.order.orderId = 501
+    trade.orderStatus.status = "Cancelled"
+    trade.log = []
+    trade.fills = []
+
+    broker._sync_order_chain_from_trade(trade)
+
+    chain = broker._order_registry.get("500")
+    assert chain is not None
+    assert chain.target_status == OrderStatus.CANCELLED.value
 
 
 @pytest.mark.asyncio

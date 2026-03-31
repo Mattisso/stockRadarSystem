@@ -18,6 +18,8 @@ class OrderChainState:
     fill_price: float | None = None
     filled_quantity: int = 0
     status: str = "submitted"
+    target_status: str = "submitted"
+    stop_status: str = "submitted"
     runner_mode: bool = False
     submitted_at: datetime = field(default_factory=datetime.now)
     filled_at: datetime | None = None
@@ -61,6 +63,18 @@ class OrderRegistry:
         chain.status = status
         if filled_quantity > 0 and chain.filled_at is None:
             chain.filled_at = datetime.now()
+
+    def update_order_status(self, order_id: str, status: str) -> bool:
+        chain = self.by_child_order_id(order_id)
+        if chain is None:
+            return False
+        if order_id == chain.parent_order_id:
+            chain.status = status
+        elif order_id == chain.target_order_id:
+            chain.target_status = status
+        elif order_id == chain.stop_order_id:
+            chain.stop_status = status
+        return True
 
     def update_stop(self, parent_order_id: str, new_stop_price: float) -> bool:
         chain = self._chains.get(parent_order_id)

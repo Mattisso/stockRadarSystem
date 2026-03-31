@@ -83,11 +83,13 @@ class BuyAgent:
                     limit_price=limit_price,
                 )
                 final_order = order
+                trade_record.entry_order_id = order.order_id
 
                 if order.status == OrderStatus.FILLED and order.fill_price is not None:
                     trade_record.status = TradeStatus.FILLED
                     trade_record.entry_price = order.fill_price
                     trade_record.entry_time = datetime.now()
+                    trade_record.execution_phase = "managed"
                     signal_record.acted_on = True
                     db.flush()
                     log.info(
@@ -110,6 +112,7 @@ class BuyAgent:
                     )
 
                 trade_record.status = _to_trade_status(order.status)
+                trade_record.execution_phase = "entry_submitted"
                 db.flush()
 
                 if attempt >= settings.buy_retry_attempts:
@@ -159,9 +162,11 @@ class BuyAgent:
             status=TradeStatus.PENDING,
             quantity=params.quantity,
             entry_price=params.entry_price,
+            last_stop_price=params.stop_loss_price,
             stop_loss_price=params.stop_loss_price,
             target_price=params.target_price,
             signal_score=signal_score,
+            execution_phase="entry_submitted",
             entry_time=datetime.now(),
         )
         db.add(trade_record)
