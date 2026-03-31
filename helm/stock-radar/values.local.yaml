@@ -8,6 +8,7 @@ api:
     PGPORT: "5434"
     PGDATABASE: stock_radar
     TRADING_MODE: paper
+    BUY_USE_BRACKETS: "true"
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
   broker:
     type: "ibkr"

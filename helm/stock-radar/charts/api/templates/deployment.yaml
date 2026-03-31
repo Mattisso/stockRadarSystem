@@ -50,6 +50,8 @@ spec:
               value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ .Values.env.PGHOST }}:{{ .Values.env.PGPORT }}/{{ .Values.env.PGDATABASE }}"
             - name: TRADING_MODE
               value: {{ .Values.env.TRADING_MODE | quote }}
+            - name: BUY_USE_BRACKETS
+              value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
             - name: BROKER_TYPE
               value: {{ .Values.broker.type | quote }}
             - name: IBKR_HOST

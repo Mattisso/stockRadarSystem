@@ -49,6 +49,7 @@ env:
   PGPASSWORD_SECRET_KEY: PGPASSWORD
   PGDATABASE: "stock_radar"
   TRADING_MODE: "paper"
+  BUY_USE_BRACKETS: "false"
 
 secretName: "postgres-secret"
 apiSecretName: "api-secret"
