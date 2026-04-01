@@ -26,6 +26,9 @@ from app.schemas.ml import (
     KPIResponse,
     MLStatusResponse,
     RetrainResponse,
+    SecretSauceContractResponse,
+    SecretSauceHandoffResponse,
+    SecretSauceQueueStatusResponse,
     SignalAccuracyBucketResponse,
 )
 from app.schemas.signal import SignalRead
@@ -82,6 +85,9 @@ async def contract_metadata():
             "/api/state-machine",
             "/api/portfolio",
             "/api/breakouts",
+            "/api/secret-sauce/contract",
+            "/api/secret-sauce/handoffs",
+            "/api/secret-sauce/queue",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -197,6 +203,53 @@ async def get_breakout_candidates(request: Request):
         }
         for e in events
     ]
+
+
+@router.get("/secret-sauce/contract", response_model=SecretSauceContractResponse)
+async def get_secret_sauce_contract():
+    return SecretSauceContractResponse(
+        consumer="secret_sauce",
+        handoff_route="/api/secret-sauce/handoffs",
+        handoff_fields=[
+            "ticker",
+            "score",
+            "detected_at",
+            "price_velocity_1m",
+            "volume_expansion",
+            "spread_pct",
+            "quote_rate",
+            "buy_pressure",
+            "reason_flags",
+            "promotion_reason",
+            "consumer",
+            "l2_required",
+        ],
+        promotion_reason="secret_candidate",
+        requires_l2=True,
+    )
+
+
+@router.get("/secret-sauce/handoffs", response_model=list[SecretSauceHandoffResponse])
+async def get_secret_sauce_handoffs(request: Request, limit: int = 50):
+    manager = getattr(request.app.state, "secret_sauce_handoffs", None)
+    if manager is None:
+        return []
+    return [SecretSauceHandoffResponse(**handoff.to_dict()) for handoff in manager.recent(limit)]
+
+
+@router.get("/secret-sauce/queue", response_model=SecretSauceQueueStatusResponse)
+async def get_secret_sauce_queue_status(request: Request):
+    manager = getattr(request.app.state, "secret_l2_promotion_queue", None)
+    if manager is None:
+        return SecretSauceQueueStatusResponse(
+            active_count=0,
+            active_tickers=[],
+            queue_depth=0,
+            queued_tickers=[],
+            max_active=0,
+            max_queue_size=0,
+        )
+    return SecretSauceQueueStatusResponse(**manager.snapshot())
 
 
 # ── ML Endpoints ─────────────────────────────────────────────────────

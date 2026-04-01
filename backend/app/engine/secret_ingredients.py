@@ -6,7 +6,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from app.engine.breakout_engine import BreakoutEvent
+from app.engine.secret_candidate_scorer import SecretCandidateEvent
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.symbol import Symbol
@@ -55,7 +55,7 @@ class SecretIngredientsService:
         self.db.flush()
         return rows_added
 
-    def record_candidates(self, events: list[BreakoutEvent]) -> list[L1Candidate]:
+    def record_candidates(self, events: list[SecretCandidateEvent]) -> list[L1Candidate]:
         records: list[L1Candidate] = []
         for event in events:
             record = L1Candidate(
@@ -73,16 +73,17 @@ class SecretIngredientsService:
         self.db.flush()
         return records
 
-    def record_l1_to_l2_events(self, events: list[BreakoutEvent]) -> list[L1ToL2Event]:
+    def record_l1_to_l2_events(self, events: list[SecretCandidateEvent]) -> list[L1ToL2Event]:
         rows: list[L1ToL2Event] = []
         for event in events:
             payload = self.build_handoff_payload(event)
+            now = datetime.now()
             row = L1ToL2Event(
                 ticker=event.ticker,
                 detect_ts=event.timestamp,
-                escalate_ts=datetime.now(),
-                latency_ms=max(0.0, (datetime.now() - event.timestamp).total_seconds() * 1000),
-                escalation_reason="breakout_candidate",
+                escalate_ts=now,
+                latency_ms=max(0.0, (now - event.timestamp).total_seconds() * 1000),
+                escalation_reason="secret_candidate",
                 handoff_payload=json.dumps(payload, sort_keys=True),
             )
             self.db.add(row)
@@ -91,19 +92,23 @@ class SecretIngredientsService:
         return rows
 
     @staticmethod
-    def build_handoff_payload(event: BreakoutEvent) -> dict:
+    def build_handoff_payload(event: SecretCandidateEvent) -> dict:
         payload = asdict(event)
         payload["timestamp"] = event.timestamp.isoformat()
-        payload["promotion_reason"] = "breakout_candidate"
+        payload["promotion_reason"] = "secret_candidate"
         return payload
 
     @staticmethod
-    def _reason_flags(event: BreakoutEvent) -> str:
+    def _reason_flags(event: SecretCandidateEvent) -> str:
+        if event.reason_flags:
+            return ",".join(event.reason_flags)
         flags: list[str] = []
         if event.breakout_score >= 0.6:
             flags.append("candidate_score")
-        if event.pct_change_1m >= 5.0:
+        if event.pct_change_1m >= 3.0:
             flags.append("price_velocity")
-        if event.volume_ratio >= 2.0:
-            flags.append("volume_surge")
+        if event.volume_ratio >= 1.8:
+            flags.append("volume_expansion")
+        if event.buy_pressure >= 0.65:
+            flags.append("buy_pressure")
         return ",".join(flags)

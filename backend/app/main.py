@@ -16,11 +16,21 @@ from app.api.ws_manager import ConnectionManager
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
-from app.core.metrics import ML_MODEL_TRAINED, SCHEDULER_JOB_DURATION, SCHEDULER_JOB_ERRORS
+from app.core.metrics import (
+    ML_MODEL_TRAINED,
+    SCHEDULER_JOB_DURATION,
+    SCHEDULER_JOB_ERRORS,
+    SECRET_L2_PROMOTIONS_TOTAL,
+    SECRET_L2_QUEUE_DEPTH,
+)
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
+from app.engine.l1_feature_engine import L1FeatureEngine
+from app.engine.l2_promotion_queue import L2PromotionQueue
+from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_ingredients import SecretIngredientsService
+from app.engine.secret_sauce_handoff import SecretSauceHandoffManager
 from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
@@ -117,11 +127,24 @@ async def lifespan(app: FastAPI):
     from app.engine.breakout_engine import BreakoutEngine
 
     breakout_engine = BreakoutEngine(cache=cache)
+    l1_feature_engine = L1FeatureEngine()
+    secret_candidate_scorer = SecretCandidateScorer(
+        min_score=settings.secret_candidate_min_score,
+        max_spread_pct=settings.secret_candidate_max_spread_pct,
+        min_quote_rate=settings.secret_candidate_min_quote_rate,
+        min_buy_pressure=settings.secret_candidate_min_buy_pressure,
+        min_volume_expansion=settings.secret_candidate_min_volume_expansion,
+    )
+    secret_sauce_handoffs = SecretSauceHandoffManager()
     runtime.mark_service("breakout_engine", True)
     if polygon_client:
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
 
-        polygon_queue_consumer = BreakoutQueueConsumer(polygon_queue, breakout_engine)
+        polygon_queue_consumer = BreakoutQueueConsumer(
+            polygon_queue,
+            breakout_engine,
+            l1_feature_engine=l1_feature_engine,
+        )
         await polygon_queue_consumer.start()
         await polygon_client.start()
         runtime.mark_service("polygon_queue_consumer", True)
@@ -142,12 +165,21 @@ async def lifespan(app: FastAPI):
         state_machine=state_machine,
         cache=cache,
     )
+    secret_l2_promotion_queue = L2PromotionQueue(
+        state_machine.l2_manager,
+        max_active=settings.secret_l2_max_active,
+        max_queue_size=settings.secret_l2_queue_maxsize,
+    )
 
     ws_manager = ConnectionManager(redis_url=settings.redis_url or None)
     await ws_manager.start()
     app.state.ws_manager = ws_manager
 
     app.state.breakout_engine = breakout_engine
+    app.state.l1_feature_engine = l1_feature_engine
+    app.state.secret_candidate_scorer = secret_candidate_scorer
+    app.state.secret_sauce_handoffs = secret_sauce_handoffs
+    app.state.secret_l2_promotion_queue = secret_l2_promotion_queue
     app.state.tick_buffer = tick_buffer
     app.state.signal_detector = signal_detector
     app.state.state_machine = state_machine
@@ -239,24 +271,36 @@ async def lifespan(app: FastAPI):
             if not tickers:
                 return
 
-            # L1 breakout pre-filter: ingest from cache, scan for candidates
+            # L1 pre-filter and Secret Ingredients scoring
             await breakout_engine.ingest_from_cache(tickers)
+            await l1_feature_engine.ingest_from_cache(cache, tickers)
             breakout_events = breakout_engine.scan(tickers)
-            if breakout_events:
+            candidate_events = secret_candidate_scorer.score_snapshots(
+                l1_feature_engine.snapshots(tickers)
+            )
+            if candidate_events:
+                handoffs = secret_sauce_handoffs.emit(candidate_events)
+                secret_l2_promotion_queue.enqueue(handoffs)
+                promoted = await secret_l2_promotion_queue.drain_once()
+                SECRET_L2_QUEUE_DEPTH.set(secret_l2_promotion_queue.snapshot()["queue_depth"])
+                if promoted:
+                    SECRET_L2_PROMOTIONS_TOTAL.inc(len(promoted))
                 db = SessionLocal()
                 try:
                     secret_ingredients = SecretIngredientsService(db)
-                    secret_ingredients.record_candidates(breakout_events)
-                    secret_ingredients.record_l1_to_l2_events(breakout_events)
+                    secret_ingredients.record_candidates(candidate_events)
+                    secret_ingredients.record_l1_to_l2_events(candidate_events)
                     db.commit()
                 except Exception:
                     db.rollback()
                     log.exception("secret_ingredients.persistence_error")
                 finally:
                     db.close()
+            else:
+                SECRET_L2_QUEUE_DEPTH.set(secret_l2_promotion_queue.snapshot()["queue_depth"])
 
-            # Deep analysis: only candidates from breakout engine + already-tracked tickers
-            candidate_tickers = {e.ticker for e in breakout_events}
+            # Deep analysis: Secret Ingredients candidates + existing tracked tickers
+            candidate_tickers = {e.ticker for e in candidate_events}
             tracked_tickers = {
                 s.ticker for s in state_machine.all_states() if s.stage.value != "normal"
             }
@@ -302,9 +346,12 @@ async def lifespan(app: FastAPI):
                             "pct_change_1m": e.pct_change_1m,
                             "pct_change_5m": e.pct_change_5m,
                             "volume_ratio": e.volume_ratio,
+                            "spread_pct": e.spread_pct,
+                            "quote_rate": e.quote_rate,
+                            "buy_pressure": e.buy_pressure,
                             "timestamp": e.timestamp.isoformat(),
                         }
-                        for e in breakout_events
+                        for e in candidate_events
                     ]
                     await ws_manager.broadcast("live_movers", live_movers, channel="l1")
 

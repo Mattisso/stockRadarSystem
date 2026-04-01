@@ -72,3 +72,35 @@ class ApiContractResponse(BaseModel):
     public_routes: list[str]
     protected_routes: list[str]
     websocket_channels: list[str]
+
+
+class SecretSauceContractResponse(BaseModel):
+    consumer: str
+    handoff_route: str
+    handoff_fields: list[str]
+    promotion_reason: str
+    requires_l2: bool
+
+
+class SecretSauceHandoffResponse(BaseModel):
+    ticker: str
+    score: float
+    detected_at: datetime
+    price_velocity_1m: float
+    volume_expansion: float
+    spread_pct: float
+    quote_rate: float
+    buy_pressure: float
+    reason_flags: list[str]
+    promotion_reason: str
+    consumer: str
+    l2_required: bool
+
+
+class SecretSauceQueueStatusResponse(BaseModel):
+    active_count: int
+    active_tickers: list[str]
+    queue_depth: int
+    queued_tickers: list[str]
+    max_active: int
+    max_queue_size: int

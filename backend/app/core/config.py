@@ -99,6 +99,13 @@ class Settings(BaseSettings):
     polygon_queue_maxsize: int = 10_000
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
+    secret_candidate_min_score: float = 0.55
+    secret_candidate_max_spread_pct: float = 0.02
+    secret_candidate_min_quote_rate: float = 0.10
+    secret_candidate_min_buy_pressure: float = 0.45
+    secret_candidate_min_volume_expansion: float = 1.10
+    secret_l2_max_active: int = 8
+    secret_l2_queue_maxsize: int = 100
 
     # --- Redis ---
     redis_url: str = ""  # Empty = use in-memory cache

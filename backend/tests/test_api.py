@@ -66,6 +66,7 @@ def test_contract_metadata(client):
     body = response.json()
     assert body["rest_base"] == "/api"
     assert "/api/ws/signals" in body["websocket_channels"]
+    assert "/api/secret-sauce/handoffs" in body["protected_routes"]
 
 
 # ── Protected routes require auth ────────────────────────────────────
@@ -113,3 +114,51 @@ def test_signal_accuracy_typed_response(client, auth_headers):
     response = client.get("/api/analytics/signal-accuracy", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_secret_sauce_contract(client, auth_headers):
+    response = client.get("/api/secret-sauce/contract", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["consumer"] == "secret_sauce"
+    assert body["handoff_route"] == "/api/secret-sauce/handoffs"
+
+
+def test_secret_sauce_handoffs_returns_recent_events(client, auth_headers):
+    from app.engine.secret_sauce_handoff import SecretSauceHandoffManager
+    from app.engine.secret_candidate_scorer import SecretCandidateEvent
+    from datetime import datetime, timezone
+
+    manager = SecretSauceHandoffManager()
+    manager.emit(
+        [
+            SecretCandidateEvent(
+                ticker="AAPL",
+                breakout_score=0.81,
+                pct_change_1m=4.2,
+                pct_change_5m=4.2,
+                volume_ratio=2.0,
+                spread_pct=0.004,
+                quote_rate=1.1,
+                buy_pressure=0.74,
+                timestamp=datetime.now(tz=timezone.utc),
+                reason_flags=["price_velocity", "buy_pressure"],
+            )
+        ]
+    )
+    client.app.state.secret_sauce_handoffs = manager
+
+    response = client.get("/api/secret-sauce/handoffs", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["ticker"] == "AAPL"
+    assert body[0]["consumer"] == "secret_sauce"
+
+
+def test_secret_sauce_queue_status(client, auth_headers):
+    response = client.get("/api/secret-sauce/queue", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert "queue_depth" in body
+    assert "active_tickers" in body

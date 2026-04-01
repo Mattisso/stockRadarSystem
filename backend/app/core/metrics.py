@@ -80,3 +80,13 @@ POLYGON_RECONNECT_TOTAL = Counter(
     "Total Polygon reconnect attempts",
     ["mode"],
 )
+
+SECRET_L2_QUEUE_DEPTH = Gauge(
+    "stockradar_secret_l2_queue_depth",
+    "Current depth of the Secret Ingredients L2 promotion queue",
+)
+
+SECRET_L2_PROMOTIONS_TOTAL = Counter(
+    "stockradar_secret_l2_promotions_total",
+    "Total Secret Ingredients promotions into L2 subscriptions",
+)
