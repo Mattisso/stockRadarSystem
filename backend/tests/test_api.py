@@ -162,3 +162,12 @@ def test_secret_sauce_queue_status(client, auth_headers):
     body = response.json()
     assert "queue_depth" in body
     assert "active_tickers" in body
+
+
+def test_secret_sauce_status(client, auth_headers):
+    response = client.get("/api/secret-sauce/status", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert "runtime" in body
+    assert "queue" in body
+    assert "polygon_session" in body

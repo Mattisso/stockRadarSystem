@@ -90,3 +90,23 @@ SECRET_L2_PROMOTIONS_TOTAL = Counter(
     "stockradar_secret_l2_promotions_total",
     "Total Secret Ingredients promotions into L2 subscriptions",
 )
+
+SECRET_CANDIDATES_TOTAL = Counter(
+    "stockradar_secret_candidates_total",
+    "Total Secret Ingredients candidates emitted by the dedicated scorer",
+)
+
+SECRET_HANDOFFS_TOTAL = Counter(
+    "stockradar_secret_handoffs_total",
+    "Total Secret Ingredients handoffs emitted toward Secret Sauce",
+)
+
+SECRET_ACTIVE_L2_SLOTS = Gauge(
+    "stockradar_secret_active_l2_slots",
+    "Current number of active Secret Ingredients L2 slots",
+)
+
+SECRET_UNIVERSE_SIZE = Gauge(
+    "stockradar_secret_universe_size",
+    "Current size of the dedicated Secret Ingredients daily universe",
+)

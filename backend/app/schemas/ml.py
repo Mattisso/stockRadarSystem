@@ -104,3 +104,10 @@ class SecretSauceQueueStatusResponse(BaseModel):
     queued_tickers: list[str]
     max_active: int
     max_queue_size: int
+    replaceable_tickers: list[str]
+
+
+class SecretSauceStatusResponse(BaseModel):
+    runtime: dict
+    queue: SecretSauceQueueStatusResponse
+    polygon_session: dict | None = None

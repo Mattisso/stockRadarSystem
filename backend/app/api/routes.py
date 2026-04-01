@@ -28,6 +28,7 @@ from app.schemas.ml import (
     RetrainResponse,
     SecretSauceContractResponse,
     SecretSauceHandoffResponse,
+    SecretSauceStatusResponse,
     SecretSauceQueueStatusResponse,
     SignalAccuracyBucketResponse,
 )
@@ -88,6 +89,7 @@ async def contract_metadata():
             "/api/secret-sauce/contract",
             "/api/secret-sauce/handoffs",
             "/api/secret-sauce/queue",
+            "/api/secret-sauce/status",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -250,6 +252,33 @@ async def get_secret_sauce_queue_status(request: Request):
             max_queue_size=0,
         )
     return SecretSauceQueueStatusResponse(**manager.snapshot())
+
+
+@router.get("/secret-sauce/status", response_model=SecretSauceStatusResponse)
+async def get_secret_sauce_status(request: Request):
+    queue = getattr(request.app.state, "secret_l2_promotion_queue", None)
+    runtime = getattr(request.app.state, "secret_runtime_status", None)
+    polygon_client = getattr(request.app.state, "polygon_client", None)
+    queue_snapshot = (
+        queue.snapshot()
+        if queue is not None
+        else {
+            "active_count": 0,
+            "active_tickers": [],
+            "queue_depth": 0,
+            "queued_tickers": [],
+            "max_active": 0,
+            "max_queue_size": 0,
+            "replaceable_tickers": [],
+        }
+    )
+    runtime_snapshot = runtime.to_dict() if runtime is not None else {}
+    polygon_snapshot = polygon_client.session_snapshot() if polygon_client is not None else None
+    return SecretSauceStatusResponse(
+        runtime=runtime_snapshot,
+        queue=SecretSauceQueueStatusResponse(**queue_snapshot),
+        polygon_session=polygon_snapshot,
+    )
 
 
 # ── ML Endpoints ─────────────────────────────────────────────────────

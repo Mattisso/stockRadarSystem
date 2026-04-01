@@ -20,8 +20,12 @@ from app.core.metrics import (
     ML_MODEL_TRAINED,
     SCHEDULER_JOB_DURATION,
     SCHEDULER_JOB_ERRORS,
+    SECRET_ACTIVE_L2_SLOTS,
+    SECRET_CANDIDATES_TOTAL,
+    SECRET_HANDOFFS_TOTAL,
     SECRET_L2_PROMOTIONS_TOTAL,
     SECRET_L2_QUEUE_DEPTH,
+    SECRET_UNIVERSE_SIZE,
 )
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
@@ -30,6 +34,7 @@ from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
 from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_ingredients import SecretIngredientsService
+from app.engine.secret_runtime_status import SecretIngredientsRuntimeStatus
 from app.engine.secret_sauce_handoff import SecretSauceHandoffManager
 from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
@@ -136,6 +141,7 @@ async def lifespan(app: FastAPI):
         min_volume_expansion=settings.secret_candidate_min_volume_expansion,
     )
     secret_sauce_handoffs = SecretSauceHandoffManager()
+    secret_runtime_status = SecretIngredientsRuntimeStatus()
     runtime.mark_service("breakout_engine", True)
     if polygon_client:
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
@@ -180,6 +186,7 @@ async def lifespan(app: FastAPI):
     app.state.secret_candidate_scorer = secret_candidate_scorer
     app.state.secret_sauce_handoffs = secret_sauce_handoffs
     app.state.secret_l2_promotion_queue = secret_l2_promotion_queue
+    app.state.secret_runtime_status = secret_runtime_status
     app.state.tick_buffer = tick_buffer
     app.state.signal_detector = signal_detector
     app.state.state_machine = state_machine
@@ -247,11 +254,14 @@ async def lifespan(app: FastAPI):
                 tickers = await engine.refresh_secret_ingredients_universe()
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="secret_universe")
+                SECRET_UNIVERSE_SIZE.set(len(tickers))
+                secret_runtime_status.mark_secret_universe_refresh(len(tickers))
                 log.info("scheduler.secret_universe_refreshed", count=len(tickers))
             finally:
                 db.close()
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="secret_universe_refresh").inc()
+            secret_runtime_status.mark_error("secret_universe_refresh_error")
             log.exception("scheduler.secret_universe_refresh_error")
         finally:
             SCHEDULER_JOB_DURATION.labels(job="secret_universe_refresh").observe(time.monotonic() - start)
@@ -279,12 +289,33 @@ async def lifespan(app: FastAPI):
                 l1_feature_engine.snapshots(tickers)
             )
             if candidate_events:
+                SECRET_CANDIDATES_TOTAL.inc(len(candidate_events))
                 handoffs = secret_sauce_handoffs.emit(candidate_events)
+                SECRET_HANDOFFS_TOTAL.inc(len(handoffs))
                 secret_l2_promotion_queue.enqueue(handoffs)
                 promoted = await secret_l2_promotion_queue.drain_once()
-                SECRET_L2_QUEUE_DEPTH.set(secret_l2_promotion_queue.snapshot()["queue_depth"])
+                queue_snapshot = secret_l2_promotion_queue.snapshot()
+                SECRET_L2_QUEUE_DEPTH.set(queue_snapshot["queue_depth"])
+                SECRET_ACTIVE_L2_SLOTS.set(queue_snapshot["active_count"])
                 if promoted:
                     SECRET_L2_PROMOTIONS_TOTAL.inc(len(promoted))
+                for ticker in state_machine.l2_manager.active_symbols:
+                    if state_machine.l2_manager._active.get(ticker, None) and state_machine.l2_manager._active[ticker].confirmed:
+                        secret_l2_promotion_queue.mark_confirmed(ticker)
+                secret_runtime_status.mark_scan(
+                    candidates=len(candidate_events),
+                    handoffs=len(handoffs),
+                    promotions=len(promoted),
+                    promoted_tickers=promoted,
+                )
+                log.info(
+                    "secret_ingredients.scan_summary",
+                    candidate_count=len(candidate_events),
+                    handoff_count=len(handoffs),
+                    promotion_count=len(promoted),
+                    queue_depth=queue_snapshot["queue_depth"],
+                    active_slots=queue_snapshot["active_count"],
+                )
                 db = SessionLocal()
                 try:
                     secret_ingredients = SecretIngredientsService(db)
@@ -293,11 +324,29 @@ async def lifespan(app: FastAPI):
                     db.commit()
                 except Exception:
                     db.rollback()
+                    secret_runtime_status.mark_error("secret_ingredients.persistence_error")
                     log.exception("secret_ingredients.persistence_error")
                 finally:
                     db.close()
             else:
-                SECRET_L2_QUEUE_DEPTH.set(secret_l2_promotion_queue.snapshot()["queue_depth"])
+                secret_l2_promotion_queue.drop_stale_or_invalidated()
+                queue_snapshot = secret_l2_promotion_queue.snapshot()
+                SECRET_L2_QUEUE_DEPTH.set(queue_snapshot["queue_depth"])
+                SECRET_ACTIVE_L2_SLOTS.set(queue_snapshot["active_count"])
+                secret_runtime_status.mark_scan(
+                    candidates=0,
+                    handoffs=0,
+                    promotions=0,
+                    promoted_tickers=[],
+                )
+                log.info(
+                    "secret_ingredients.scan_summary",
+                    candidate_count=0,
+                    handoff_count=0,
+                    promotion_count=0,
+                    queue_depth=queue_snapshot["queue_depth"],
+                    active_slots=queue_snapshot["active_count"],
+                )
 
             # Deep analysis: Secret Ingredients candidates + existing tracked tickers
             candidate_tickers = {e.ticker for e in candidate_events}
@@ -373,6 +422,7 @@ async def lifespan(app: FastAPI):
                     log.exception("ws.broadcast_scan_error")
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="signal_scan").inc()
+            secret_runtime_status.mark_error("signal_scan_error")
             log.exception("scheduler.signal_scan_error")
         finally:
             SCHEDULER_JOB_DURATION.labels(job="signal_scan").observe(time.monotonic() - start)

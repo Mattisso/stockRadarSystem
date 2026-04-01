@@ -73,3 +73,55 @@ async def test_promotion_queue_removes_excess_when_over_max_queue_size(broker):
 
     snapshot = queue.snapshot()
     assert snapshot["queued_tickers"] == ["TSLA", "LCID"]
+
+
+@pytest.mark.asyncio
+async def test_promotion_queue_rotates_out_weakest_replaceable_active(broker):
+    manager = L2SubscriptionManager(broker, timeout_seconds=30.0)
+    queue = L2PromotionQueue(manager, max_active=2, max_queue_size=10)
+
+    queue.enqueue([
+        _handoff("AAPL", 0.70),
+        _handoff("TSLA", 0.75),
+    ])
+    await queue.drain_once()
+
+    queue.enqueue([_handoff("LCID", 0.95)])
+    promoted = await queue.drain_once()
+
+    assert promoted == ["LCID"]
+    broker.unsubscribe_l2_depth.assert_awaited_once_with("AAPL")
+    assert queue.snapshot()["active_tickers"] == ["LCID", "TSLA"]
+
+
+@pytest.mark.asyncio
+async def test_promotion_queue_does_not_rotate_confirmed_slot(broker):
+    manager = L2SubscriptionManager(broker, timeout_seconds=30.0)
+    queue = L2PromotionQueue(manager, max_active=1, max_queue_size=10)
+
+    queue.enqueue([_handoff("AAPL", 0.70)])
+    await queue.drain_once()
+    manager.mark_confirmed("AAPL")
+    queue.mark_confirmed("AAPL")
+
+    queue.enqueue([_handoff("TSLA", 0.95)])
+    promoted = await queue.drain_once()
+
+    assert promoted == []
+    assert queue.snapshot()["queued_tickers"] == ["TSLA"]
+    broker.unsubscribe_l2_depth.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_promotion_queue_prunes_invalidated_active_slots(broker):
+    manager = L2SubscriptionManager(broker, timeout_seconds=30.0)
+    queue = L2PromotionQueue(manager, max_active=1, max_queue_size=10)
+
+    queue.enqueue([_handoff("AAPL", 0.70)])
+    await queue.drain_once()
+    await manager.unsubscribe("AAPL")
+
+    removed = queue.drop_stale_or_invalidated()
+
+    assert removed == ["AAPL"]
+    assert queue.snapshot()["active_tickers"] == []
