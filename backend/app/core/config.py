@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     daily_loss_limit: float = 500.0
     target_profit_per_share_min: float = 0.10
     target_profit_per_share_max: float = 0.25
+    execution_chase_multiplier: float = 1.001
+    execution_max_dollar_risk: float = 150.0
+    execution_percent_stop_pct: float = 0.02
+    execution_support_buffer_pct: float = 0.001
+    execution_max_stop_pct: float = 0.03
     buy_retry_attempts: int = 3
     buy_retry_backoff_seconds: float = 0.2
     max_entry_slippage_pct: float = 0.003

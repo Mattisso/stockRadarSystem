@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass
 from datetime import date
+from math import floor
 
 from app.broker.interface import BrokerInterface, Position
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.data.tick_buffer import MarketSnapshot
 
 log = get_logger(__name__)
 
@@ -58,7 +60,11 @@ class RiskManager:
         self._daily_pnl += pnl
 
     async def evaluate_trade(
-        self, ticker: str, entry_price: float, signal_score: float
+        self,
+        ticker: str,
+        entry_price: float,
+        signal_score: float,
+        latest: MarketSnapshot | None = None,
     ) -> TradeParameters | RiskRejection:
         """Evaluate whether a trade should be taken.
 
@@ -88,35 +94,49 @@ class RiskManager:
                 reason=f"Already holding position in {ticker}",
             )
 
-        # Position sizing: scale notional between configured min/max based on signal strength.
         if entry_price <= 0:
             return RiskRejection(ticker=ticker, reason="Invalid entry price")
 
-        score = max(0.0, min(1.0, signal_score))
-        min_notional = min(settings.min_position_size, settings.max_position_size)
-        notional_range = max(0.0, settings.max_position_size - min_notional)
-        target_notional = min_notional + notional_range * score
+        execution_entry_price = round(entry_price * settings.execution_chase_multiplier, 4)
+        percent_stop = round(
+            execution_entry_price * (1.0 - settings.execution_percent_stop_pct),
+            4,
+        )
+        support_stop = self._compute_support_stop(latest, execution_entry_price)
+        stop_loss_price = max(percent_stop, support_stop) if support_stop is not None else percent_stop
 
-        quantity = int(target_notional / entry_price)
+        if stop_loss_price >= execution_entry_price:
+            return RiskRejection(ticker=ticker, reason="Invalid stop price")
+
+        stop_pct = (execution_entry_price - stop_loss_price) / execution_entry_price
+        if stop_pct > settings.execution_max_stop_pct:
+            return RiskRejection(ticker=ticker, reason="Stop too wide")
+
+        risk_per_share = execution_entry_price - stop_loss_price
+        if risk_per_share <= 0:
+            return RiskRejection(ticker=ticker, reason="Invalid risk per share")
+
+        risk_quantity = floor(settings.execution_max_dollar_risk / risk_per_share)
+        max_notional_quantity = floor(settings.max_position_size / execution_entry_price)
+        quantity = min(risk_quantity, max_notional_quantity)
         if quantity <= 0:
             return RiskRejection(
                 ticker=ticker,
-                reason=f"Price ${entry_price:.2f} exceeds max position size ${settings.max_position_size:.2f}",
+                reason="No shares allowed under risk limits",
             )
 
-        # Stop-loss and target prices
-        stop_loss_price = round(entry_price * (1.0 - settings.stop_loss_pct), 4)
-
         # Scale target with signal strength: stronger signal → higher target
+        score = max(0.0, min(1.0, signal_score))
         target_range = settings.target_profit_per_share_max - settings.target_profit_per_share_min
         target_offset = settings.target_profit_per_share_min + target_range * min(1.0, signal_score)
-        target_price = round(entry_price + target_offset, 4)
+        target_price = round(execution_entry_price + target_offset, 4)
 
         log.info(
             "risk_manager.trade_approved",
             ticker=ticker,
             quantity=quantity,
-            target_notional=round(target_notional, 2),
+            target_notional=round(quantity * execution_entry_price, 2),
+            risk_per_share=round(risk_per_share, 4),
             stop=stop_loss_price,
             target=target_price,
         )
@@ -124,10 +144,26 @@ class RiskManager:
         return TradeParameters(
             ticker=ticker,
             quantity=quantity,
-            entry_price=entry_price,
+            entry_price=execution_entry_price,
             stop_loss_price=stop_loss_price,
             target_price=target_price,
         )
+
+    def _compute_support_stop(
+        self,
+        latest: MarketSnapshot | None,
+        entry_price: float,
+    ) -> float | None:
+        if latest is None or latest.order_book is None or not latest.order_book.bids:
+            return None
+
+        top_bids = latest.order_book.bids[:3]
+        strongest_bid = max(top_bids, key=lambda level: (level.size, level.price))
+        support_stop = strongest_bid.price * (1.0 - settings.execution_support_buffer_pct)
+        support_stop = round(support_stop, 4)
+        if support_stop <= 0 or support_stop >= entry_price:
+            return None
+        return support_stop
 
     def check_exit_conditions(
         self, position: Position, current_price: float, stop_loss: float, target: float

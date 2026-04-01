@@ -74,6 +74,7 @@ class BuyAgent:
                 ticker=ticker,
                 entry_price=latest.quote.ask,
                 signal_score=signal_score,
+                latest=latest,
             )
             if isinstance(risk_result, RiskRejection):
                 return risk_result
