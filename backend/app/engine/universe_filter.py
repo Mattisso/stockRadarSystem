@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.broker.interface import BrokerInterface
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.engine.secret_ingredients import SecretIngredientsService
 from app.models.symbol import Symbol
 
 log = get_logger(__name__)
@@ -51,6 +52,8 @@ class UniverseFilterEngine:
                     )
                 )
 
+        self.db.commit()
+        SecretIngredientsService(self.db).record_daily_universe(tickers)
         self.db.commit()
         log.info("universe_filter.db_synced", active_count=len(tickers))
         return tickers

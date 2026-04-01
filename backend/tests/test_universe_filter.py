@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.broker.mock_broker import MockBroker
 from app.engine.universe_filter import UniverseFilterEngine
+from app.models.universe_daily import UniverseDaily
 from app.models.symbol import Symbol
 
 
@@ -25,6 +26,8 @@ async def test_refresh_universe(broker, db: Session):
     # Verify symbols are in the database
     symbols = db.query(Symbol).filter_by(is_active=True).all()
     assert len(symbols) == len(tickers)
+    daily_rows = db.query(UniverseDaily).all()
+    assert len(daily_rows) == len(tickers)
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ from app.core.metrics import ML_MODEL_TRAINED, SCHEDULER_JOB_DURATION, SCHEDULER
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.engine.signal_detector import SignalDetector
+from app.engine.secret_ingredients import SecretIngredientsService
 from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
@@ -152,6 +153,7 @@ async def lifespan(app: FastAPI):
     app.state.risk_manager = risk_manager
     app.state.trade_executor = trade_executor
     app.state.polygon_queue_consumer = polygon_queue_consumer
+    app.state.secret_ingredients = SecretIngredientsService
     runtime.mark_service("state_machine", True)
     runtime.mark_service("agents", True)
 
@@ -217,6 +219,18 @@ async def lifespan(app: FastAPI):
             # L1 breakout pre-filter: ingest from cache, scan for candidates
             await breakout_engine.ingest_from_cache(tickers)
             breakout_events = breakout_engine.scan(tickers)
+            if breakout_events:
+                db = SessionLocal()
+                try:
+                    secret_ingredients = SecretIngredientsService(db)
+                    secret_ingredients.record_candidates(breakout_events)
+                    secret_ingredients.record_l1_to_l2_events(breakout_events)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    log.exception("secret_ingredients.persistence_error")
+                finally:
+                    db.close()
 
             # Deep analysis: only candidates from breakout engine + already-tracked tickers
             candidate_tickers = {e.ticker for e in breakout_events}
