@@ -231,6 +231,7 @@ class BuyAgent:
             target_price=params.target_price,
             signal_score=signal_score,
             execution_phase="entry_submitted",
+            stop_revision_count=0,
             entry_time=datetime.now(),
         )
         db.add(trade_record)

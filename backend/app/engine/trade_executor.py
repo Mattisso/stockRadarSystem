@@ -200,6 +200,7 @@ class TradeExecutor:
                     trade.execution_phase = ExecutionPhase.MANAGED.value
                     trade.entry_order_id = result.order_id
                     trade.last_stop_price = result.stop_loss
+                    trade.stop_revision_count = trade.stop_revision_count or 0
 
                 TRADES_EXECUTED.labels(side="buy").inc()
                 OPEN_POSITIONS.set(len(self._open_positions))
@@ -346,8 +347,9 @@ class TradeExecutor:
             trade = db.query(Trade).filter_by(id=state.trade_id).first()
             if trade is not None:
                 trade.runner_mode = "true"
+                trade.runner_mode_started_at = datetime.now()
                 trade.execution_phase = ExecutionPhase.RUNNER_MODE.value
-                trade.last_stop_price = position.stop_loss
+                self._apply_stop_audit_fields(trade, position.stop_loss, increment_revision=True)
                 db.commit()
         except Exception:
             db.rollback()
@@ -397,7 +399,7 @@ class TradeExecutor:
         try:
             trade = db.query(Trade).filter_by(id=state.trade_id).first()
             if trade is not None:
-                trade.last_stop_price = position.stop_loss
+                self._apply_stop_audit_fields(trade, position.stop_loss, increment_revision=True)
                 db.commit()
         except Exception:
             db.rollback()
@@ -434,6 +436,18 @@ class TradeExecutor:
             update_stop(stop_price)
             return
         setattr(state, "current_stop_price", stop_price)
+
+    @staticmethod
+    def _apply_stop_audit_fields(
+        trade: Trade,
+        stop_price: float,
+        *,
+        increment_revision: bool,
+    ) -> None:
+        trade.last_stop_price = stop_price
+        trade.last_stop_revision_at = datetime.now()
+        current_count = trade.stop_revision_count or 0
+        trade.stop_revision_count = current_count + 1 if increment_revision else current_count
 
 
 def _classify_rejection(reason: str) -> str:

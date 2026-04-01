@@ -127,6 +127,7 @@ async def test_execute_persists_filled_trade(buy_agent, broker, db_session_facto
     assert trade.entry_order_id == "abc123"
     assert trade.execution_phase == "managed"
     assert trade.last_stop_price == trade.stop_loss_price
+    assert trade.stop_revision_count == 0
     assert signal.acted_on is True
     db.close()
 

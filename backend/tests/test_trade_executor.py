@@ -341,6 +341,8 @@ async def test_monitor_positions_trails_runner_stop_from_strongest_bid(executor,
     db = db_session_factory()
     trade = db.query(Trade).filter_by(id=21).one()
     assert trade.last_stop_price == revised_stop
+    assert trade.stop_revision_count == 1
+    assert trade.last_stop_revision_at is not None
     db.close()
 
 
@@ -549,6 +551,9 @@ async def test_monitor_positions_persists_runner_mode(executor, db_session_facto
     db = db_session_factory()
     trade = db.query(Trade).filter_by(id=7).one()
     assert trade.runner_mode == "true"
+    assert trade.runner_mode_started_at is not None
     assert trade.execution_phase == "runner_mode"
     assert trade.last_stop_price >= 10.0
+    assert trade.stop_revision_count == 1
+    assert trade.last_stop_revision_at is not None
     db.close()
