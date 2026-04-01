@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     execution_percent_stop_pct: float = 0.02
     execution_support_buffer_pct: float = 0.001
     execution_max_stop_pct: float = 0.03
+    execution_strongest_bid_levels: int = 3
+    execution_stop_revision_min_interval_seconds: int = 3
     buy_retry_attempts: int = 3
     buy_retry_backoff_seconds: float = 0.2
     max_entry_slippage_pct: float = 0.003

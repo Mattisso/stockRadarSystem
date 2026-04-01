@@ -26,6 +26,7 @@ class ManagedExecutionState:
     current_stop_price: float | None = None
     phase: ExecutionPhase = ExecutionPhase.ENTRY_FILLED
     runner_mode_started_at: datetime | None = None
+    last_stop_revision_at: datetime | None = None
     last_reason: str | None = None
     last_updated_at: datetime = field(default_factory=datetime.now)
 
@@ -51,3 +52,16 @@ class ManagedExecutionState:
     def update_stop_price(self, stop_price: float) -> None:
         self.current_stop_price = stop_price
         self.last_updated_at = datetime.now()
+
+    def can_revise_stop(self, minimum_interval_seconds: int, *, now: datetime | None = None) -> bool:
+        if self.last_stop_revision_at is None:
+            return True
+        now = now or datetime.now()
+        elapsed = (now - self.last_stop_revision_at).total_seconds()
+        return elapsed >= minimum_interval_seconds
+
+    def mark_stop_revised(self, stop_price: float, *, when: datetime | None = None) -> None:
+        when = when or datetime.now()
+        self.current_stop_price = stop_price
+        self.last_stop_revision_at = when
+        self.last_updated_at = when

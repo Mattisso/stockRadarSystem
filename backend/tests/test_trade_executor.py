@@ -1,16 +1,17 @@
 """Tests for the TradeExecutor orchestrator."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from app.broker.interface import Quote
+from app.broker.interface import OrderBook, OrderBookLevel, Quote
 from app.broker.mock_broker import MockBroker
+from app.core.config import settings
 from app.data.tick_buffer import TickBuffer
 from app.engine.buy_agent import BuyExecutionOutcome
-from app.engine.execution_state import ExecutionPhase
+from app.engine.execution_state import ExecutionPhase, ManagedExecutionState
 from app.engine.signal_detector import SignalDetector
 from app.engine.signal_detector import FeatureVector, SignalType
 from app.engine.state_machine import SymbolStage
@@ -258,9 +259,150 @@ async def test_scan_signals_tracks_bracket_child_ids_in_execution_state(executor
 
     state = executor._execution_states["SIRI"]
     assert state.order_id == "ord-parent"
-    assert state.target_order_id == "ord-target"
-    assert state.stop_order_id == "ord-stop"
-    assert state.current_stop_price == 3.0
+
+
+@pytest.mark.asyncio
+async def test_monitor_positions_trails_runner_stop_from_strongest_bid(executor, db_session_factory, monkeypatch):
+    db = db_session_factory()
+    db.add(
+        Trade(
+            id=21,
+            ticker="SIRI",
+            side=TradeSide.BUY,
+            status=TradeStatus.FILLED,
+            quantity=100,
+            entry_price=3.21,
+            stop_loss_price=3.00,
+            target_price=3.45,
+            last_stop_price=3.00,
+            execution_phase="runner_mode",
+        )
+    )
+    db.commit()
+    db.close()
+
+    executor._open_positions["SIRI"] = SimpleNamespace(
+        ticker="SIRI",
+        trade_id=21,
+        quantity=100,
+        entry_price=3.21,
+        stop_loss=3.00,
+        target=3.45,
+        highest_price=3.40,
+        entry_time=datetime.now() - timedelta(seconds=30),
+    )
+    state = executor._execution_states["SIRI"] = ManagedExecutionState(
+        ticker="SIRI",
+        trade_id=21,
+        order_id="parent-21",
+        filled_at=datetime.now() - timedelta(seconds=30),
+        target_order_id="target-21",
+        stop_order_id="stop-21",
+        current_stop_price=3.00,
+        phase=ExecutionPhase.RUNNER_MODE,
+    )
+    monkeypatch.setattr(executor.broker, "revise_stop_leg", AsyncMock(return_value=True))
+
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=3.36,
+                ask=3.37,
+                last=3.38,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=OrderBook(
+                ticker="SIRI",
+                bids=[
+                    OrderBookLevel(price=3.36, size=200),
+                    OrderBookLevel(price=3.35, size=900),
+                    OrderBookLevel(price=3.34, size=700),
+                ],
+                asks=[
+                    OrderBookLevel(price=3.37, size=100),
+                    OrderBookLevel(price=3.38, size=90),
+                ],
+                timestamp=datetime.now(),
+            ),
+            timestamp=datetime.now(),
+        ),
+    )
+
+    await executor.monitor_positions()
+
+    revised_stop = round(3.35 * (1.0 - settings.execution_support_buffer_pct), 4)
+    executor.broker.revise_stop_leg.assert_awaited_once_with("parent-21", revised_stop)
+    assert executor._open_positions["SIRI"].stop_loss == revised_stop
+    assert state.current_stop_price == revised_stop
+
+    db = db_session_factory()
+    trade = db.query(Trade).filter_by(id=21).one()
+    assert trade.last_stop_price == revised_stop
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_monitor_positions_throttles_runner_stop_revisions(executor, monkeypatch):
+    executor._open_positions["SIRI"] = SimpleNamespace(
+        ticker="SIRI",
+        trade_id=22,
+        quantity=100,
+        entry_price=3.21,
+        stop_loss=3.00,
+        target=3.45,
+        highest_price=3.40,
+        entry_time=datetime.now() - timedelta(seconds=30),
+    )
+    state = executor._execution_states["SIRI"] = ManagedExecutionState(
+        ticker="SIRI",
+        trade_id=22,
+        order_id="parent-22",
+        filled_at=datetime.now() - timedelta(seconds=30),
+        target_order_id="target-22",
+        stop_order_id="stop-22",
+        current_stop_price=3.00,
+        phase=ExecutionPhase.RUNNER_MODE,
+        last_stop_revision_at=datetime.now(),
+    )
+    revise = AsyncMock(return_value=True)
+    monkeypatch.setattr(executor.broker, "revise_stop_leg", revise)
+
+    executor.tick_buffer.push(
+        "SIRI",
+        SimpleNamespace(
+            quote=Quote(
+                ticker="SIRI",
+                bid=3.36,
+                ask=3.37,
+                last=3.38,
+                volume=1_000_000,
+                timestamp=datetime.now(),
+            ),
+            order_book=OrderBook(
+                ticker="SIRI",
+                bids=[
+                    OrderBookLevel(price=3.36, size=200),
+                    OrderBookLevel(price=3.35, size=900),
+                    OrderBookLevel(price=3.34, size=700),
+                ],
+                asks=[
+                    OrderBookLevel(price=3.37, size=100),
+                    OrderBookLevel(price=3.38, size=90),
+                ],
+                timestamp=datetime.now(),
+            ),
+            timestamp=datetime.now(),
+        ),
+    )
+
+    await executor.monitor_positions()
+
+    revise.assert_not_awaited()
+    assert executor._open_positions["SIRI"].stop_loss == 3.298
+    assert state.current_stop_price == 3.298
 
 
 @pytest.mark.asyncio

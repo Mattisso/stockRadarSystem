@@ -77,6 +77,23 @@ async def test_assess_exit_updates_trailing_stop(sell_agent):
     assert assessment.stop_loss > pos.stop_loss
 
 
+def test_strongest_stable_bid_uses_largest_near_touch_bid(sell_agent):
+    order_book = OrderBook(
+        ticker="AAPL",
+        bids=[
+            OrderBookLevel(price=10.05, size=200),
+            OrderBookLevel(price=10.04, size=900),
+            OrderBookLevel(price=10.03, size=500),
+            OrderBookLevel(price=10.02, size=1200),
+        ],
+        asks=[OrderBookLevel(price=10.06, size=100)],
+    )
+
+    strongest = sell_agent.strongest_stable_bid(order_book)
+
+    assert strongest == 10.04
+
+
 @pytest.mark.asyncio
 async def test_assess_exit_triggers_l2_weakness(sell_agent):
     pos = _position()

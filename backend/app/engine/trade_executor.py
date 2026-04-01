@@ -257,6 +257,12 @@ class TradeExecutor:
                     if (
                         assessment.reason is None
                         and state is not None
+                        and state.phase == ExecutionPhase.RUNNER_MODE
+                    ):
+                        await self._apply_runner_trailing_stop(ticker, pos, state, latest)
+                    if (
+                        assessment.reason is None
+                        and state is not None
                         and state.phase == ExecutionPhase.MANAGED
                     ):
                         await self._maybe_transition_runner(ticker, pos, state)
@@ -326,11 +332,14 @@ class TradeExecutor:
 
         breakeven_stop = round(position.entry_price, 4)
         try:
+            if not self._can_revise_stop(state):
+                return
             await self.broker.revise_stop_leg(state.order_id, breakeven_stop)
         except NotImplementedError:
             pass
 
         position.stop_loss = max(position.stop_loss, breakeven_stop)
+        self._mark_stop_revised(state, position.stop_loss)
         state.mark_runner_mode()
         db: Session = self.db_session_factory()
         try:
@@ -352,6 +361,79 @@ class TradeExecutor:
             order_id=state.order_id,
             stop_loss=position.stop_loss,
         )
+
+    async def _apply_runner_trailing_stop(
+        self,
+        ticker: str,
+        position: OpenPosition,
+        state: ManagedExecutionState,
+        latest: MarketSnapshot,
+    ) -> None:
+        strongest_bid = self.sell_agent.strongest_stable_bid(latest.order_book)
+        if strongest_bid is None:
+            return
+
+        revised_stop = round(
+            strongest_bid * (1.0 - settings.execution_support_buffer_pct),
+            4,
+        )
+        current_stop = state.current_stop_price or position.stop_loss
+        if revised_stop <= current_stop:
+            return
+        if not self._can_revise_stop(state):
+            return
+
+        try:
+            revised = await self.broker.revise_stop_leg(state.order_id, revised_stop)
+        except NotImplementedError:
+            return
+        if not revised:
+            return
+
+        position.stop_loss = max(position.stop_loss, revised_stop)
+        self._mark_stop_revised(state, position.stop_loss)
+
+        db: Session = self.db_session_factory()
+        try:
+            trade = db.query(Trade).filter_by(id=state.trade_id).first()
+            if trade is not None:
+                trade.last_stop_price = position.stop_loss
+                db.commit()
+        except Exception:
+            db.rollback()
+            log.exception(
+                "trade_executor.runner_trailing_persist_failed",
+                ticker=ticker,
+                trade_id=state.trade_id,
+            )
+        finally:
+            db.close()
+
+        log.info(
+            "trade_executor.runner_stop_trailed",
+            ticker=ticker,
+            trade_id=state.trade_id,
+            order_id=state.order_id,
+            strongest_bid=strongest_bid,
+            stop_loss=position.stop_loss,
+        )
+
+    def _can_revise_stop(self, state: ManagedExecutionState) -> bool:
+        can_revise = getattr(state, "can_revise_stop", None)
+        if callable(can_revise):
+            return bool(can_revise(settings.execution_stop_revision_min_interval_seconds))
+        return True
+
+    def _mark_stop_revised(self, state: ManagedExecutionState, stop_price: float) -> None:
+        mark_revised = getattr(state, "mark_stop_revised", None)
+        if callable(mark_revised):
+            mark_revised(stop_price)
+            return
+        update_stop = getattr(state, "update_stop_price", None)
+        if callable(update_stop):
+            update_stop(stop_price)
+            return
+        setattr(state, "current_stop_price", stop_price)
 
 
 def _classify_rejection(reason: str) -> str:

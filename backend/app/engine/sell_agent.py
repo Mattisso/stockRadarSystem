@@ -179,3 +179,14 @@ class SellAgent:
         if imbalance < settings.l2_exit_imbalance_threshold:
             return "l2_weakness"
         return None
+
+    def strongest_stable_bid(self, order_book: OrderBook | None) -> float | None:
+        """Return the strongest near-touch bid level used for runner trailing."""
+        if order_book is None or not order_book.bids:
+            return None
+
+        bid_levels = order_book.bids[: settings.execution_strongest_bid_levels]
+        strongest = max(bid_levels, key=lambda level: (level.size, level.price))
+        if strongest.price <= 0:
+            return None
+        return strongest.price
