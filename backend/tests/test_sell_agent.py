@@ -80,12 +80,15 @@ async def test_assess_exit_updates_trailing_stop(sell_agent):
 @pytest.mark.asyncio
 async def test_assess_exit_triggers_l2_weakness(sell_agent):
     pos = _position()
+    pos.entry_time = datetime.now().replace(microsecond=0)
     order_book = OrderBook(
         ticker="AAPL",
         bids=[OrderBookLevel(price=10.0, size=100) for _ in range(5)],
         asks=[OrderBookLevel(price=10.01, size=1000) for _ in range(5)],
     )
-    assessment = sell_agent.assess_exit(pos, _snapshot(bid=9.98, ask=10.0, order_book=order_book))
+    snapshot = _snapshot(bid=9.98, ask=10.0, order_book=order_book)
+    snapshot.timestamp = pos.entry_time + timedelta(seconds=10)
+    assessment = sell_agent.assess_exit(pos, snapshot)
     assert assessment.reason == "l2_weakness"
 
 
@@ -102,9 +105,27 @@ async def test_assess_exit_triggers_time_stop_for_non_proving_trade(sell_agent):
 
 
 @pytest.mark.asyncio
+async def test_assess_exit_triggers_weak_near_entry_on_early_l2_failure(sell_agent):
+    pos = _position()
+    pos.entry_time = datetime.now().replace(microsecond=0)
+    order_book = OrderBook(
+        ticker="AAPL",
+        bids=[OrderBookLevel(price=10.0, size=100) for _ in range(5)],
+        asks=[OrderBookLevel(price=10.01, size=1000) for _ in range(5)],
+    )
+    weak_snapshot = _snapshot(bid=9.99, ask=10.0, last=10.0, order_book=order_book)
+    weak_snapshot.timestamp = pos.entry_time + timedelta(seconds=2)
+
+    assessment = sell_agent.assess_exit(pos, weak_snapshot)
+
+    assert assessment.reason == "weak_near_entry"
+
+
+@pytest.mark.asyncio
 async def test_execute_exit_closes_trade_and_updates_signal(
     sell_agent, broker, db_session_factory, monkeypatch
 ):
+    cancel = AsyncMock(return_value=True)
     monkeypatch.setattr(broker, "submit_order", AsyncMock(return_value=OrderResult(
         order_id="sell-1",
         ticker="AAPL",
@@ -115,6 +136,7 @@ async def test_execute_exit_closes_trade_and_updates_signal(
         fill_price=10.5,
         filled_quantity=10,
     )))
+    monkeypatch.setattr(broker, "cancel_order", cancel)
 
     db = db_session_factory()
     signal = Signal(
@@ -141,6 +163,8 @@ async def test_execute_exit_closes_trade_and_updates_signal(
             entry_price=10.0,
             stop_loss_price=9.5,
             target_price=10.8,
+            target_order_id="target-1",
+            stop_order_id="stop-1",
         )
     )
     db.flush()
@@ -160,4 +184,6 @@ async def test_execute_exit_closes_trade_and_updates_signal(
     assert trade.close_reason is not None
     assert trade.last_stop_price == 9.5
     assert signal.outcome_pnl == 5.0
+    cancel.assert_any_await("target-1")
+    cancel.assert_any_await("stop-1")
     db.close()

@@ -51,6 +51,15 @@ class SellAgent:
         """Update trailing state and decide whether the position should be exited."""
         current_price = latest.quote.bid
         highest_price = max(position.highest_price, latest.quote.last, current_price)
+        elapsed_seconds = max(0.0, (latest.timestamp - position.entry_time).total_seconds())
+        min_progress_price = round(
+            position.entry_price * (1.0 + settings.execution_min_progress_pct),
+            4,
+        )
+        weak_trade_progress_price = round(
+            position.entry_price * (1.0 + settings.execution_weak_trade_max_progress_pct),
+            4,
+        )
 
         trailing_stop = round(highest_price * (1.0 - settings.trailing_stop_pct), 4)
         effective_stop = max(position.stop_loss, trailing_stop)
@@ -59,11 +68,15 @@ class SellAgent:
         if current_price <= emergency_stop:
             return ExitAssessment("emergency_exit", current_price, effective_stop, highest_price)
 
-        elapsed_seconds = max(0.0, (latest.timestamp - position.entry_time).total_seconds())
-        min_progress_price = round(
-            position.entry_price * (1.0 + settings.execution_min_progress_pct),
-            4,
-        )
+        l2_reason = self._detect_l2_weakness(latest.order_book)
+        if (
+            elapsed_seconds <= settings.execution_weak_trade_window_seconds
+            and highest_price < weak_trade_progress_price
+            and current_price <= position.entry_price
+            and l2_reason is not None
+        ):
+            return ExitAssessment("weak_near_entry", current_price, effective_stop, highest_price)
+
         if (
             elapsed_seconds >= settings.execution_time_stop_seconds
             and highest_price < min_progress_price
@@ -71,7 +84,6 @@ class SellAgent:
         ):
             return ExitAssessment("time_stop", current_price, effective_stop, highest_price)
 
-        l2_reason = self._detect_l2_weakness(latest.order_book)
         if l2_reason is not None:
             return ExitAssessment(l2_reason, current_price, effective_stop, highest_price)
 
@@ -90,6 +102,10 @@ class SellAgent:
         assessment: ExitAssessment,
     ) -> bool:
         """Submit exit order and persist trade close if the broker fills it."""
+        trade = db.query(Trade).filter_by(id=position.trade_id).first()
+        if trade:
+            await self._cancel_residual_children(trade)
+
         order = await self.broker.submit_order(
             ticker=position.ticker,
             side=OrderSide.SELL,
@@ -109,7 +125,6 @@ class SellAgent:
         pnl = (order.fill_price - position.entry_price) * position.quantity
         self.risk_manager.record_pnl(pnl)
 
-        trade = db.query(Trade).filter_by(id=position.trade_id).first()
         if trade:
             trade.status = TradeStatus.CLOSED
             trade.exit_price = order.fill_price
@@ -134,6 +149,21 @@ class SellAgent:
             order_id=order.order_id,
         )
         return True
+
+    async def _cancel_residual_children(self, trade: Trade) -> None:
+        child_order_ids = [trade.target_order_id, trade.stop_order_id]
+        for order_id in child_order_ids:
+            if not order_id:
+                continue
+            try:
+                await self.broker.cancel_order(order_id)
+            except Exception:
+                log.exception(
+                    "sell_agent.child_cancel_failed",
+                    ticker=trade.ticker,
+                    trade_id=trade.id,
+                    order_id=order_id,
+                )
 
     def _detect_l2_weakness(self, order_book: OrderBook | None) -> str | None:
         if order_book is None or not order_book.bids or not order_book.asks:

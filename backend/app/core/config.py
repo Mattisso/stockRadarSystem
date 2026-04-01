@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     trailing_stop_pct: float = 0.03
     emergency_stop_loss_pct: float = 0.08
     l2_exit_imbalance_threshold: float = 0.35
+    execution_weak_trade_window_seconds: int = 5
+    execution_weak_trade_max_progress_pct: float = 0.0015
     execution_gate_max_spread_pct: float = 0.01
     execution_gate_min_bid_stacking: float = 0.55
     execution_gate_max_seller_pressure: float = 1.2
