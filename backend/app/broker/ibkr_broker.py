@@ -476,7 +476,6 @@ class IBKRBroker(BrokerInterface):
         contract = await self._make_contract(request.ticker)
 
         async def _next_id() -> int:
-            await self._ib.reqIdsAsync(1)
             return int(self._ib.client.getReqId())
 
         order_id = await self._run_on_ib_loop(_next_id())

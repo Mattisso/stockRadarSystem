@@ -10,6 +10,7 @@ from app.broker.interface import BracketOrderRequest, BracketOrderResult, OrderR
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.data.tick_buffer import MarketSnapshot
+from app.engine.execution_gate import L2ExecutionGate
 from app.models.signal import Signal
 from app.models.trade import Trade, TradeSide, TradeStatus
 from app.risk.risk_manager import RiskManager, RiskRejection, TradeParameters
@@ -40,6 +41,7 @@ class BuyAgent:
     def __init__(self, broker, risk_manager: RiskManager) -> None:
         self.broker = broker
         self.risk_manager = risk_manager
+        self.execution_gate = L2ExecutionGate()
         self._inflight_tickers: set[str] = set()
 
     async def execute(
@@ -63,6 +65,11 @@ class BuyAgent:
 
         self._inflight_tickers.add(ticker)
         try:
+            gate = self.execution_gate.evaluate(latest)
+            if not gate.allowed:
+                log.info("buy_agent.execution_gate_rejected", ticker=ticker, reason=gate.reason)
+                return RiskRejection(ticker=ticker, reason=gate.reason or "execution_gate_rejected")
+
             risk_result = await self.risk_manager.evaluate_trade(
                 ticker=ticker,
                 entry_price=latest.quote.ask,

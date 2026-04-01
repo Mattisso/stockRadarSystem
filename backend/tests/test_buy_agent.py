@@ -5,13 +5,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.broker.interface import BracketOrderResult, OrderResult, OrderSide, OrderStatus, OrderType, Quote
+from app.broker.interface import (
+    BracketOrderResult,
+    OrderBook,
+    OrderBookLevel,
+    OrderResult,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Quote,
+)
 from app.broker.mock_broker import MockBroker
 from app.data.tick_buffer import MarketSnapshot
 from app.engine.buy_agent import BuyAgent
 from app.models.signal import Signal, SignalType
 from app.models.trade import Trade, TradeSide, TradeStatus
-from app.risk.risk_manager import RiskManager
+from app.risk.risk_manager import RiskManager, RiskRejection
 
 
 @pytest.fixture
@@ -27,7 +36,30 @@ def buy_agent(broker):
     return BuyAgent(broker=broker, risk_manager=RiskManager(broker))
 
 
-def _snapshot(ticker: str, bid: float = 9.95, ask: float = 10.0) -> MarketSnapshot:
+def _snapshot(
+    ticker: str,
+    bid: float = 9.99,
+    ask: float = 10.0,
+    order_book: OrderBook | None = None,
+    include_l2: bool = True,
+) -> MarketSnapshot:
+    if include_l2 and order_book is None:
+        order_book = OrderBook(
+            ticker=ticker,
+            bids=[
+                OrderBookLevel(price=9.99, size=250),
+                OrderBookLevel(price=9.98, size=220),
+                OrderBookLevel(price=9.97, size=180),
+                OrderBookLevel(price=9.96, size=60),
+            ],
+            asks=[
+                OrderBookLevel(price=10.00, size=90),
+                OrderBookLevel(price=10.01, size=80),
+                OrderBookLevel(price=10.02, size=70),
+                OrderBookLevel(price=10.03, size=60),
+            ],
+            timestamp=datetime.now(),
+        )
     return MarketSnapshot(
         quote=Quote(
             ticker=ticker,
@@ -37,7 +69,7 @@ def _snapshot(ticker: str, bid: float = 9.95, ask: float = 10.0) -> MarketSnapsh
             volume=1_000_000,
             timestamp=datetime.now(),
         ),
-        order_book=None,
+        order_book=order_book,
         timestamp=datetime.now(),
     )
 
@@ -226,4 +258,30 @@ async def test_execute_uses_bracket_entry_and_persists_child_order_ids(
     assert trade.target_order_id == "target-1"
     assert trade.stop_order_id == "stop-1"
     assert trade.status == TradeStatus.FILLED
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_missing_l2_before_risk_checks(buy_agent, broker, db_session_factory, monkeypatch):
+    submit = AsyncMock()
+    risk = AsyncMock()
+    monkeypatch.setattr(broker, "submit_order", submit)
+    monkeypatch.setattr(buy_agent.risk_manager, "evaluate_trade", risk)
+
+    db = db_session_factory()
+    signal = _signal(db, "AAPL")
+
+    result = await buy_agent.execute(
+        db=db,
+        signal_record=signal,
+        latest=_snapshot("AAPL", include_l2=False),
+        signal_score=0.8,
+        stage="ready_to_buy",
+    )
+
+    assert isinstance(result, RiskRejection)
+    assert result.reason == "missing_l2"
+    risk.assert_not_awaited()
+    submit.assert_not_awaited()
+    assert db.query(Trade).count() == 0
     db.close()

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     trailing_stop_pct: float = 0.03
     emergency_stop_loss_pct: float = 0.08
     l2_exit_imbalance_threshold: float = 0.35
+    execution_gate_max_spread_pct: float = 0.01
+    execution_gate_min_bid_stacking: float = 0.55
+    execution_gate_max_seller_pressure: float = 1.2
+    execution_gate_min_buying_aggression: float = 0.55
+    execution_gate_min_support_stability: float = 0.55
     execution_time_stop_seconds: int = 20
     execution_min_progress_pct: float = 0.003
     runner_trigger_profit_pct: float = 0.03

@@ -356,6 +356,16 @@ class TradeExecutor:
 
 def _classify_rejection(reason: str) -> str:
     """Normalize rejection reasons into stable metric labels."""
+    if reason in {
+        "missing_l2",
+        "invalid_quote",
+        "spread_too_wide",
+        "weak_bid_stack",
+        "seller_wall_overhead",
+        "unstable_support",
+        "insufficient_buying_aggression",
+    }:
+        return reason
     if "Daily loss" in reason:
         return "daily_loss_limit"
     if "Max positions" in reason:
