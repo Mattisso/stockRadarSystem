@@ -48,6 +48,17 @@ def test_build_subscription_batches_chunks_large_universe():
     ]
 
 
+def test_build_subscription_batches_can_include_trade_wildcard():
+    manager = PolygonConnectionManager(api_key="key", subscription_batch_size=2)
+
+    batches = manager.build_subscription_batches(["AAPL", "TSLA"], include_trades=True)
+
+    assert batches == [
+        "T.*",
+        "Q.AAPL,Q.TSLA",
+    ]
+
+
 async def test_subscribe_sends_one_message_per_batch():
     manager = PolygonConnectionManager(api_key="key", subscription_batch_size=2)
     ws = FakeWebSocket()
@@ -57,6 +68,19 @@ async def test_subscribe_sends_one_message_per_batch():
     assert [json.loads(payload) for payload in ws.sent] == [
         {"action": "subscribe", "params": "Q.AAPL,Q.TSLA"},
         {"action": "subscribe", "params": "Q.MSFT"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_can_send_trade_wildcard():
+    manager = PolygonConnectionManager(api_key="key", subscription_batch_size=2)
+    ws = FakeWebSocket()
+
+    await manager.subscribe(ws, ["AAPL", "TSLA"], include_trades=True)
+
+    assert [json.loads(payload) for payload in ws.sent] == [
+        {"action": "subscribe", "params": "T.*"},
+        {"action": "subscribe", "params": "Q.AAPL,Q.TSLA"},
     ]
 
 

@@ -8,6 +8,7 @@ from websockets.exceptions import ConnectionClosed
 
 from app.broker.interface import Quote
 from app.core.logging import get_logger
+from app.core.metrics import POLYGON_RECONNECT_TOTAL, POLYGON_SESSION_CONNECTED
 from app.data.cache import CacheInterface
 from app.data.polygon_connection import PolygonConnectionManager
 from app.data.polygon_parser import PolygonMessageParser
@@ -38,12 +39,14 @@ class PolygonClient:
         reconnect_max_delay: float = 30.0,
         subscription_batch_size: int = 500,
         dev_max_symbols: int = 3,
+        include_trade_wildcard: bool = False,
         parser: PolygonMessageParser | None = None,
         connection_manager: PolygonConnectionManager | None = None,
     ) -> None:
         self._api_key = api_key
         self._mode = mode
         self._symbols = symbols or []
+        self._subscription_sources: dict[str, list[str]] = {"watchlist": list(self._symbols)}
         self._cache = cache
         self._queue = queue
         self._ws_url = ws_url
@@ -51,6 +54,7 @@ class PolygonClient:
         self._rest_poll_interval = rest_poll_interval
         self._reconnect_max_delay = reconnect_max_delay
         self._dev_max_symbols = max(1, dev_max_symbols)
+        self._include_trade_wildcard = include_trade_wildcard
         self._parser = parser or PolygonMessageParser()
         self._connection_manager = connection_manager or PolygonConnectionManager(
             api_key=api_key,
@@ -59,23 +63,28 @@ class PolygonClient:
         )
         self._task: asyncio.Task | None = None
         self._running = False
+        self._session_connected = False
+        self._reconnect_count = 0
         self._ws_quote_count = 0
         self._last_ws_quote_log_at = 0.0
 
     async def start(self) -> None:
         """Launch the background ingestion task."""
         self._running = True
+        POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
         if self._mode == "websocket":
             self._task = asyncio.create_task(self._ws_loop())
         elif self._mode in {"dev", "sandbox"}:
             self._task = asyncio.create_task(self._dev_poll_loop())
         else:
             self._task = asyncio.create_task(self._rest_poll_loop())
-        log.info("polygon.started", mode=self._mode, symbols=len(self._symbols))
+        log.info("polygon.started", mode=self._mode, symbols=len(self.current_symbols()))
 
     async def stop(self) -> None:
         """Gracefully shutdown the ingestion task."""
         self._running = False
+        self._session_connected = False
+        POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
         if self._task:
             self._task.cancel()
             try:
@@ -84,18 +93,40 @@ class PolygonClient:
                 pass
         log.info("polygon.stopped")
 
-    def update_subscriptions(self, symbols: list[str]) -> None:
+    def update_subscriptions(self, symbols: list[str], *, source: str = "watchlist") -> None:
         """Update the list of symbols to track."""
-        self._symbols = symbols
+        self._subscription_sources[source] = list(symbols)
+        self._symbols = self.current_symbols()
         if self._mode in {"dev", "sandbox"}:
             log.info(
                 "polygon.subscriptions_updated",
-                count=len(symbols),
-                active_count=min(len(symbols), self._dev_max_symbols),
+                count=len(self._symbols),
+                active_count=min(len(self._symbols), self._dev_max_symbols),
                 mode=self._mode,
+                source=source,
             )
         else:
-            log.info("polygon.subscriptions_updated", count=len(symbols))
+            log.info("polygon.subscriptions_updated", count=len(self._symbols), source=source)
+
+    def current_symbols(self) -> list[str]:
+        seen: set[str] = set()
+        symbols: list[str] = []
+        for source_symbols in self._subscription_sources.values():
+            for symbol in source_symbols:
+                if symbol in seen:
+                    continue
+                seen.add(symbol)
+                symbols.append(symbol)
+        return symbols
+
+    def session_snapshot(self) -> dict:
+        return {
+            "mode": self._mode,
+            "connected": self._session_connected,
+            "reconnect_count": self._reconnect_count,
+            "subscription_count": len(self.current_symbols()),
+            "include_trade_wildcard": self._include_trade_wildcard,
+        }
 
     # ── WebSocket Mode (paid) ────────────────────────────────────────
 
@@ -106,7 +137,13 @@ class PolygonClient:
             ws_quote_count_before_session = self._ws_quote_count
             try:
                 async with self._connection_manager.open() as ws:
-                    await self._connection_manager.subscribe(ws, self._symbols)
+                    self._session_connected = True
+                    POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(1)
+                    await self._connection_manager.subscribe(
+                        ws,
+                        self.current_symbols(),
+                        include_trades=self._include_trade_wildcard,
+                    )
                     delay = 1.0  # Reset backoff on success
                     async for raw in ws:
                         if not self._running:
@@ -120,6 +157,10 @@ class PolygonClient:
             except asyncio.CancelledError:
                 break
             except ConnectionClosed as exc:
+                self._session_connected = False
+                POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
+                self._reconnect_count += 1
+                POLYGON_RECONNECT_TOTAL.labels(mode=self._mode).inc()
                 log.warning(
                     "polygon.ws_closed",
                     code=exc.code,
@@ -130,6 +171,10 @@ class PolygonClient:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
             except Exception:
+                self._session_connected = False
+                POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
+                self._reconnect_count += 1
+                POLYGON_RECONNECT_TOTAL.labels(mode=self._mode).inc()
                 log.exception(
                     "polygon.ws_error",
                     delay=delay,
@@ -176,13 +221,14 @@ class PolygonClient:
 
     async def _rest_poll(self, client: httpx.AsyncClient) -> None:
         """Fetch snapshot of all tickers in one call."""
-        if not self._symbols:
+        symbols = self.current_symbols()
+        if not symbols:
             return
 
         resp = await client.get(
             f"{self._rest_url}/v3/snapshot",
             params={
-                "ticker.any_of": ",".join(self._symbols[:500]),
+                "ticker.any_of": ",".join(symbols[:500]),
                 "apiKey": self._api_key,
             },
         )
@@ -219,11 +265,12 @@ class PolygonClient:
 
     async def _dev_poll(self, client: httpx.AsyncClient) -> None:
         """Fetch previous-day aggregates per symbol for dev/sandbox mode."""
-        if not self._symbols:
+        symbols = self.current_symbols()
+        if not symbols:
             return
 
-        active_symbols = self._symbols[: self._dev_max_symbols]
-        log.info("polygon.dev_poll_cycle", symbols=len(active_symbols), total_symbols=len(self._symbols))
+        active_symbols = symbols[: self._dev_max_symbols]
+        log.info("polygon.dev_poll_cycle", symbols=len(active_symbols), total_symbols=len(symbols))
 
         for symbol in active_symbols:
             resp = await client.get(

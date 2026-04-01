@@ -51,3 +51,27 @@ async def test_refresh_deactivates_removed_symbols(broker, db: Session):
     fake = db.query(Symbol).filter_by(ticker="FAKE").first()
     assert fake is not None
     assert fake.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_secret_ingredients_universe_persists_daily_snapshot_without_owning_active_flags(
+    broker, db: Session, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr("app.engine.universe_filter.settings.secret_universe_excluded_tickers", "AAPL")
+
+    db.add(Symbol(ticker="AAPL", name="Apple", exchange="NASDAQ", is_active=True))
+    db.commit()
+
+    engine = UniverseFilterEngine(broker, db)
+    tickers = await engine.refresh_secret_ingredients_universe()
+
+    assert "AAPL" not in tickers
+    assert len(tickers) > 0
+
+    daily_rows = db.query(UniverseDaily).all()
+    assert len(daily_rows) == len(tickers)
+    assert {row.ticker for row in daily_rows} == set(tickers)
+
+    aapl = db.query(Symbol).filter_by(ticker="AAPL").first()
+    assert aapl is not None
+    assert aapl.is_active is True

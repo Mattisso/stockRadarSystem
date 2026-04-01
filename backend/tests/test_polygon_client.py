@@ -41,6 +41,14 @@ async def test_update_subscriptions(client):
 
 
 @pytest.mark.asyncio
+async def test_update_subscriptions_unions_multiple_sources(client):
+    client.update_subscriptions(["AAPL", "TSLA"], source="watchlist")
+    client.update_subscriptions(["LCID", "AAPL"], source="secret_universe")
+
+    assert client.current_symbols() == ["AAPL", "TSLA", "LCID"]
+
+
+@pytest.mark.asyncio
 async def test_dispatch_to_cache(client, cache):
     await cache.connect()
     quote = Quote(ticker="LCID", bid=3.47, ask=3.48, last=3.48, volume=100000, timestamp=datetime.now())
@@ -248,8 +256,8 @@ class _RetryConnectionManager:
             raise RuntimeError("boom")
         yield _RetryWebSocket(self.client)
 
-    async def subscribe(self, ws, symbols):
-        self.subscribe_calls.append(list(symbols))
+    async def subscribe(self, ws, symbols, include_trades=False):
+        self.subscribe_calls.append({"symbols": list(symbols), "include_trades": include_trades})
 
 
 @pytest.mark.asyncio
@@ -270,11 +278,38 @@ async def test_ws_loop_retries_and_resubscribes(cache, queue):
         await client._ws_loop()
 
     assert manager.open_calls == 2
-    assert manager.subscribe_calls == [["AAPL", "TSLA"]]
+    assert manager.subscribe_calls == [{"symbols": ["AAPL", "TSLA"], "include_trades": False}]
     sleep_mock.assert_awaited_once()
     cached = await cache.get_l1("AAPL")
     assert cached is not None
     assert cached.bid == 150.0
+
+
+@pytest.mark.asyncio
+async def test_ws_loop_secret_session_resubscribes_union_with_trade_wildcard(cache, queue):
+    await cache.connect()
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+        include_trade_wildcard=True,
+    )
+    client.update_subscriptions(["AAPL"], source="watchlist")
+    client.update_subscriptions(["LCID"], source="secret_universe")
+    manager = _RetryConnectionManager(client)
+    client._connection_manager = manager
+
+    with patch("app.data.polygon_client.asyncio.sleep", new=AsyncMock()):
+        client._running = True
+        await client._ws_loop()
+
+    assert manager.subscribe_calls == [
+        {"symbols": ["AAPL", "LCID"], "include_trades": True}
+    ]
+    snapshot = client.session_snapshot()
+    assert snapshot["reconnect_count"] == 1
+    assert snapshot["include_trade_wildcard"] is True
 
 
 @pytest.mark.asyncio

@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     universe_min_price: float = 1.0
     universe_max_price: float = 10.0
     universe_min_volume: int = 100_000
+    secret_universe_enabled: bool = True
+    secret_universe_min_price: float = 1.0
+    secret_universe_max_price: float = 10.0
+    secret_universe_min_volume: int = 100_000
+    secret_universe_excluded_tickers: str = ""
+    secret_universe_rebuild_hour: int = 8
+    secret_universe_rebuild_minute: int = 0
 
     # --- Broker ---
     broker_type: str = "mock"  # "mock" | "ibkr"
@@ -91,6 +98,7 @@ class Settings(BaseSettings):
     polygon_subscription_batch_size: int = 500
     polygon_queue_maxsize: int = 10_000
     polygon_dev_max_symbols: int = 3
+    secret_polygon_include_trade_wildcard: bool = True
 
     # --- Redis ---
     redis_url: str = ""  # Empty = use in-memory cache

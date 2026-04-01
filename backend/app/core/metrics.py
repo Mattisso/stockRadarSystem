@@ -67,3 +67,16 @@ SCHEDULER_JOB_ERRORS = Counter(
     "Total scheduler job errors",
     ["job"],
 )
+
+# -- Polygon / Secret Ingredients runtime --
+POLYGON_SESSION_CONNECTED = Gauge(
+    "stockradar_polygon_session_connected",
+    "Whether the Polygon session is currently connected",
+    ["mode"],
+)
+
+POLYGON_RECONNECT_TOTAL = Counter(
+    "stockradar_polygon_reconnect_total",
+    "Total Polygon reconnect attempts",
+    ["mode"],
+)

@@ -104,6 +104,7 @@ async def lifespan(app: FastAPI):
             reconnect_max_delay=settings.polygon_reconnect_max_delay,
             subscription_batch_size=settings.polygon_subscription_batch_size,
             dev_max_symbols=settings.polygon_dev_max_symbols,
+            include_trade_wildcard=settings.secret_polygon_include_trade_wildcard,
         )
     app.state.polygon_client = polygon_client
     runtime.mark_service(
@@ -191,7 +192,7 @@ async def lifespan(app: FastAPI):
                 tickers = await engine.refresh_universe()
                 await broker.subscribe_market_data(tickers)
                 if polygon_client:
-                    polygon_client.update_subscriptions(tickers)
+                    polygon_client.update_subscriptions(tickers, source="watchlist")
                 log.info("scheduler.universe_refreshed", count=len(tickers))
             finally:
                 db.close()
@@ -200,6 +201,28 @@ async def lifespan(app: FastAPI):
             log.exception("scheduler.universe_refresh_error")
         finally:
             SCHEDULER_JOB_DURATION.labels(job="universe_refresh").observe(time.monotonic() - start)
+
+    async def refresh_secret_universe_job():
+        start = time.monotonic()
+        try:
+            if not settings.secret_universe_enabled:
+                return
+            if not await ensure_broker_connected():
+                return
+            db = SessionLocal()
+            try:
+                engine = UniverseFilterEngine(broker, db)
+                tickers = await engine.refresh_secret_ingredients_universe()
+                if polygon_client:
+                    polygon_client.update_subscriptions(tickers, source="secret_universe")
+                log.info("scheduler.secret_universe_refreshed", count=len(tickers))
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="secret_universe_refresh").inc()
+            log.exception("scheduler.secret_universe_refresh_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="secret_universe_refresh").observe(time.monotonic() - start)
 
     async def scan_job():
         start = time.monotonic()
@@ -349,6 +372,15 @@ async def lifespan(app: FastAPI):
             SCHEDULER_JOB_DURATION.labels(job="ml_retrain").observe(time.monotonic() - start)
 
     scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
+    if settings.secret_universe_enabled:
+        scheduler.add_job(
+            refresh_secret_universe_job,
+            "cron",
+            hour=settings.secret_universe_rebuild_hour,
+            minute=settings.secret_universe_rebuild_minute,
+            max_instances=1,
+            id="secret_universe_refresh",
+        )
     scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
     scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
     scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
@@ -361,6 +393,9 @@ async def lifespan(app: FastAPI):
     # Kick off the first universe refresh after startup so health probes can succeed
     initial_refresh_task = asyncio.create_task(refresh_universe_job())
     runtime.register_task("initial_universe_refresh", initial_refresh_task)
+    if settings.secret_universe_enabled:
+        initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
+        runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
 
     log.info("app.started", trading_mode=settings.trading_mode)
 

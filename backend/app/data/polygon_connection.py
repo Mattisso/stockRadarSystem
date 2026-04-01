@@ -38,23 +38,33 @@ class PolygonConnectionManager:
             await wait_for_auth_success(ws)
             yield ws
 
-    def build_subscription_batches(self, symbols: list[str]) -> list[str]:
+    def build_subscription_batches(self, symbols: list[str], *, include_trades: bool = False) -> list[str]:
         """Build Polygon subscription parameter batches."""
+        batches: list[str] = []
+        if include_trades:
+            batches.append("T.*")
+
         if not symbols:
+            if batches:
+                return batches
             return ["Q.*"]
 
-        batches: list[str] = []
         for i in range(0, len(symbols), self._subscription_batch_size):
             chunk = symbols[i : i + self._subscription_batch_size]
             batches.append(",".join(f"Q.{symbol}" for symbol in chunk))
         return batches
 
-    async def subscribe(self, ws: Any, symbols: list[str]) -> None:
+    async def subscribe(self, ws: Any, symbols: list[str], *, include_trades: bool = False) -> None:
         """Subscribe the socket to one or more symbol batches."""
-        batches = self.build_subscription_batches(symbols)
+        batches = self.build_subscription_batches(symbols, include_trades=include_trades)
         for params in batches:
             await ws.send(json.dumps({"action": "subscribe", "params": params}))
-        log.info("polygon.ws_subscribed", symbols=len(symbols), batches=len(batches))
+        log.info(
+            "polygon.ws_subscribed",
+            symbols=len(symbols),
+            batches=len(batches),
+            include_trades=include_trades,
+        )
 
 
 def log_auth_response(auth_resp: Any) -> None:
