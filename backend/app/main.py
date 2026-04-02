@@ -141,7 +141,9 @@ async def lifespan(app: FastAPI):
         min_volume_expansion=settings.secret_candidate_min_volume_expansion,
     )
     secret_sauce_handoffs = SecretSauceHandoffManager()
-    secret_runtime_status = SecretIngredientsRuntimeStatus()
+    secret_runtime_status = SecretIngredientsRuntimeStatus(
+        configured_secret_universe_source=settings.secret_universe_source,
+    )
     runtime.mark_service("breakout_engine", True)
     if polygon_client:
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
@@ -249,8 +251,11 @@ async def lifespan(app: FastAPI):
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)
+                source = settings.secret_universe_source
                 universe_quotes = None
-                if settings.secret_universe_source == "polygon" and polygon_client is not None:
+                if source == "polygon":
+                    if polygon_client is None:
+                        raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
                     universe_quotes = await polygon_client.load_reference_universe(
                         max_price=settings.secret_universe_max_price,
                         min_price=settings.secret_universe_min_price,
@@ -260,7 +265,7 @@ async def lifespan(app: FastAPI):
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="secret_universe")
                 SECRET_UNIVERSE_SIZE.set(len(tickers))
-                secret_runtime_status.mark_secret_universe_refresh(len(tickers))
+                secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
                 log.info("scheduler.secret_universe_refreshed", count=len(tickers))
             finally:
                 db.close()

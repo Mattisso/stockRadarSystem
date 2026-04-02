@@ -31,6 +31,14 @@ class SymbolL1State:
         cutoff = self.quotes[-1].timestamp - timedelta(seconds=seconds)
         return [quote for quote in self.quotes if quote.timestamp >= cutoff]
 
+    def _trade_events_since(self, seconds: int) -> list[Quote]:
+        recent = self._quotes_since(seconds)
+        return [quote for quote in recent if quote.event_type == "trade"]
+
+    def _quote_events_since(self, seconds: int) -> list[Quote]:
+        recent = self._quotes_since(seconds)
+        return [quote for quote in recent if quote.event_type == "quote"]
+
     def price_velocity(self, seconds: int = 60) -> float:
         if len(self.quotes) < 2:
             return 0.0
@@ -54,7 +62,7 @@ class SymbolL1State:
     def quote_rate(self, seconds: int = 15) -> float:
         if not self.quotes:
             return 0.0
-        recent = self._quotes_since(seconds)
+        recent = self._quote_events_since(seconds)
         window = max(seconds, 1)
         return len(recent) / window
 
@@ -62,8 +70,11 @@ class SymbolL1State:
         if len(self.quotes) < 2:
             return 1.0
 
-        recent = self._quotes_since(recent_seconds)
-        baseline = self._quotes_since(baseline_seconds)
+        recent = self._trade_events_since(recent_seconds)
+        baseline = self._trade_events_since(baseline_seconds)
+        if not recent and not baseline:
+            recent = self._quotes_since(recent_seconds)
+            baseline = self._quotes_since(baseline_seconds)
         if not baseline:
             return 1.0
 
@@ -76,31 +87,52 @@ class SymbolL1State:
         return recent_volume / expected_recent_volume
 
     def buy_pressure(self, seconds: int = 30) -> float:
-        recent = self._quotes_since(seconds)
-        if len(recent) < 2:
+        recent_quotes = self._quote_events_since(seconds)
+        recent_trades = self._trade_events_since(seconds)
+
+        quote_score = 0.0
+        if len(recent_quotes) >= 2:
+            positive_bid_moves = 0
+            compressing_spread_moves = 0
+            non_negative_ask_moves = 0
+            transitions = 0
+            for previous, current in zip(recent_quotes, recent_quotes[1:]):
+                transitions += 1
+                if current.bid >= previous.bid:
+                    positive_bid_moves += 1
+                if (current.ask - current.bid) <= (previous.ask - previous.bid):
+                    compressing_spread_moves += 1
+                if current.ask <= previous.ask:
+                    non_negative_ask_moves += 1
+
+            if transitions > 0:
+                quote_score = (
+                    0.45 * (positive_bid_moves / transitions)
+                    + 0.35 * (compressing_spread_moves / transitions)
+                    + 0.20 * (non_negative_ask_moves / transitions)
+                )
+
+        trade_score = 0.0
+        if len(recent_trades) >= 2:
+            uptick = 0
+            downtick = 0
+            for previous, current in zip(recent_trades, recent_trades[1:]):
+                if current.last >= previous.last:
+                    uptick += current.volume
+                else:
+                    downtick += current.volume
+            total = uptick + downtick
+            if total > 0:
+                trade_score = uptick / total
+
+        if len(recent_quotes) < 2 and len(recent_trades) < 2:
             return 0.0
+        if len(recent_trades) < 2:
+            return min(1.0, max(0.0, quote_score))
+        if len(recent_quotes) < 2:
+            return min(1.0, max(0.0, trade_score))
 
-        positive_bid_moves = 0
-        compressing_spread_moves = 0
-        non_negative_ask_moves = 0
-        transitions = 0
-        for previous, current in zip(recent, recent[1:]):
-            transitions += 1
-            if current.bid >= previous.bid:
-                positive_bid_moves += 1
-            if (current.ask - current.bid) <= (previous.ask - previous.bid):
-                compressing_spread_moves += 1
-            if current.ask <= previous.ask:
-                non_negative_ask_moves += 1
-
-        if transitions == 0:
-            return 0.0
-
-        score = (
-            0.45 * (positive_bid_moves / transitions)
-            + 0.35 * (compressing_spread_moves / transitions)
-            + 0.20 * (non_negative_ask_moves / transitions)
-        )
+        score = 0.65 * quote_score + 0.35 * trade_score
         return min(1.0, max(0.0, score))
 
 

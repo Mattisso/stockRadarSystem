@@ -34,6 +34,7 @@ class Quote:
     last: float
     volume: int
     timestamp: datetime
+    event_type: str = "quote"
 
 
 @dataclass

@@ -16,6 +16,8 @@ from app.core.database import get_db
 from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.ml.analytics import TradeAnalytics
 from app.ml.backtest import BacktestConfig, SignalBacktester
+from app.engine.secret_candidate_scorer import SecretCandidateScorer
+from app.engine.secret_replay_validator import SecretReplayValidator, build_replay_quote
 from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.trade import Trade
@@ -30,6 +32,8 @@ from app.schemas.ml import (
     SecretSauceHandoffResponse,
     SecretSauceStatusResponse,
     SecretSauceQueueStatusResponse,
+    SecretReplayRequest,
+    SecretReplayResponse,
     SignalAccuracyBucketResponse,
 )
 from app.schemas.signal import SignalRead
@@ -90,6 +94,7 @@ async def contract_metadata():
             "/api/secret-sauce/handoffs",
             "/api/secret-sauce/queue",
             "/api/secret-sauce/status",
+            "/api/secret-sauce/replay",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -278,6 +283,41 @@ async def get_secret_sauce_status(request: Request):
         runtime=runtime_snapshot,
         queue=SecretSauceQueueStatusResponse(**queue_snapshot),
         polygon_session=polygon_snapshot,
+    )
+
+
+@router.post("/secret-sauce/replay", response_model=SecretReplayResponse)
+async def replay_secret_sauce(body: SecretReplayRequest):
+    validator = SecretReplayValidator(
+        scorer=SecretCandidateScorer(
+            min_score=settings.secret_candidate_min_score,
+            max_spread_pct=settings.secret_candidate_max_spread_pct,
+            min_quote_rate=settings.secret_candidate_min_quote_rate,
+            min_buy_pressure=settings.secret_candidate_min_buy_pressure,
+            min_volume_expansion=settings.secret_candidate_min_volume_expansion,
+        ),
+        max_active=settings.secret_l2_max_active,
+        max_queue_size=settings.secret_l2_queue_maxsize,
+    )
+    result = await validator.run(
+        [
+            build_replay_quote(
+                ticker=quote.ticker,
+                bid=quote.bid,
+                ask=quote.ask,
+                last=quote.last,
+                volume=quote.volume,
+                timestamp=quote.timestamp,
+            )
+            for quote in body.quotes
+        ]
+    )
+    return SecretReplayResponse(
+        snapshots=result.snapshots,
+        candidates=result.candidates,
+        handoffs=result.handoffs,
+        queue=SecretSauceQueueStatusResponse(**result.queue),
+        promoted_tickers=result.promoted_tickers,
     )
 
 

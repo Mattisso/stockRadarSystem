@@ -111,3 +111,48 @@ class SecretSauceStatusResponse(BaseModel):
     runtime: dict
     queue: SecretSauceQueueStatusResponse
     polygon_session: dict | None = None
+
+
+class SecretReplayQuoteRequest(BaseModel):
+    ticker: str
+    bid: float
+    ask: float
+    last: float
+    volume: int
+    timestamp: datetime
+
+
+class SecretReplayRequest(BaseModel):
+    quotes: list[SecretReplayQuoteRequest]
+
+
+class SecretReplaySnapshotResponse(BaseModel):
+    ticker: str
+    price_velocity_1m: float
+    spread_pct: float
+    quote_rate: float
+    volume_expansion: float
+    buy_pressure: float
+    last_price: float
+    last_updated: datetime
+
+
+class SecretReplayCandidateResponse(BaseModel):
+    ticker: str
+    score: float
+    price_velocity_1m: float
+    pct_change_5m: float
+    volume_expansion: float
+    spread_pct: float
+    quote_rate: float
+    buy_pressure: float
+    reason_flags: list[str]
+    timestamp: datetime
+
+
+class SecretReplayResponse(BaseModel):
+    snapshots: list[SecretReplaySnapshotResponse]
+    candidates: list[SecretReplayCandidateResponse]
+    handoffs: list[SecretSauceHandoffResponse]
+    queue: SecretSauceQueueStatusResponse
+    promoted_tickers: list[str]

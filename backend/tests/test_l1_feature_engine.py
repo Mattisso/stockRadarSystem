@@ -24,6 +24,24 @@ def _quote(
     )
 
 
+def _trade(
+    ticker: str,
+    *,
+    last: float,
+    volume: int,
+    timestamp: datetime,
+) -> Quote:
+    return Quote(
+        ticker=ticker,
+        bid=last,
+        ask=last,
+        last=last,
+        volume=volume,
+        timestamp=timestamp,
+        event_type="trade",
+    )
+
+
 def test_l1_feature_engine_computes_snapshot():
     engine = L1FeatureEngine()
     start = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
@@ -90,3 +108,33 @@ async def test_ingest_from_cache_reads_existing_quotes():
     snapshot = engine.snapshot("TSLA")
     assert snapshot is not None
     assert snapshot.last_price == 5.05
+
+
+def test_trade_events_strengthen_tape_metrics():
+    engine = L1FeatureEngine()
+    start = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
+
+    for idx in range(6):
+        engine.ingest(
+            _quote(
+                "PLTR",
+                bid=10.00 + idx * 0.01,
+                ask=10.02 + idx * 0.01,
+                last=10.01 + idx * 0.01,
+                volume=1000 + idx * 50,
+                timestamp=start + timedelta(seconds=idx * 5),
+            )
+        )
+        engine.ingest(
+            _trade(
+                "PLTR",
+                last=10.01 + idx * 0.02,
+                volume=5000 + idx * 1000,
+                timestamp=start + timedelta(seconds=idx * 5, milliseconds=500),
+            )
+        )
+
+    snapshot = engine.snapshot("PLTR")
+    assert snapshot is not None
+    assert snapshot.volume_expansion > 1.0
+    assert snapshot.buy_pressure > 0.5

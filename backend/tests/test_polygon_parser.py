@@ -30,8 +30,26 @@ def test_parse_quote_message():
 
 def test_parse_non_quote_message_returns_none():
     parser = PolygonMessageParser()
-    assert parser.parse_message({"ev": "T", "sym": "AAPL"}) is None
     assert parser.parse_message({"ev": "status", "message": "connected"}) is None
+
+
+def test_parse_trade_message():
+    parser = PolygonMessageParser()
+    timestamp_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+    trade = parser.parse_message({
+        "ev": "T",
+        "sym": "AAPL",
+        "p": 150.55,
+        "s": 2500,
+        "t": timestamp_ms,
+    })
+
+    assert trade is not None
+    assert trade.ticker == "AAPL"
+    assert trade.last == 150.55
+    assert trade.volume == 2500
+    assert trade.event_type == "trade"
 
 
 def test_parse_messages_handles_json_batches():
@@ -41,8 +59,10 @@ def test_parse_messages_handles_json_batches():
     quotes = parser.parse_messages(json.dumps([
         {"ev": "status", "message": "connected"},
         {"ev": "Q", "sym": "AAPL", "bp": 150.25, "ap": 150.3, "z": 12345, "t": timestamp_ms},
-        {"ev": "T", "sym": "AAPL"},
+        {"ev": "T", "sym": "AAPL", "p": 150.4, "s": 1000, "t": timestamp_ms},
     ]))
 
-    assert len(quotes) == 1
+    assert len(quotes) == 2
     assert quotes[0].ticker == "AAPL"
+    assert quotes[0].event_type == "quote"
+    assert quotes[1].event_type == "trade"

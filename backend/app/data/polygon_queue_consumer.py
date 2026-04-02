@@ -47,7 +47,8 @@ class BreakoutQueueConsumer:
             quote = None
             try:
                 quote = await self._queue.get()
-                self._breakout_engine.ingest(quote)
+                if quote.event_type == "quote":
+                    self._breakout_engine.ingest(quote)
                 if self._l1_feature_engine is not None:
                     self._l1_feature_engine.ingest(quote)
             except asyncio.CancelledError:

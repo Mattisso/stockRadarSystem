@@ -171,3 +171,61 @@ def test_secret_sauce_status(client, auth_headers):
     assert "runtime" in body
     assert "queue" in body
     assert "polygon_session" in body
+    assert "configured_secret_universe_source" in body["runtime"]
+    assert "last_secret_universe_source" in body["runtime"]
+
+
+def test_secret_sauce_replay(client, auth_headers):
+    payload = {
+        "quotes": [
+            {
+                "ticker": "LCID",
+                "bid": 3.00,
+                "ask": 3.01,
+                "last": 3.005,
+                "volume": 20000,
+                "timestamp": "2026-04-01T09:30:00Z",
+            },
+            {
+                "ticker": "LCID",
+                "bid": 3.05,
+                "ask": 3.06,
+                "last": 3.055,
+                "volume": 40000,
+                "timestamp": "2026-04-01T09:30:15Z",
+            },
+            {
+                "ticker": "LCID",
+                "bid": 3.10,
+                "ask": 3.11,
+                "last": 3.105,
+                "volume": 60000,
+                "timestamp": "2026-04-01T09:30:30Z",
+            },
+            {
+                "ticker": "LCID",
+                "bid": 3.15,
+                "ask": 3.16,
+                "last": 3.155,
+                "volume": 80000,
+                "timestamp": "2026-04-01T09:30:45Z",
+            },
+            {
+                "ticker": "LCID",
+                "bid": 3.20,
+                "ask": 3.21,
+                "last": 3.205,
+                "volume": 100000,
+                "timestamp": "2026-04-01T09:31:00Z",
+            },
+        ]
+    }
+
+    response = client.post("/api/secret-sauce/replay", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert "snapshots" in body
+    assert "candidates" in body
+    assert "handoffs" in body
+    assert "queue" in body
+    assert "promoted_tickers" in body

@@ -87,10 +87,29 @@ async def test_handle_ws_message(client, cache):
 @pytest.mark.asyncio
 async def test_handle_ws_message_ignores_non_quote(client, cache):
     await cache.connect()
-    msg = {"ev": "T", "sym": "GEVO"}  # Trade event, not quote
+    msg = {"ev": "status", "sym": "GEVO"}  # Status event, not market data
     await client._handle_ws_message(msg)
     result = await cache.get_l1("GEVO")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_handle_ws_message_dispatches_trade_message(client, cache, queue):
+    await cache.connect()
+    msg = {
+        "ev": "T",
+        "sym": "GEVO",
+        "p": 1.87,
+        "s": 2500,
+        "t": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+    }
+    await client._handle_ws_message(msg)
+    result = await cache.get_l1("GEVO")
+    assert result is not None
+    assert result.last == 1.87
+    assert result.event_type == "trade"
+    queued = queue.get_nowait()
+    assert queued.event_type == "trade"
 
 
 @pytest.mark.asyncio

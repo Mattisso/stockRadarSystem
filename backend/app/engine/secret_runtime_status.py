@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 @dataclass
 class SecretIngredientsRuntimeStatus:
+    configured_secret_universe_source: str = "broker"
+    last_secret_universe_source: str | None = None
     last_secret_universe_refresh_at: datetime | None = None
     last_scan_at: datetime | None = None
     last_candidate_count: int = 0
@@ -15,8 +17,9 @@ class SecretIngredientsRuntimeStatus:
     last_error: str | None = None
     recent_promoted_tickers: list[str] = field(default_factory=list)
 
-    def mark_secret_universe_refresh(self, count: int) -> None:
+    def mark_secret_universe_refresh(self, count: int, *, source: str) -> None:
         self.last_secret_universe_refresh_at = datetime.now(tz=timezone.utc)
+        self.last_secret_universe_source = source
         self.secret_universe_size = count
         self.last_error = None
 
@@ -38,6 +41,8 @@ class SecretIngredientsRuntimeStatus:
                 if self.last_secret_universe_refresh_at
                 else None
             ),
+            "configured_secret_universe_source": self.configured_secret_universe_source,
+            "last_secret_universe_source": self.last_secret_universe_source,
             "last_scan_at": self.last_scan_at.isoformat() if self.last_scan_at else None,
             "last_candidate_count": self.last_candidate_count,
             "last_handoff_count": self.last_handoff_count,
