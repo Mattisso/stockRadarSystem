@@ -246,12 +246,17 @@ async def lifespan(app: FastAPI):
         try:
             if not settings.secret_universe_enabled:
                 return
-            if not await ensure_broker_connected():
-                return
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)
-                tickers = await engine.refresh_secret_ingredients_universe()
+                universe_quotes = None
+                if settings.secret_universe_source == "polygon" and polygon_client is not None:
+                    universe_quotes = await polygon_client.load_reference_universe(
+                        max_price=settings.secret_universe_max_price,
+                        min_price=settings.secret_universe_min_price,
+                        min_volume=settings.secret_universe_min_volume,
+                    )
+                tickers = await engine.refresh_secret_ingredients_universe(universe_quotes=universe_quotes)
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="secret_universe")
                 SECRET_UNIVERSE_SIZE.set(len(tickers))
@@ -269,12 +274,13 @@ async def lifespan(app: FastAPI):
     async def scan_job():
         start = time.monotonic()
         try:
-            if not broker.is_connected():
-                return
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)
-                tickers = engine.get_active_tickers()
+                if settings.secret_universe_enabled:
+                    tickers = engine.get_secret_ingredients_tickers()
+                else:
+                    tickers = engine.get_active_tickers()
             finally:
                 db.close()
 

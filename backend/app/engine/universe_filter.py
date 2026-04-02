@@ -1,5 +1,6 @@
 """Universe Filter Engine — scans NASDAQ for sub-$10 stocks matching criteria."""
 
+from app.broker.interface import Quote
 from sqlalchemy.orm import Session
 
 from app.broker.interface import BrokerInterface
@@ -58,23 +59,34 @@ class UniverseFilterEngine:
         log.info("universe_filter.db_synced", active_count=len(tickers))
         return tickers
 
-    async def refresh_secret_ingredients_universe(self) -> list[str]:
+    async def refresh_secret_ingredients_universe(
+        self,
+        *,
+        universe_quotes: list[Quote] | None = None,
+    ) -> list[str]:
         """Build the dedicated Secret Ingredients daily universe snapshot.
 
         This persists the day-level universe and ensures Symbol metadata exists,
         but it does not own the active watchlist used by the fast scan loop.
         """
-        tickers = await self._load_filtered_universe(
-            max_price=settings.secret_universe_max_price,
-            min_price=settings.secret_universe_min_price,
-            min_volume=settings.secret_universe_min_volume,
-            excluded_tickers=self._secret_universe_excluded_tickers(),
-        )
+        excluded = self._secret_universe_excluded_tickers()
+        if universe_quotes is None:
+            tickers = await self._load_filtered_universe(
+                max_price=settings.secret_universe_max_price,
+                min_price=settings.secret_universe_min_price,
+                min_volume=settings.secret_universe_min_volume,
+                excluded_tickers=excluded,
+            )
+            quotes_by_ticker = {ticker: await self.broker.get_quote(ticker) for ticker in tickers}
+        else:
+            filtered_quotes = [quote for quote in universe_quotes if quote.ticker not in excluded]
+            tickers = [quote.ticker for quote in filtered_quotes]
+            quotes_by_ticker = {quote.ticker: quote for quote in filtered_quotes}
         log.info("secret_universe.scan_complete", candidate_count=len(tickers))
 
         for ticker in tickers:
             existing = self.db.query(Symbol).filter_by(ticker=ticker).first()
-            quote = await self.broker.get_quote(ticker)
+            quote = quotes_by_ticker[ticker]
             if existing:
                 existing.exchange = existing.exchange or "NASDAQ"
                 existing.last_price = quote.last
@@ -100,6 +112,10 @@ class UniverseFilterEngine:
         """Return currently active tickers from the database."""
         symbols = self.db.query(Symbol).filter_by(is_active=True).all()
         return [s.ticker for s in symbols]
+
+    def get_secret_ingredients_tickers(self) -> list[str]:
+        """Return the most recent persisted Secret Ingredients universe snapshot."""
+        return SecretIngredientsService(self.db).latest_daily_universe_tickers()
 
     async def _load_filtered_universe(
         self,

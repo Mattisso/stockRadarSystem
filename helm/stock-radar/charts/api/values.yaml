@@ -50,6 +50,7 @@ env:
   PGDATABASE: "stock_radar"
   TRADING_MODE: "paper"
   BUY_USE_BRACKETS: "false"
+  SECRET_UNIVERSE_SOURCE: "broker"
 
 secretName: "postgres-secret"
 apiSecretName: "api-secret"

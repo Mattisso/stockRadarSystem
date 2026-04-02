@@ -1,8 +1,11 @@
 """Tests for the UniverseFilterEngine."""
 
+from datetime import datetime
+
 import pytest
 from sqlalchemy.orm import Session
 
+from app.broker.interface import Quote
 from app.broker.mock_broker import MockBroker
 from app.engine.universe_filter import UniverseFilterEngine
 from app.models.universe_daily import UniverseDaily
@@ -37,6 +40,17 @@ async def test_get_active_tickers(broker, db: Session):
     active = engine.get_active_tickers()
     assert len(active) > 0
     assert all(isinstance(t, str) for t in active)
+
+
+@pytest.mark.asyncio
+async def test_get_secret_ingredients_tickers_reads_latest_persisted_snapshot(broker, db: Session):
+    engine = UniverseFilterEngine(broker, db)
+    await engine.refresh_secret_ingredients_universe()
+
+    secret_tickers = engine.get_secret_ingredients_tickers()
+
+    assert len(secret_tickers) > 0
+    assert all(isinstance(t, str) for t in secret_tickers)
 
 
 @pytest.mark.asyncio
@@ -75,3 +89,33 @@ async def test_refresh_secret_ingredients_universe_persists_daily_snapshot_witho
     aapl = db.query(Symbol).filter_by(ticker="AAPL").first()
     assert aapl is not None
     assert aapl.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_secret_ingredients_universe_uses_supplied_quotes_without_broker_fetch(
+    broker, db: Session
+):
+    async def _boom(_ticker):
+        raise AssertionError("broker.get_quote should not be called when universe_quotes are supplied")
+
+    broker.get_quote = _boom
+    engine = UniverseFilterEngine(broker, db)
+
+    tickers = await engine.refresh_secret_ingredients_universe(
+        universe_quotes=[
+            Quote(
+                ticker="LCID",
+                bid=3.4,
+                ask=3.5,
+                last=3.45,
+                volume=250000,
+                timestamp=datetime.now(),
+            )
+        ]
+    )
+
+    assert tickers == ["LCID"]
+    lcid = db.query(Symbol).filter_by(ticker="LCID").first()
+    assert lcid is not None
+    assert lcid.last_price == 3.45
+    assert lcid.avg_volume == 250000

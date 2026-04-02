@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+from math import ceil
 
 import httpx
 from websockets.exceptions import ConnectionClosed
@@ -128,6 +129,27 @@ class PolygonClient:
             "include_trade_wildcard": self._include_trade_wildcard,
         }
 
+    async def load_reference_universe(
+        self,
+        *,
+        max_price: float,
+        min_price: float,
+        min_volume: int,
+        exchange: str = "XNAS",
+    ) -> list[Quote]:
+        """Build a filtered equity universe from Polygon reference + snapshot REST APIs."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            tickers = await self._fetch_reference_tickers(client, exchange=exchange)
+            if not tickers:
+                return []
+            return await self._fetch_snapshot_universe(
+                client,
+                tickers=tickers,
+                max_price=max_price,
+                min_price=min_price,
+                min_volume=min_volume,
+            )
+
     # ── WebSocket Mode (paid) ────────────────────────────────────────
 
     async def _ws_loop(self) -> None:
@@ -248,6 +270,82 @@ class PolygonClient:
                 timestamp=datetime.now(tz=timezone.utc),
             )
             await self._dispatch(quote)
+
+    async def _fetch_reference_tickers(self, client: httpx.AsyncClient, *, exchange: str) -> list[str]:
+        tickers: list[str] = []
+        next_url = f"{self._rest_url}/v3/reference/tickers"
+        params = {
+            "market": "stocks",
+            "exchange": exchange,
+            "type": "CS",
+            "active": "true",
+            "limit": 1000,
+            "sort": "ticker",
+            "order": "asc",
+            "apiKey": self._api_key,
+        }
+
+        while next_url:
+            resp = await client.get(next_url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            tickers.extend(
+                result["ticker"]
+                for result in data.get("results", [])
+                if result.get("ticker")
+            )
+            raw_next_url = data.get("next_url")
+            if not raw_next_url:
+                break
+            next_url = raw_next_url
+            params = {"apiKey": self._api_key}
+
+        return tickers
+
+    async def _fetch_snapshot_universe(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        tickers: list[str],
+        max_price: float,
+        min_price: float,
+        min_volume: int,
+    ) -> list[Quote]:
+        filtered: list[Quote] = []
+        batch_size = 250
+        batch_count = ceil(len(tickers) / batch_size)
+
+        for batch_index in range(batch_count):
+            batch = tickers[batch_index * batch_size : (batch_index + 1) * batch_size]
+            resp = await client.get(
+                f"{self._rest_url}/v3/snapshot",
+                params={
+                    "ticker.any_of": ",".join(batch),
+                    "apiKey": self._api_key,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for result in data.get("results", []):
+                session = result.get("session", {})
+                last = session.get("close") or 0.0
+                volume = session.get("volume") or 0
+                if last < min_price or last > max_price:
+                    continue
+                if volume < min_volume:
+                    continue
+                filtered.append(
+                    Quote(
+                        ticker=result.get("ticker", ""),
+                        bid=last,
+                        ask=last,
+                        last=last,
+                        volume=volume,
+                        timestamp=datetime.now(tz=timezone.utc),
+                    )
+                )
+
+        return filtered
 
     # ── Dev / Sandbox Mode ──────────────────────────────────────────
 

@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import date, datetime
 import json
 
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.engine.secret_candidate_scorer import SecretCandidateEvent
@@ -54,6 +55,19 @@ class SecretIngredientsService:
             rows_added += 1
         self.db.flush()
         return rows_added
+
+    def latest_daily_universe_tickers(self) -> list[str]:
+        """Return the most recent persisted Secret Ingredients universe snapshot."""
+        latest_trade_date = self.db.query(UniverseDaily.trade_date).order_by(desc(UniverseDaily.trade_date)).limit(1).scalar()
+        if latest_trade_date is None:
+            return []
+        rows = (
+            self.db.query(UniverseDaily)
+            .filter_by(trade_date=latest_trade_date)
+            .order_by(UniverseDaily.ticker.asc())
+            .all()
+        )
+        return [row.ticker for row in rows]
 
     def record_candidates(self, events: list[SecretCandidateEvent]) -> list[L1Candidate]:
         records: list[L1Candidate] = []

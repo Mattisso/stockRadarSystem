@@ -142,6 +142,46 @@ async def test_rest_poll_mocked(client, cache):
 
 
 @pytest.mark.asyncio
+async def test_load_reference_universe_filters_reference_and_snapshot_data(client):
+    reference_page = AsyncMock()
+    reference_page.raise_for_status = lambda: None
+    reference_page.json = lambda: {
+        "results": [
+            {"ticker": "LCID"},
+            {"ticker": "GEVO"},
+            {"ticker": "AAPL"},
+        ]
+    }
+
+    snapshot_page = AsyncMock()
+    snapshot_page.raise_for_status = lambda: None
+    snapshot_page.json = lambda: {
+        "results": [
+            {"ticker": "LCID", "session": {"close": 3.50, "volume": 200000}},
+            {"ticker": "GEVO", "session": {"close": 0.90, "volume": 300000}},
+            {"ticker": "AAPL", "session": {"close": 180.00, "volume": 5000000}},
+        ]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=snapshot_page)
+
+    universe = await client._fetch_snapshot_universe(
+        mock_client,
+        tickers=["LCID", "GEVO", "AAPL"],
+        max_price=10.0,
+        min_price=1.0,
+        min_volume=100000,
+    )
+    assert [quote.ticker for quote in universe] == ["LCID"]
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=reference_page)
+    tickers = await client._fetch_reference_tickers(mock_client, exchange="XNAS")
+    assert tickers == ["LCID", "GEVO", "AAPL"]
+
+
+@pytest.mark.asyncio
 async def test_dev_poll_mocked(client, cache):
     await cache.connect()
     client._mode = "dev"

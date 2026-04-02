@@ -26,6 +26,19 @@ def test_record_daily_universe_is_idempotent(db):
     assert rows[0].ticker == "SIRI"
 
 
+def test_latest_daily_universe_tickers_returns_most_recent_snapshot(db):
+    db.add(Symbol(ticker="SIRI", exchange="NASDAQ", last_price=3.2, avg_volume=1000000, is_active=True))
+    db.add(Symbol(ticker="LCID", exchange="NASDAQ", last_price=2.8, avg_volume=2000000, is_active=False))
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    service.record_daily_universe(["SIRI"], trade_date=date(2026, 3, 31))
+    service.record_daily_universe(["LCID"], trade_date=date(2026, 4, 1))
+    db.commit()
+
+    assert service.latest_daily_universe_tickers() == ["LCID"]
+
+
 def test_record_candidates_persists_breakout_fields(db):
     service = SecretIngredientsService(db)
     event = SecretCandidateEvent(
