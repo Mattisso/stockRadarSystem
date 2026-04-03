@@ -14,7 +14,7 @@ api:
     type: "ibkr"
     ibkrHost: "192.168.1.77"
     ibkrPort: "4002"
-    ibkrClientId: "1"
+    ibkrClientId: "77"
     ibkrTimeout: "30"
     ibkrMaxReconnectAttempts: "10"
   polygon:
