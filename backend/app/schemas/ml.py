@@ -199,3 +199,28 @@ class SecretL1ToL2EventResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SecretSauceReasonCountResponse(BaseModel):
+    label: str
+    count: int
+
+
+class SecretSauceLatencySummaryResponse(BaseModel):
+    count: int
+    avg_ms: float | None = None
+    median_ms: float | None = None
+    p95_ms: float | None = None
+
+
+class SecretSauceFunnelResponse(BaseModel):
+    trade_date: date | None = None
+    universe_count: int
+    candidate_count: int
+    handoff_count: int
+    candidate_conversion_pct: float
+    handoff_conversion_pct: float
+    universe_to_handoff_pct: float
+    latency: SecretSauceLatencySummaryResponse
+    top_reason_flags: list[SecretSauceReasonCountResponse]
+    top_escalation_reasons: list[SecretSauceReasonCountResponse]

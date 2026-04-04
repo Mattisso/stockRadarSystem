@@ -34,3 +34,28 @@ export interface ISecretL1ToL2Event {
   handoff_payload: string | null;
   created_at: string;
 }
+
+export interface ISecretSauceReasonCount {
+  label: string;
+  count: number;
+}
+
+export interface ISecretSauceLatencySummary {
+  count: number;
+  avg_ms: number | null;
+  median_ms: number | null;
+  p95_ms: number | null;
+}
+
+export interface ISecretSauceFunnel {
+  trade_date: string | null;
+  universe_count: number;
+  candidate_count: number;
+  handoff_count: number;
+  candidate_conversion_pct: number;
+  handoff_conversion_pct: number;
+  universe_to_handoff_pct: number;
+  latency: ISecretSauceLatencySummary;
+  top_reason_flags: ISecretSauceReasonCount[];
+  top_escalation_reasons: ISecretSauceReasonCount[];
+}

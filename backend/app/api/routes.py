@@ -1,6 +1,9 @@
 """REST API routes for Stock Radar System."""
 
+from collections import Counter
 from dataclasses import asdict
+from datetime import date, datetime, timedelta, timezone
+from statistics import median
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -38,6 +41,9 @@ from app.schemas.ml import (
     SecretUniverseDailyResponse,
     SecretL1CandidateResponse,
     SecretL1ToL2EventResponse,
+    SecretSauceFunnelResponse,
+    SecretSauceLatencySummaryResponse,
+    SecretSauceReasonCountResponse,
     SecretReplayRequest,
     SecretReplayResponse,
     SignalAccuracyBucketResponse,
@@ -104,6 +110,7 @@ async def contract_metadata():
             "/api/secret-sauce/universe-daily",
             "/api/secret-sauce/l1-candidates",
             "/api/secret-sauce/l1-to-l2-events",
+            "/api/secret-sauce/funnel",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -338,6 +345,112 @@ def get_secret_l1_to_l2_events(limit: int = 100, db: Session = Depends(get_db)):
         .order_by(L1ToL2Event.escalate_ts.desc(), L1ToL2Event.id.desc())
         .limit(limit)
         .all()
+    )
+
+
+@router.get("/secret-sauce/funnel", response_model=SecretSauceFunnelResponse)
+def get_secret_sauce_funnel(
+    trade_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_trade_date: date | None = None
+    if trade_date is None:
+        selected_trade_date = (
+            db.query(UniverseDaily.trade_date)
+            .order_by(UniverseDaily.trade_date.desc())
+            .limit(1)
+            .scalar()
+        )
+    else:
+        try:
+            selected_trade_date = date.fromisoformat(trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid trade_date") from exc
+
+    if selected_trade_date is None:
+        empty_latency = SecretSauceLatencySummaryResponse(count=0)
+        return SecretSauceFunnelResponse(
+            trade_date=None,
+            universe_count=0,
+            candidate_count=0,
+            handoff_count=0,
+            candidate_conversion_pct=0.0,
+            handoff_conversion_pct=0.0,
+            universe_to_handoff_pct=0.0,
+            latency=empty_latency,
+            top_reason_flags=[],
+            top_escalation_reasons=[],
+        )
+
+    start_dt = datetime.combine(selected_trade_date, datetime.min.time(), tzinfo=timezone.utc).replace(tzinfo=None)
+    end_dt = start_dt + timedelta(days=1)
+
+    universe_rows = (
+        db.query(UniverseDaily)
+        .filter(UniverseDaily.trade_date == selected_trade_date)
+        .all()
+    )
+    candidate_rows = (
+        db.query(L1Candidate)
+        .filter(L1Candidate.detected_at >= start_dt)
+        .filter(L1Candidate.detected_at < end_dt)
+        .all()
+    )
+    handoff_rows = (
+        db.query(L1ToL2Event)
+        .filter(L1ToL2Event.escalate_ts >= start_dt)
+        .filter(L1ToL2Event.escalate_ts < end_dt)
+        .all()
+    )
+
+    universe_tickers = {row.ticker for row in universe_rows}
+    candidate_tickers = {row.ticker for row in candidate_rows}
+    handoff_tickers = {row.ticker for row in handoff_rows}
+
+    universe_count = len(universe_tickers)
+    candidate_count = len(candidate_tickers & universe_tickers) if universe_tickers else len(candidate_tickers)
+    handoff_count = len(handoff_tickers & candidate_tickers) if candidate_tickers else len(handoff_tickers)
+
+    latency_values = [row.latency_ms for row in handoff_rows if row.latency_ms is not None]
+    latency_values.sort()
+    latency_summary = SecretSauceLatencySummaryResponse(
+        count=len(latency_values),
+        avg_ms=(sum(latency_values) / len(latency_values)) if latency_values else None,
+        median_ms=median(latency_values) if latency_values else None,
+        p95_ms=(latency_values[min(len(latency_values) - 1, int(len(latency_values) * 0.95))] if latency_values else None),
+    )
+
+    reason_counter: Counter[str] = Counter()
+    for row in candidate_rows:
+        if not row.reason_flags:
+            continue
+        for flag in (part.strip() for part in row.reason_flags.split(",") if part.strip()):
+            reason_counter[flag] += 1
+
+    escalation_counter: Counter[str] = Counter(
+        row.escalation_reason for row in handoff_rows if row.escalation_reason
+    )
+
+    top_reason_flags = [
+        SecretSauceReasonCountResponse(label=label, count=count)
+        for label, count in reason_counter.most_common(5)
+    ]
+    top_escalation_reasons = [
+        SecretSauceReasonCountResponse(label=label, count=count)
+        for label, count in escalation_counter.most_common(5)
+    ]
+
+    return SecretSauceFunnelResponse(
+        trade_date=selected_trade_date,
+        universe_count=universe_count,
+        candidate_count=candidate_count,
+        handoff_count=handoff_count,
+        candidate_conversion_pct=(candidate_count / universe_count * 100.0) if universe_count else 0.0,
+        handoff_conversion_pct=(handoff_count / candidate_count * 100.0) if candidate_count else 0.0,
+        universe_to_handoff_pct=(handoff_count / universe_count * 100.0) if universe_count else 0.0,
+        latency=latency_summary,
+        top_reason_flags=top_reason_flags,
+        top_escalation_reasons=top_escalation_reasons,
     )
 
 

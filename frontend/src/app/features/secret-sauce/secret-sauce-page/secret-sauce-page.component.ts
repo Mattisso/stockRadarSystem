@@ -3,7 +3,12 @@ import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
-import { ISecretL1Candidate, ISecretL1ToL2Event, ISecretUniverseDaily } from '../../../shared/models';
+import {
+  ISecretL1Candidate,
+  ISecretL1ToL2Event,
+  ISecretSauceFunnel,
+  ISecretUniverseDaily,
+} from '../../../shared/models';
 import { SecretSauceApiService } from '../secret-sauce-api.service';
 
 @Component({
@@ -17,6 +22,7 @@ import { SecretSauceApiService } from '../secret-sauce-api.service';
 export class SecretSaucePageComponent implements OnInit {
   private readonly api = inject(SecretSauceApiService);
 
+  funnel = signal<ISecretSauceFunnel | null>(null);
   universeDaily = signal<ISecretUniverseDaily[]>([]);
   l1Candidates = signal<ISecretL1Candidate[]>([]);
   l1ToL2Events = signal<ISecretL1ToL2Event[]>([]);
@@ -32,6 +38,7 @@ export class SecretSaucePageComponent implements OnInit {
     this.error.set(null);
     this.api.loadOps().subscribe({
       next: data => {
+        this.funnel.set(data.funnel);
         this.universeDaily.set(data.universeDaily);
         this.l1Candidates.set(data.l1Candidates);
         this.l1ToL2Events.set(data.l1ToL2Events);

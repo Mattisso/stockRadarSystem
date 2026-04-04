@@ -1,9 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, forkJoin } from 'rxjs';
-import { ISecretL1Candidate, ISecretL1ToL2Event, ISecretUniverseDaily } from '../../shared/models';
+import {
+  ISecretL1Candidate,
+  ISecretL1ToL2Event,
+  ISecretSauceFunnel,
+  ISecretUniverseDaily,
+} from '../../shared/models';
 
 export interface SecretSauceOpsData {
+  funnel: ISecretSauceFunnel;
   universeDaily: ISecretUniverseDaily[];
   l1Candidates: ISecretL1Candidate[];
   l1ToL2Events: ISecretL1ToL2Event[];
@@ -15,6 +21,7 @@ export class SecretSauceApiService {
 
   loadOps(limit = 100): Observable<SecretSauceOpsData> {
     return forkJoin({
+      funnel: this.http.get<ISecretSauceFunnel>('/api/secret-sauce/funnel'),
       universeDaily: this.http.get<ISecretUniverseDaily[]>('/api/secret-sauce/universe-daily', {
         params: { limit: String(limit) },
       }),
