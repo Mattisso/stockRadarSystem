@@ -104,7 +104,7 @@ tf-destroy:
 	cd terraform/database && terraform destroy
 
 # ── Kubernetes ──────────────────────────────────────────────────────
-.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-all
+.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-docs open-redoc open-all
 
 ns:
 	kubectl apply -f kubernetes/namespace.yaml
@@ -212,7 +212,29 @@ open-grafana:
 		echo "Open http://127.0.0.1:13000 manually"; \
 	fi
 
-open-all: open-api open-frontend open-prometheus open-grafana
+open-docs:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100/docs; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:18100/docs; \
+	else \
+		echo "Open http://127.0.0.1:18100/docs manually"; \
+	fi
+
+open-redoc:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100/redoc; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:18100/redoc; \
+	else \
+		echo "Open http://127.0.0.1:18100/redoc manually"; \
+	fi
+
+open-all: open-api open-frontend open-prometheus open-grafana open-docs
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
 .PHONY: dev test migrate serve-frontend tunnel tunnel-frontend
@@ -238,7 +260,7 @@ tunnel-frontend:
 	cloudflared tunnel --url http://localhost:4200
 
 # ── K8s Tunneling (Public Access) ───────────────────────────────────
-.PHONY: tunnel-k8s tunnel-status
+.PHONY: tunnel-k8s tunnel-status tunnel-stop
 
 tunnel-k8s:
 	@echo "Restarting K8s Port-Forwards and Tunnels..."
@@ -248,21 +270,44 @@ tunnel-k8s:
 	-tmux kill-session -t cf-frontend 2>/dev/null || true
 	@sleep 2
 	# Start Port-Forwards
-	kubectl port-forward svc/stock-radar-api 8000:8000 -n $(NAMESPACE) --address 0.0.0.0 > /dev/null 2>&1 &
-	kubectl port-forward svc/stock-radar-frontend 4201:4200 -n $(NAMESPACE) --address 0.0.0.0 > /dev/null 2>&1 &
+	kubectl port-forward svc/stock-radar-api 18100:8000 -n $(NAMESPACE) --address 0.0.0.0 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	kubectl port-forward svc/stock-radar-frontend 14200:4200 -n $(NAMESPACE) --address 0.0.0.0 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
 	@sleep 3
 	# Start Tunnels in Tmux
-	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:8000 --no-autoupdate 2>&1 | tee /tmp/cf_be.log'
-	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:4201 --no-autoupdate 2>&1 | tee /tmp/cf_fe.log'
+	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:18100 --no-autoupdate 2>&1 | tee /tmp/cf_be.log'
+	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee /tmp/cf_fe.log'
 	@echo "Waiting for URLs..."
 	@sleep 12
 	@echo "\n🚀 PUBLIC LINKS:"
 	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_fe.log | head -n 1)"
-	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)/docs\n"
+	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)"
+	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)/docs\n"
 
 tunnel-status:
+	@echo "=== Cloudflare Tunnels ==="
 	@tmux ls 2>/dev/null | grep cf- || echo "No active tunnels."
-	@ps aux | grep port-forward | grep -v grep || echo "No active port-forwards."
+	@echo ""
+	@echo "=== Port-Forwards ==="
+	@ps aux | grep "kubectl port-forward" | grep -v grep || echo "No active port-forwards."
+	@echo ""
+	@echo "=== Public URLs ==="
+	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_fe.log 2>/dev/null | head -n 1 || true)"
+	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log 2>/dev/null | head -n 1 || true)"
+	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log 2>/dev/null | head -n 1 | sed 's#$$#/docs#' || true)"
+	@echo ""
+	@echo "=== Logs ==="
+	@echo "/tmp/cf_fe.log"
+	@echo "/tmp/cf_be.log"
+	@echo "/tmp/stock-radar-port-forward-api.log"
+	@echo "/tmp/stock-radar-port-forward-frontend.log"
+
+tunnel-stop:
+	@echo "Stopping Cloudflare tunnels and related port-forwards..."
+	-pkill -f "cloudflared"
+	-pkill -f "kubectl port-forward"
+	-tmux kill-session -t cf-backend 2>/dev/null || true
+	-tmux kill-session -t cf-frontend 2>/dev/null || true
+	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
 .PHONY: rotate-api-key show-api-key show-access-token
