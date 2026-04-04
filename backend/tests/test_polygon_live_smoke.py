@@ -42,7 +42,7 @@ async def test_polygon_live_smoke():
         return
 
     if mode == "websocket":
-        ws_url = os.getenv("POLYGON_WS_URL", "wss://socket.polygon.io/stocks")
+        ws_url = os.getenv("POLYGON_WS_URL", "wss://socket.massive.com/stocks")
         async with websockets.connect(ws_url) as ws:
             await ws.send(json.dumps({"action": "auth", "params": api_key}))
 

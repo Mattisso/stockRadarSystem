@@ -21,7 +21,7 @@ class PolygonClient:
     """Connects to Polygon for real-time L1 quotes (price, volume, timestamp).
 
     Supports two modes:
-    - "websocket": streams via wss://socket.polygon.io/stocks (paid plan)
+    - "websocket": streams via wss://socket.massive.com/stocks (paid plan)
     - "rest": polls /v3/snapshot via REST API (free tier)
 
     Pushes parsed quotes to cache and an internal asyncio.Queue.
@@ -34,7 +34,7 @@ class PolygonClient:
         symbols: list[str] | None = None,
         cache: CacheInterface | None = None,
         queue: asyncio.Queue | None = None,
-        ws_url: str = "wss://socket.polygon.io/stocks",
+        ws_url: str = "wss://socket.massive.com/stocks",
         rest_url: str = "https://api.polygon.io",
         rest_poll_interval: float = 1.0,
         reconnect_max_delay: float = 30.0,

@@ -20,7 +20,7 @@ class PolygonConnectionManager:
     def __init__(
         self,
         api_key: str,
-        ws_url: str = "wss://socket.polygon.io/stocks",
+        ws_url: str = "wss://socket.massive.com/stocks",
         subscription_batch_size: int = 500,
         connector: WebSocketConnector | None = None,
     ) -> None:
