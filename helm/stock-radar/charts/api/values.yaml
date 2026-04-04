@@ -50,7 +50,7 @@ env:
   PGDATABASE: "stock_radar"
   TRADING_MODE: "paper"
   BUY_USE_BRACKETS: "false"
-  SECRET_UNIVERSE_SOURCE: "broker"
+  SECRET_UNIVERSE_SOURCE: "polygon"
 
 secretName: "postgres-secret"
 apiSecretName: "api-secret"
@@ -64,12 +64,12 @@ broker:
   ibkrMaxReconnectAttempts: "10"
 
 polygon:
-  enabled: false
+  enabled: true
   secretName: "polygon-secret"
   apiKeySecretKey: "POLYGON_API_KEY"
   mode: "websocket"
   wsUrl: "wss://socket.massive.com/stocks"
-  restUrl: "https://api.massive.com/v3/stocks"
+  restUrl: "https://api.polygon.io"
   restPollInterval: "1.0"
   reconnectMaxDelay: "30.0"
   subscriptionBatchSize: "500"
