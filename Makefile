@@ -1,6 +1,13 @@
 NAMESPACE := stock-radar
 REGISTRY := localhost:32000
 HELM_DIR := helm/stock-radar
+CURRENT_USER ?= $(shell id -un)
+PF_API_LOG := /tmp/stock-radar-port-forward-api.$(CURRENT_USER).log
+PF_FRONTEND_LOG := /tmp/stock-radar-port-forward-frontend.$(CURRENT_USER).log
+PF_PROMETHEUS_LOG := /tmp/stock-radar-port-forward-prometheus.$(CURRENT_USER).log
+PF_GRAFANA_LOG := /tmp/stock-radar-port-forward-grafana.$(CURRENT_USER).log
+CF_BACKEND_LOG := /tmp/cf_be.$(CURRENT_USER).log
+CF_FRONTEND_LOG := /tmp/cf_fe.$(CURRENT_USER).log
 
 # ── Tilt (local K8s dev) ────────────────────────────────────────────
 .PHONY: up down logs stop restart refresh
@@ -147,19 +154,19 @@ port-forward-grafana:
 
 port-forward-all:
 	@echo "Starting background port-forwards for API, frontend, Prometheus, and Grafana..."
-	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
-	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
-	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > /tmp/stock-radar-port-forward-prometheus.log 2>&1 &
-	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > /tmp/stock-radar-port-forward-grafana.log 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > $(PF_FRONTEND_LOG) 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > $(PF_PROMETHEUS_LOG) 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > $(PF_GRAFANA_LOG) 2>&1 &
 	@echo "API:        http://127.0.0.1:18100"
 	@echo "Frontend:   http://127.0.0.1:14200"
 	@echo "Prometheus: http://127.0.0.1:19090"
 	@echo "Grafana:    http://127.0.0.1:13000"
 	@echo "Logs:"
-	@echo "  /tmp/stock-radar-port-forward-api.log"
-	@echo "  /tmp/stock-radar-port-forward-frontend.log"
-	@echo "  /tmp/stock-radar-port-forward-prometheus.log"
-	@echo "  /tmp/stock-radar-port-forward-grafana.log"
+	@echo "  $(PF_API_LOG)"
+	@echo "  $(PF_FRONTEND_LOG)"
+	@echo "  $(PF_PROMETHEUS_LOG)"
+	@echo "  $(PF_GRAFANA_LOG)"
 
 port-forward-stop:
 	@echo "Stopping stock-radar port-forwards..."
@@ -169,7 +176,7 @@ port-forward-stop:
 	-pkill -f "kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000"
 
 open-api:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:18100; \
@@ -180,7 +187,7 @@ open-api:
 	fi
 
 open-frontend:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > $(PF_FRONTEND_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:14200; \
@@ -191,7 +198,7 @@ open-frontend:
 	fi
 
 open-prometheus:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > /tmp/stock-radar-port-forward-prometheus.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > $(PF_PROMETHEUS_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:19090; \
@@ -202,7 +209,7 @@ open-prometheus:
 	fi
 
 open-grafana:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > /tmp/stock-radar-port-forward-grafana.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > $(PF_GRAFANA_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:13000; \
@@ -213,7 +220,7 @@ open-grafana:
 	fi
 
 open-docs:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:18100/docs; \
@@ -224,7 +231,7 @@ open-docs:
 	fi
 
 open-redoc:
-	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
 	@if command -v open >/dev/null 2>&1; then \
 		open http://127.0.0.1:18100/redoc; \
@@ -270,18 +277,18 @@ tunnel-k8s:
 	-tmux kill-session -t cf-frontend 2>/dev/null || true
 	@sleep 2
 	# Start Port-Forwards
-	kubectl port-forward svc/stock-radar-api 18100:8000 -n $(NAMESPACE) --address 0.0.0.0 > /tmp/stock-radar-port-forward-api.log 2>&1 &
-	kubectl port-forward svc/stock-radar-frontend 14200:4200 -n $(NAMESPACE) --address 0.0.0.0 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
+	kubectl port-forward svc/stock-radar-api 18100:8000 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_API_LOG) 2>&1 &
+	kubectl port-forward svc/stock-radar-frontend 14200:4200 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_FRONTEND_LOG) 2>&1 &
 	@sleep 3
 	# Start Tunnels in Tmux
-	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:18100 --no-autoupdate 2>&1 | tee /tmp/cf_be.log'
-	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee /tmp/cf_fe.log'
+	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:18100 --no-autoupdate 2>&1 | tee $(CF_BACKEND_LOG)'
+	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee $(CF_FRONTEND_LOG)'
 	@echo "Waiting for URLs..."
 	@sleep 12
 	@echo "\n🚀 PUBLIC LINKS:"
-	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_fe.log | head -n 1)"
-	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)"
-	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log | head -n 1)/docs\n"
+	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) | head -n 1)"
+	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)"
+	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)/docs\n"
 
 tunnel-status:
 	@echo "=== Cloudflare Tunnels ==="
@@ -291,15 +298,15 @@ tunnel-status:
 	@ps aux | grep "kubectl port-forward" | grep -v grep || echo "No active port-forwards."
 	@echo ""
 	@echo "=== Public URLs ==="
-	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_fe.log 2>/dev/null | head -n 1 || true)"
-	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log 2>/dev/null | head -n 1 || true)"
-	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' /tmp/cf_be.log 2>/dev/null | head -n 1 | sed 's#$$#/docs#' || true)"
+	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) 2>/dev/null | head -n 1 || true)"
+	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) 2>/dev/null | head -n 1 || true)"
+	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) 2>/dev/null | head -n 1 | sed 's#$$#/docs#' || true)"
 	@echo ""
 	@echo "=== Logs ==="
-	@echo "/tmp/cf_fe.log"
-	@echo "/tmp/cf_be.log"
-	@echo "/tmp/stock-radar-port-forward-api.log"
-	@echo "/tmp/stock-radar-port-forward-frontend.log"
+	@echo "$(CF_FRONTEND_LOG)"
+	@echo "$(CF_BACKEND_LOG)"
+	@echo "$(PF_API_LOG)"
+	@echo "$(PF_FRONTEND_LOG)"
 
 tunnel-stop:
 	@echo "Stopping Cloudflare tunnels and related port-forwards..."
