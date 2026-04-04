@@ -4,3 +4,4 @@ export * from './symbol.model';
 export * from './portfolio.model';
 export * from './analytics.model';
 export * from './state-machine.model';
+export * from './secret-sauce.model';

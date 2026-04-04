@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_secret_key: str = "change-me-in-production"
     cors_allowed_origins: str = (
+        "http://127.0.0.1:14200,"
+        "http://localhost:14200,"
         "http://127.0.0.1:14201,"
         "http://localhost:14201,"
+        "http://127.0.0.1:4200,"
+        "http://localhost:4200,"
         "http://127.0.0.1:4201,"
         "http://localhost:4201"
     )

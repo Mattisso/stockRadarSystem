@@ -45,6 +45,11 @@ export const routes: Routes = [
           import('./features/analytics/analytics.routes').then(m => m.ANALYTICS_ROUTES),
       },
       {
+        path: 'secret-sauce',
+        loadChildren: () =>
+          import('./features/secret-sauce/secret-sauce.routes').then(m => m.SECRET_SAUCE_ROUTES),
+      },
+      {
         path: 'settings',
         loadChildren: () =>
           import('./features/settings/settings.routes').then(m => m.SETTINGS_ROUTES),

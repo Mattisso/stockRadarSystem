@@ -1,6 +1,6 @@
-"""Pydantic schemas for ML and analytics endpoints."""
+"""Pydantic schemas for ML, analytics, and Secret Sauce ops endpoints."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -156,3 +156,46 @@ class SecretReplayResponse(BaseModel):
     handoffs: list[SecretSauceHandoffResponse]
     queue: SecretSauceQueueStatusResponse
     promoted_tickers: list[str]
+
+
+class SecretUniverseDailyResponse(BaseModel):
+    id: int
+    trade_date: date
+    ticker: str
+    exchange: str
+    open_price: float | None = None
+    prev_close: float | None = None
+    last_price: float | None = None
+    avg_volume: int | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SecretL1CandidateResponse(BaseModel):
+    id: int
+    ticker: str
+    detected_at: datetime
+    breakout_score: float
+    price: float | None = None
+    pct_change_1m: float | None = None
+    pct_change_5m: float | None = None
+    volume_ratio: float | None = None
+    reason_flags: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SecretL1ToL2EventResponse(BaseModel):
+    id: int
+    ticker: str
+    detect_ts: datetime
+    escalate_ts: datetime
+    latency_ms: float | None = None
+    slot_id: str | None = None
+    escalation_reason: str | None = None
+    handoff_payload: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

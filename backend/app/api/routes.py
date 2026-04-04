@@ -18,9 +18,12 @@ from app.ml.analytics import TradeAnalytics
 from app.ml.backtest import BacktestConfig, SignalBacktester
 from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_replay_validator import SecretReplayValidator, build_replay_quote
+from app.models.l1_candidate import L1Candidate
+from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.trade import Trade
+from app.models.universe_daily import UniverseDaily
 from app.schemas.ml import (
     ApiContractResponse,
     BacktestRequest,
@@ -32,6 +35,9 @@ from app.schemas.ml import (
     SecretSauceHandoffResponse,
     SecretSauceStatusResponse,
     SecretSauceQueueStatusResponse,
+    SecretUniverseDailyResponse,
+    SecretL1CandidateResponse,
+    SecretL1ToL2EventResponse,
     SecretReplayRequest,
     SecretReplayResponse,
     SignalAccuracyBucketResponse,
@@ -95,6 +101,9 @@ async def contract_metadata():
             "/api/secret-sauce/queue",
             "/api/secret-sauce/status",
             "/api/secret-sauce/replay",
+            "/api/secret-sauce/universe-daily",
+            "/api/secret-sauce/l1-candidates",
+            "/api/secret-sauce/l1-to-l2-events",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -283,6 +292,52 @@ async def get_secret_sauce_status(request: Request):
         runtime=runtime_snapshot,
         queue=SecretSauceQueueStatusResponse(**queue_snapshot),
         polygon_session=polygon_snapshot,
+    )
+
+
+@router.get("/secret-sauce/universe-daily", response_model=list[SecretUniverseDailyResponse])
+def get_secret_universe_daily(
+    limit: int = 200,
+    trade_date: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(UniverseDaily)
+    if trade_date is None:
+        latest_trade_date = (
+            db.query(UniverseDaily.trade_date)
+            .order_by(UniverseDaily.trade_date.desc())
+            .limit(1)
+            .scalar()
+        )
+        if latest_trade_date is None:
+            return []
+        query = query.filter(UniverseDaily.trade_date == latest_trade_date)
+    else:
+        query = query.filter(UniverseDaily.trade_date == trade_date)
+    return (
+        query.order_by(UniverseDaily.trade_date.desc(), UniverseDaily.ticker.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get("/secret-sauce/l1-candidates", response_model=list[SecretL1CandidateResponse])
+def get_secret_l1_candidates(limit: int = 100, db: Session = Depends(get_db)):
+    return (
+        db.query(L1Candidate)
+        .order_by(L1Candidate.detected_at.desc(), L1Candidate.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get("/secret-sauce/l1-to-l2-events", response_model=list[SecretL1ToL2EventResponse])
+def get_secret_l1_to_l2_events(limit: int = 100, db: Session = Depends(get_db)):
+    return (
+        db.query(L1ToL2Event)
+        .order_by(L1ToL2Event.escalate_ts.desc(), L1ToL2Event.id.desc())
+        .limit(limit)
+        .all()
     )
 
 

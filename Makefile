@@ -104,7 +104,7 @@ tf-destroy:
 	cd terraform/database && terraform destroy
 
 # ── Kubernetes ──────────────────────────────────────────────────────
-.PHONY: ns secret status
+.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-all
 
 ns:
 	kubectl apply -f kubernetes/namespace.yaml
@@ -128,6 +128,91 @@ status:
 	@echo ""
 	@echo "=== Services ==="
 	kubectl get svc -n $(NAMESPACE)
+
+port-forward-api:
+	@echo "Port-forwarding API on http://127.0.0.1:18100 -> svc/stock-radar-api:8000"
+	kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000
+
+port-forward-frontend:
+	@echo "Port-forwarding frontend on http://127.0.0.1:14200 -> svc/stock-radar-frontend:4200"
+	kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200
+
+port-forward-prometheus:
+	@echo "Port-forwarding Prometheus on http://127.0.0.1:19090 -> svc/stock-radar-prometheus:9090"
+	kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090
+
+port-forward-grafana:
+	@echo "Port-forwarding Grafana on http://127.0.0.1:13000 -> svc/stock-radar-grafana:3000"
+	kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000
+
+port-forward-all:
+	@echo "Starting background port-forwards for API, frontend, Prometheus, and Grafana..."
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > /tmp/stock-radar-port-forward-prometheus.log 2>&1 &
+	-kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > /tmp/stock-radar-port-forward-grafana.log 2>&1 &
+	@echo "API:        http://127.0.0.1:18100"
+	@echo "Frontend:   http://127.0.0.1:14200"
+	@echo "Prometheus: http://127.0.0.1:19090"
+	@echo "Grafana:    http://127.0.0.1:13000"
+	@echo "Logs:"
+	@echo "  /tmp/stock-radar-port-forward-api.log"
+	@echo "  /tmp/stock-radar-port-forward-frontend.log"
+	@echo "  /tmp/stock-radar-port-forward-prometheus.log"
+	@echo "  /tmp/stock-radar-port-forward-grafana.log"
+
+port-forward-stop:
+	@echo "Stopping stock-radar port-forwards..."
+	-pkill -f "kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000"
+	-pkill -f "kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200"
+	-pkill -f "kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090"
+	-pkill -f "kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000"
+
+open-api:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > /tmp/stock-radar-port-forward-api.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:18100; \
+	else \
+		echo "Open http://127.0.0.1:18100 manually"; \
+	fi
+
+open-frontend:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > /tmp/stock-radar-port-forward-frontend.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:14200; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:14200; \
+	else \
+		echo "Open http://127.0.0.1:14200 manually"; \
+	fi
+
+open-prometheus:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > /tmp/stock-radar-port-forward-prometheus.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:19090; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:19090; \
+	else \
+		echo "Open http://127.0.0.1:19090 manually"; \
+	fi
+
+open-grafana:
+	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > /tmp/stock-radar-port-forward-grafana.log 2>&1 &
+	@sleep 2
+	@if command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:13000; \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open http://127.0.0.1:13000; \
+	else \
+		echo "Open http://127.0.0.1:13000 manually"; \
+	fi
+
+open-all: open-api open-frontend open-prometheus open-grafana
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
 .PHONY: dev test migrate serve-frontend tunnel tunnel-frontend
