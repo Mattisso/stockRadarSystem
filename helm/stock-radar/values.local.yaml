@@ -19,7 +19,7 @@ api:
     ibkrMaxReconnectAttempts: "10"
   polygon:
     enabled: true
-    mode: "dev"
+    mode: "websocket"
     restPollInterval: "30.0"
 
 frontend:
