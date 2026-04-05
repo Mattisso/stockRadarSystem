@@ -3,7 +3,25 @@
 }
 
 h2 {
-  margin: 0 0 24px;
+  margin: 0 0 8px;
+}
+
+.runtime-note {
+  margin: 0 0 16px;
+  max-width: 900px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.68));
+}
+
+.runtime-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f5f7fb;
+  color: #54627d;
+  font-size: 0.92rem;
 }
 
 .error {
@@ -53,6 +71,15 @@ h2 {
   font-size: 13px;
   color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
   margin-top: 4px;
+}
+
+.empty-state {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px dashed #c8d2e3;
+  border-radius: 12px;
+  background: #fafbfd;
+  color: #5d6a85;
 }
 
 @media (max-width: 768px) {

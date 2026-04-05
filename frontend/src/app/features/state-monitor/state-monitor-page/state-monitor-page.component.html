@@ -1,11 +1,19 @@
 <div class="state-monitor">
   <h2>State Monitor</h2>
+  <p class="runtime-note">{{ runtimeNote }}</p>
 
   @if (loading()) {
     <app-loading />
   } @else {
     @if (error(); as err) {
       <p class="error">{{ err }}</p>
+    } @else {
+      <div class="runtime-meta">
+        @if (lastUpdated(); as updated) {
+          <span>Last updated {{ updated | date:'short' }}</span>
+        }
+        <span>{{ emptyStateNote }}</span>
+      </div>
     }
 
     <div class="stage-cards">
@@ -23,6 +31,12 @@
         </mat-card>
       }
     </div>
+
+    @if (entries().length === 0) {
+      <div class="empty-state">
+        No symbols are currently active in the live state machine.
+      </div>
+    }
 
     <app-state-monitor-table [entries]="entries()" />
   }

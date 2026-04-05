@@ -38,6 +38,12 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
     { key: 'ready_to_buy', label: 'Ready to Buy', icon: 'shopping_cart' },
   ];
 
+  readonly runtimeNote =
+    'This page shows live in-memory state from the current API process. It does not show historical signals or persisted Secret Sauce records.';
+
+  readonly emptyStateNote =
+    'Zero counts are normal when the market is closed, the API was recently restarted, or no symbols currently qualify for stage progression.';
+
   ngOnInit(): void {
     this.store.dispatch(StateMonitorActions.load());
     this.store.dispatch(StateMonitorActions.startPolling());
