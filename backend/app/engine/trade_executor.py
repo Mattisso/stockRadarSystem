@@ -67,20 +67,28 @@ class TradeExecutor:
         L1 quotes: prefer cache (Polygon-sourced) when available, fall back to broker.
         L2 order books: always from broker (IBKR).
         """
+        broker_connected = self.broker.is_connected()
+        if not broker_connected:
+            log.warning("trade_executor.collect_market_data_cache_only")
+
         for ticker in tickers:
             try:
                 # L1: cache-first (Polygon), fallback to broker
                 quote = None
                 if self.cache:
                     quote = await self.cache.get_l1(ticker)
-                if quote is None:
+                if quote is None and broker_connected:
                     quote = await self.broker.get_quote(ticker)
+                if quote is None:
+                    continue
 
                 # L2: always from broker (IBKR)
-                try:
-                    order_book = await self.broker.get_order_book(ticker)
-                except Exception:
-                    order_book = None
+                order_book = None
+                if broker_connected:
+                    try:
+                        order_book = await self.broker.get_order_book(ticker)
+                    except Exception:
+                        order_book = None
                 if self.cache and order_book is not None:
                     await self.cache.set_l2(ticker, order_book)
 
@@ -233,11 +241,14 @@ class TradeExecutor:
         db: Session = self.db_session_factory()
         try:
             tickers_to_close: list[str] = []
+            broker_connected = self.broker.is_connected()
+            if not broker_connected:
+                log.warning("trade_executor.monitor_positions_cache_only")
 
             for ticker, pos in self._open_positions.items():
                 try:
                     latest = self.tick_buffer.get_latest(ticker)
-                    if latest is None:
+                    if latest is None and broker_connected:
                         quote = await self.broker.get_quote(ticker)
                         try:
                             order_book = await self.broker.get_order_book(ticker)
@@ -249,6 +260,8 @@ class TradeExecutor:
                             timestamp=datetime.now(),
                         )
                         self.tick_buffer.push(ticker, latest)
+                    if latest is None:
+                        continue
 
                     assessment = self.sell_agent.assess_exit(pos, latest)
                     pos.stop_loss = assessment.stop_loss
