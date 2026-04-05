@@ -224,3 +224,50 @@ class SecretSauceFunnelResponse(BaseModel):
     latency: SecretSauceLatencySummaryResponse
     top_reason_flags: list[SecretSauceReasonCountResponse]
     top_escalation_reasons: list[SecretSauceReasonCountResponse]
+
+
+class PolygonDayAggregateResponse(BaseModel):
+    id: int
+    trade_date: date
+    ticker: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    vwap: float | None = None
+    transactions: int | None = None
+    source_ts: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PolygonMinuteAggregateResponse(BaseModel):
+    id: int
+    ticker: str
+    minute_ts: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    vwap: float | None = None
+    transactions: int | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PolygonTickResponse(BaseModel):
+    id: int
+    ticker: str
+    event_type: str
+    bid: float
+    ask: float
+    last: float
+    volume: int
+    tick_ts: datetime
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

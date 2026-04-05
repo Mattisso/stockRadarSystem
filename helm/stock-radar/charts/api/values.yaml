@@ -76,6 +76,9 @@ polygon:
   queueMaxsize: "10000"
   persistTicks: "false"
   persistBatchSize: "100"
+  dayAggregateIngestionEnabled: "false"
+  minuteAggregateIngestionEnabled: "false"
+  minuteAggregateRefreshMinutes: "15"
 
 probes:
   startup:

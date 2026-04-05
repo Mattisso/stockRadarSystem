@@ -95,6 +95,12 @@ spec:
               value: {{ .Values.polygon.persistTicks | quote }}
             - name: POLYGON_PERSIST_BATCH_SIZE
               value: {{ .Values.polygon.persistBatchSize | quote }}
+            - name: POLYGON_DAY_AGGREGATE_INGESTION_ENABLED
+              value: {{ .Values.polygon.dayAggregateIngestionEnabled | quote }}
+            - name: POLYGON_MINUTE_AGGREGATE_INGESTION_ENABLED
+              value: {{ .Values.polygon.minuteAggregateIngestionEnabled | quote }}
+            - name: POLYGON_MINUTE_AGGREGATE_REFRESH_MINUTES
+              value: {{ .Values.polygon.minuteAggregateRefreshMinutes | quote }}
             {{- end }}
           {{- if .Values.probes.startup.enabled }}
           startupProbe:

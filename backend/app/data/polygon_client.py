@@ -1,7 +1,7 @@
-"""Polygon.io L1 data ingestion — WebSocket streaming or REST polling."""
+"""Polygon.io L1 data ingestion and aggregate fetch helpers."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from math import ceil
 
 import httpx
@@ -11,6 +11,10 @@ from app.broker.interface import Quote
 from app.core.logging import get_logger
 from app.core.metrics import POLYGON_RECONNECT_TOTAL, POLYGON_SESSION_CONNECTED
 from app.data.cache import CacheInterface
+from app.data.polygon_aggregate_service import (
+    PolygonDayAggregateRecord,
+    PolygonMinuteAggregateRecord,
+)
 from app.data.polygon_connection import PolygonConnectionManager
 from app.data.polygon_parser import PolygonMessageParser
 
@@ -149,6 +153,79 @@ class PolygonClient:
                 min_price=min_price,
                 min_volume=min_volume,
             )
+
+    async def fetch_grouped_day_aggregates(self, trade_date: date) -> list[PolygonDayAggregateRecord]:
+        """Fetch grouped daily aggregates for all symbols for one trade date."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self._rest_url}/v2/aggs/grouped/locale/us/market/stocks/{trade_date.isoformat()}",
+                params={"adjusted": "true", "apiKey": self._api_key},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            records: list[PolygonDayAggregateRecord] = []
+            for result in data.get("results", []):
+                ticker = result.get("T")
+                if not ticker:
+                    continue
+                records.append(
+                    PolygonDayAggregateRecord(
+                        ticker=ticker,
+                        trade_date=trade_date,
+                        open=result.get("o", 0.0) or 0.0,
+                        high=result.get("h", 0.0) or 0.0,
+                        low=result.get("l", 0.0) or 0.0,
+                        close=result.get("c", 0.0) or 0.0,
+                        volume=result.get("v", 0) or 0,
+                        vwap=result.get("vw"),
+                        transactions=result.get("n"),
+                        source_ts=(
+                            datetime.fromtimestamp(result["t"] / 1000, tz=timezone.utc)
+                            if result.get("t") is not None
+                            else None
+                        ),
+                    )
+                )
+            return records
+
+    async def fetch_minute_aggregates_for_ticker(
+        self,
+        ticker: str,
+        *,
+        trade_date: date,
+    ) -> list[PolygonMinuteAggregateRecord]:
+        """Fetch 1-minute aggregates for a single symbol for one trade date."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self._rest_url}/v2/aggs/ticker/{ticker}/range/1/minute/{trade_date.isoformat()}/{trade_date.isoformat()}",
+                params={
+                    "adjusted": "true",
+                    "sort": "asc",
+                    "limit": 50000,
+                    "apiKey": self._api_key,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            records: list[PolygonMinuteAggregateRecord] = []
+            for result in data.get("results", []):
+                timestamp = result.get("t")
+                if timestamp is None:
+                    continue
+                records.append(
+                    PolygonMinuteAggregateRecord(
+                        ticker=ticker,
+                        minute_ts=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
+                        open=result.get("o", 0.0) or 0.0,
+                        high=result.get("h", 0.0) or 0.0,
+                        low=result.get("l", 0.0) or 0.0,
+                        close=result.get("c", 0.0) or 0.0,
+                        volume=result.get("v", 0) or 0,
+                        vwap=result.get("vw"),
+                        transactions=result.get("n"),
+                    )
+                )
+            return records
 
     # ── WebSocket Mode (paid) ────────────────────────────────────────
 

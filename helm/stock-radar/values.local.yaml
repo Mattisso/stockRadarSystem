@@ -23,6 +23,9 @@ api:
     restPollInterval: "30.0"
     persistTicks: "true"
     persistBatchSize: "250"
+    dayAggregateIngestionEnabled: "true"
+    minuteAggregateIngestionEnabled: "true"
+    minuteAggregateRefreshMinutes: "15"
 
 frontend:
   image:

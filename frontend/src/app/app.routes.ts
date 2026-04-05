@@ -50,6 +50,11 @@ export const routes: Routes = [
           import('./features/secret-sauce/secret-sauce.routes').then(m => m.SECRET_SAUCE_ROUTES),
       },
       {
+        path: 'polygon-data',
+        loadChildren: () =>
+          import('./features/polygon-data/polygon-data.routes').then(m => m.POLYGON_DATA_ROUTES),
+      },
+      {
         path: 'settings',
         loadChildren: () =>
           import('./features/settings/settings.routes').then(m => m.SETTINGS_ROUTES),

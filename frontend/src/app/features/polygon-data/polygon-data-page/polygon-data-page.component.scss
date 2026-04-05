@@ -1,0 +1,27 @@
+.page-header,
+.filter-row {
+  margin-bottom: 1rem;
+}
+
+.filter-row {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+}
+
+.ops-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.data-table {
+  width: 100%;
+}
+
+.ticker {
+  font-weight: 600;
+}
+
+.error-banner {
+  color: #b3261e;
+}

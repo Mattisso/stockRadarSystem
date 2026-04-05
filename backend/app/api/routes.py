@@ -23,6 +23,9 @@ from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_replay_validator import SecretReplayValidator, build_replay_quote
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
+from app.models.polygon_day_aggregate import PolygonDayAggregate
+from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_tick import PolygonTick
 from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.trade import Trade
@@ -44,6 +47,9 @@ from app.schemas.ml import (
     SecretSauceFunnelResponse,
     SecretSauceLatencySummaryResponse,
     SecretSauceReasonCountResponse,
+    PolygonDayAggregateResponse,
+    PolygonMinuteAggregateResponse,
+    PolygonTickResponse,
     SecretReplayRequest,
     SecretReplayResponse,
     SignalAccuracyBucketResponse,
@@ -111,6 +117,9 @@ async def contract_metadata():
             "/api/secret-sauce/l1-candidates",
             "/api/secret-sauce/l1-to-l2-events",
             "/api/secret-sauce/funnel",
+            "/api/polygon/day-aggregates",
+            "/api/polygon/minute-aggregates",
+            "/api/polygon/ticks",
             "/api/ml/status",
             "/api/ml/retrain",
             "/api/ml/backtest",
@@ -388,6 +397,70 @@ def get_secret_sauce_funnel(
     universe_rows = (
         db.query(UniverseDaily)
         .filter(UniverseDaily.trade_date == selected_trade_date)
+        .all()
+    )
+
+
+@router.get("/polygon/day-aggregates", response_model=list[PolygonDayAggregateResponse])
+def get_polygon_day_aggregates(
+    limit: int = 200,
+    trade_date: str | None = None,
+    ticker: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(PolygonDayAggregate)
+    if trade_date is None:
+        latest_trade_date = (
+            db.query(PolygonDayAggregate.trade_date)
+            .order_by(PolygonDayAggregate.trade_date.desc())
+            .limit(1)
+            .scalar()
+        )
+        if latest_trade_date is None:
+            return []
+        query = query.filter(PolygonDayAggregate.trade_date == latest_trade_date)
+    else:
+        query = query.filter(PolygonDayAggregate.trade_date == trade_date)
+    if ticker:
+        query = query.filter(PolygonDayAggregate.ticker == ticker.upper())
+    return (
+        query.order_by(PolygonDayAggregate.trade_date.desc(), PolygonDayAggregate.ticker.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get("/polygon/minute-aggregates", response_model=list[PolygonMinuteAggregateResponse])
+def get_polygon_minute_aggregates(
+    limit: int = 200,
+    ticker: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(PolygonMinuteAggregate)
+    if ticker:
+        query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
+    return (
+        query.order_by(PolygonMinuteAggregate.minute_ts.desc(), PolygonMinuteAggregate.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get("/polygon/ticks", response_model=list[PolygonTickResponse])
+def get_polygon_ticks(
+    limit: int = 200,
+    ticker: str | None = None,
+    event_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(PolygonTick)
+    if ticker:
+        query = query.filter(PolygonTick.ticker == ticker.upper())
+    if event_type:
+        query = query.filter(PolygonTick.event_type == event_type.lower())
+    return (
+        query.order_by(PolygonTick.tick_ts.desc(), PolygonTick.id.desc())
+        .limit(limit)
         .all()
     )
     candidate_rows = (

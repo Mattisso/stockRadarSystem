@@ -7,6 +7,8 @@ from app.models.universe_daily import UniverseDaily
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.polygon_tick import PolygonTick
+from app.models.polygon_day_aggregate import PolygonDayAggregate
+from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 
 __all__ = [
     "Symbol",
@@ -18,4 +20,6 @@ __all__ = [
     "L1Candidate",
     "L1ToL2Event",
     "PolygonTick",
+    "PolygonDayAggregate",
+    "PolygonMinuteAggregate",
 ]

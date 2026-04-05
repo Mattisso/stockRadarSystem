@@ -3,6 +3,7 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
@@ -29,6 +30,7 @@ from app.core.metrics import (
 )
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
+from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.engine.signal_detector import SignalDetector
 from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
@@ -260,16 +262,35 @@ async def lifespan(app: FastAPI):
             try:
                 engine = UniverseFilterEngine(broker, db)
                 source = settings.secret_universe_source
-                universe_quotes = None
                 if source == "polygon":
                     if polygon_client is None:
                         raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
-                    universe_quotes = await polygon_client.load_reference_universe(
-                        max_price=settings.secret_universe_max_price,
-                        min_price=settings.secret_universe_min_price,
-                        min_volume=settings.secret_universe_min_volume,
-                    )
-                tickers = await engine.refresh_secret_ingredients_universe(universe_quotes=universe_quotes)
+                    if settings.polygon_day_aggregate_ingestion_enabled:
+                        aggregate_service = PolygonAggregateService(db)
+                        trade_date = date.today()
+                        day_records = await polygon_client.fetch_grouped_day_aggregates(trade_date)
+                        inserted = aggregate_service.upsert_day_aggregates(day_records)
+                        tickers = aggregate_service.build_daily_universe(
+                            trade_date=trade_date,
+                            max_open=settings.secret_universe_max_price,
+                        )
+                        db.commit()
+                        log.info(
+                            "scheduler.polygon_day_aggregates_refreshed",
+                            trade_date=trade_date.isoformat(),
+                            raw_count=len(day_records),
+                            inserted_count=inserted,
+                            universe_count=len(tickers),
+                        )
+                    else:
+                        universe_quotes = await polygon_client.load_reference_universe(
+                            max_price=settings.secret_universe_max_price,
+                            min_price=settings.secret_universe_min_price,
+                            min_volume=settings.secret_universe_min_volume,
+                        )
+                        tickers = await engine.refresh_secret_ingredients_universe(universe_quotes=universe_quotes)
+                else:
+                    tickers = await engine.refresh_secret_ingredients_universe()
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="secret_universe")
                 SECRET_UNIVERSE_SIZE.set(len(tickers))
@@ -283,6 +304,48 @@ async def lifespan(app: FastAPI):
             log.exception("scheduler.secret_universe_refresh_error")
         finally:
             SCHEDULER_JOB_DURATION.labels(job="secret_universe_refresh").observe(time.monotonic() - start)
+
+    async def refresh_polygon_minute_aggregates_job():
+        start = time.monotonic()
+        try:
+            if not settings.polygon_minute_aggregate_ingestion_enabled:
+                return
+            if polygon_client is None:
+                return
+            db = SessionLocal()
+            try:
+                aggregate_service = PolygonAggregateService(db)
+                tickers = SecretIngredientsService(db).latest_daily_universe_tickers()
+                if not tickers:
+                    return
+                trade_date = aggregate_service.latest_day_aggregate_date() or date.today()
+                allowed_tickers = set(tickers)
+                inserted = 0
+                for ticker in tickers:
+                    minute_records = await polygon_client.fetch_minute_aggregates_for_ticker(
+                        ticker,
+                        trade_date=trade_date,
+                    )
+                    inserted += aggregate_service.upsert_minute_aggregates(
+                        minute_records,
+                        allowed_tickers=allowed_tickers,
+                    )
+                db.commit()
+                log.info(
+                    "scheduler.polygon_minute_aggregates_refreshed",
+                    trade_date=trade_date.isoformat(),
+                    ticker_count=len(tickers),
+                    inserted_count=inserted,
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="polygon_minute_aggregates_refresh").inc()
+            log.exception("scheduler.polygon_minute_aggregates_refresh_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="polygon_minute_aggregates_refresh").observe(
+                time.monotonic() - start
+            )
 
     async def scan_job():
         start = time.monotonic()
@@ -497,6 +560,14 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="secret_universe_refresh",
         )
+    if settings.polygon_minute_aggregate_ingestion_enabled:
+        scheduler.add_job(
+            refresh_polygon_minute_aggregates_job,
+            "interval",
+            minutes=settings.polygon_minute_aggregate_refresh_minutes,
+            max_instances=1,
+            id="polygon_minute_aggregates_refresh",
+        )
     scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
     scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
     scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
@@ -512,6 +583,9 @@ async def lifespan(app: FastAPI):
     if settings.secret_universe_enabled:
         initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
         runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
+    if settings.polygon_minute_aggregate_ingestion_enabled:
+        initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
+        runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
 
     log.info("app.started", trading_mode=settings.trading_mode)
 

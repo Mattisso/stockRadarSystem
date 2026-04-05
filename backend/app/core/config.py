@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     polygon_queue_maxsize: int = 10_000
     polygon_persist_ticks: bool = False
     polygon_persist_batch_size: int = 100
+    polygon_day_aggregate_ingestion_enabled: bool = False
+    polygon_minute_aggregate_ingestion_enabled: bool = False
+    polygon_minute_aggregate_refresh_minutes: int = 15
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55
