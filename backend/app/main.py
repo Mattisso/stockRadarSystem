@@ -3,7 +3,8 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, time as dt_time, timedelta
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
@@ -49,6 +50,7 @@ from app.schemas.signal import SignalRead
 from app.schemas.trade import TradeRead
 
 log = get_logger(__name__)
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 @asynccontextmanager
@@ -267,8 +269,7 @@ async def lifespan(app: FastAPI):
                         raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
                     if settings.polygon_day_aggregate_ingestion_enabled:
                         aggregate_service = PolygonAggregateService(db)
-                        trade_date = date.today()
-                        day_records = await polygon_client.fetch_grouped_day_aggregates(trade_date)
+                        trade_date, day_records = await resolve_polygon_trade_date_and_records(polygon_client)
                         inserted = aggregate_service.upsert_day_aggregates(day_records)
                         tickers = aggregate_service.build_daily_universe(
                             trade_date=trade_date,
@@ -318,7 +319,9 @@ async def lifespan(app: FastAPI):
                 tickers = SecretIngredientsService(db).latest_daily_universe_tickers()
                 if not tickers:
                     return
-                trade_date = aggregate_service.latest_day_aggregate_date() or date.today()
+                trade_date = aggregate_service.latest_day_aggregate_date()
+                if trade_date is None:
+                    trade_date, _ = await resolve_polygon_trade_date_and_records(polygon_client)
                 allowed_tickers = set(tickers)
                 inserted = 0
                 for ticker in tickers:
@@ -346,6 +349,34 @@ async def lifespan(app: FastAPI):
             SCHEDULER_JOB_DURATION.labels(job="polygon_minute_aggregates_refresh").observe(
                 time.monotonic() - start
             )
+
+    async def resolve_polygon_trade_date_and_records(
+        client,
+        *,
+        max_lookback_days: int = 7,
+    ) -> tuple[date, list]:
+        """Pick the most recent trade date with grouped bars available.
+
+        This avoids weekend/holiday failures and avoids assuming `date.today()`
+        is always a valid grouped-aggregate trading date.
+        """
+        ny_now = datetime.now(NEW_YORK_TZ)
+        candidate = ny_now.date()
+        if ny_now.time() < dt_time(9, 30):
+            candidate -= timedelta(days=1)
+
+        for _ in range(max_lookback_days):
+            if candidate.weekday() >= 5:
+                candidate -= timedelta(days=1)
+                continue
+
+            records = await client.fetch_grouped_day_aggregates(candidate)
+            if records:
+                return candidate, records
+
+            candidate -= timedelta(days=1)
+
+        raise RuntimeError("No Polygon grouped day aggregates found in lookback window")
 
     async def scan_job():
         start = time.monotonic()
