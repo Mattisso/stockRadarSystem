@@ -1,14 +1,17 @@
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, OnInit, signal } from '@angular/core';
+import { TitleCasePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { Store } from '@ngrx/store';
 import { TradesActions } from '../+state/trades.actions';
 import { selectAllTrades, selectTradesLoading, selectTradesError } from '../+state/trades.reducer';
 import { TradesTableComponent } from '../trades-table/trades-table.component';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
+import { ITrade, TradeSide, TradeStatus } from '../../../shared/models';
 
 @Component({
   selector: 'app-trades-page',
   standalone: true,
-  imports: [TradesTableComponent, LoadingComponent],
+  imports: [TradesTableComponent, LoadingComponent, FormsModule, TitleCasePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './trades-page.component.html',
   styleUrl: './trades-page.component.scss',
@@ -19,8 +22,82 @@ export class TradesPageComponent implements OnInit {
   trades = this.store.selectSignal(selectAllTrades);
   loading = this.store.selectSignal(selectTradesLoading);
   error = this.store.selectSignal(selectTradesError);
+  tickerFilter = signal('');
+  sideFilter = signal<'all' | TradeSide>('all');
+  statusFilter = signal<'all' | TradeStatus>('all');
+  dateFromFilter = signal('');
+  dateToFilter = signal('');
+
+  filteredTrades = computed(() =>
+    this.trades().filter((trade) => this.matchesFilters(trade))
+  );
+
+  readonly sideOptions: Array<'all' | TradeSide> = ['all', 'buy', 'sell'];
+  readonly statusOptions: Array<'all' | TradeStatus> = ['all', 'pending', 'filled', 'partial', 'cancelled', 'closed'];
 
   ngOnInit(): void {
     this.store.dispatch(TradesActions.loadTrades());
+  }
+
+  updateTickerFilter(value: string): void {
+    this.tickerFilter.set(value);
+  }
+
+  updateSideFilter(value: 'all' | TradeSide): void {
+    this.sideFilter.set(value);
+  }
+
+  updateStatusFilter(value: 'all' | TradeStatus): void {
+    this.statusFilter.set(value);
+  }
+
+  updateDateFromFilter(value: string): void {
+    this.dateFromFilter.set(value);
+  }
+
+  updateDateToFilter(value: string): void {
+    this.dateToFilter.set(value);
+  }
+
+  clearFilters(): void {
+    this.tickerFilter.set('');
+    this.sideFilter.set('all');
+    this.statusFilter.set('all');
+    this.dateFromFilter.set('');
+    this.dateToFilter.set('');
+  }
+
+  private matchesFilters(trade: ITrade): boolean {
+    const tickerFilter = this.tickerFilter().trim().toLowerCase();
+    if (tickerFilter && !trade.ticker.toLowerCase().includes(tickerFilter)) {
+      return false;
+    }
+
+    if (this.sideFilter() !== 'all' && trade.side !== this.sideFilter()) {
+      return false;
+    }
+
+    if (this.statusFilter() !== 'all' && trade.status !== this.statusFilter()) {
+      return false;
+    }
+
+    const tradeDate = new Date(trade.created_at);
+    const dateFrom = this.dateFromFilter();
+    if (dateFrom) {
+      const from = new Date(`${dateFrom}T00:00:00`);
+      if (tradeDate < from) {
+        return false;
+      }
+    }
+
+    const dateTo = this.dateToFilter();
+    if (dateTo) {
+      const to = new Date(`${dateTo}T23:59:59.999`);
+      if (tradeDate > to) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

@@ -4,5 +4,51 @@
   <div class="error-banner">{{ error() }}</div>
 } @else {
   <h2>Trade History</h2>
-  <app-trades-table [trades]="trades()" />
+  <div class="filters">
+    <label class="filter-field">
+      <span>Ticker</span>
+      <input
+        type="text"
+        [ngModel]="tickerFilter()"
+        (ngModelChange)="updateTickerFilter($event)"
+        placeholder="e.g. LCID"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Side</span>
+      <select [ngModel]="sideFilter()" (ngModelChange)="updateSideFilter($event)">
+        @for (option of sideOptions; track option) {
+          <option [value]="option">{{ option === 'all' ? 'All sides' : option | titlecase }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="filter-field">
+      <span>Status</span>
+      <select [ngModel]="statusFilter()" (ngModelChange)="updateStatusFilter($event)">
+        @for (option of statusOptions; track option) {
+          <option [value]="option">{{ option === 'all' ? 'All statuses' : option | titlecase }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="filter-field">
+      <span>Date From</span>
+      <input type="date" [ngModel]="dateFromFilter()" (ngModelChange)="updateDateFromFilter($event)" />
+    </label>
+
+    <label class="filter-field">
+      <span>Date To</span>
+      <input type="date" [ngModel]="dateToFilter()" (ngModelChange)="updateDateToFilter($event)" />
+    </label>
+
+    <button type="button" class="clear-button" (click)="clearFilters()">Clear</button>
+  </div>
+
+  <div class="results-summary">
+    Showing {{ filteredTrades().length }} of {{ trades().length }} trades
+  </div>
+
+  <app-trades-table [trades]="filteredTrades()" />
 }
