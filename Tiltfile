@@ -10,6 +10,7 @@ LOCAL_API_FORWARD_PORT = "18100"
 LOCAL_FRONTEND_FORWARD_PORT = "14201"
 LOCAL_PROMETHEUS_FORWARD_PORT = "19090"
 LOCAL_GRAFANA_FORWARD_PORT = "13000"
+LOCAL_REDIS_FORWARD_PORT = "16379"
 
 # ── Global ignores ──────────────────────────────────────────────────
 WATCH_IGNORES = [
@@ -136,6 +137,12 @@ k8s_resource(
     port_forwards=[LOCAL_FRONTEND_FORWARD_PORT + ":4200"],
     resource_deps=["rbac", "stock-radar-api"],
     labels=["app"],
+)
+
+k8s_resource(
+    "stock-radar-redis",
+    port_forwards=[LOCAL_REDIS_FORWARD_PORT + ":6379"],
+    labels=["infra"],
 )
 
 k8s_resource(

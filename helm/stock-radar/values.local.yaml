@@ -7,6 +7,7 @@ api:
     PGHOST: stock-radar-postgres
     PGPORT: "5434"
     PGDATABASE: stock_radar
+    REDIS_URL: "redis://stock-radar-redis:6379/0"
     TRADING_MODE: paper
     BUY_USE_BRACKETS: "true"
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"

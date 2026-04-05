@@ -7,6 +7,9 @@ api:
 frontend:
   enabled: true
 
+redis:
+  enabled: true
+
 serviceaccount:
   enabled: true
 

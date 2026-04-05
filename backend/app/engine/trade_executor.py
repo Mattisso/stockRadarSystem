@@ -81,6 +81,8 @@ class TradeExecutor:
                     order_book = await self.broker.get_order_book(ticker)
                 except Exception:
                     order_book = None
+                if self.cache and order_book is not None:
+                    await self.cache.set_l2(ticker, order_book)
 
                 snapshot = MarketSnapshot(
                     quote=quote,

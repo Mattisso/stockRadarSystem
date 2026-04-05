@@ -48,6 +48,8 @@ spec:
                   key: {{ .Values.env.PGPASSWORD_SECRET_KEY }}
             - name: DATABASE_URL
               value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ .Values.env.PGHOST }}:{{ .Values.env.PGPORT }}/{{ .Values.env.PGDATABASE }}"
+            - name: REDIS_URL
+              value: {{ .Values.env.REDIS_URL | quote }}
             - name: TRADING_MODE
               value: {{ .Values.env.TRADING_MODE | quote }}
             - name: BUY_USE_BRACKETS
