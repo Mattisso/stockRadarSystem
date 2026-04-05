@@ -110,6 +110,24 @@ async def test_assess_exit_triggers_l2_weakness(sell_agent):
 
 
 @pytest.mark.asyncio
+async def test_assess_exit_triggers_formula_exit_on_peak_failure(sell_agent):
+    pos = _position()
+    pos.entry_time = datetime.now().replace(microsecond=0)
+    pos.highest_price = 10.8
+    order_book = OrderBook(
+        ticker="AAPL",
+        bids=[OrderBookLevel(price=10.0, size=100) for _ in range(5)],
+        asks=[OrderBookLevel(price=10.02, size=900) for _ in range(5)],
+    )
+    snapshot = _snapshot(bid=10.0, ask=10.2, last=10.02, order_book=order_book)
+    snapshot.timestamp = pos.entry_time + timedelta(seconds=10)
+
+    assessment = sell_agent.assess_exit(pos, snapshot)
+
+    assert assessment.reason == "formula_exit"
+
+
+@pytest.mark.asyncio
 async def test_assess_exit_triggers_time_stop_for_non_proving_trade(sell_agent):
     pos = _position()
     pos.entry_time = datetime.now().replace(microsecond=0)
@@ -203,4 +221,87 @@ async def test_execute_exit_closes_trade_and_updates_signal(
     assert signal.outcome_pnl == 5.0
     cancel.assert_any_await("target-1")
     cancel.assert_any_await("stop-1")
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_execute_exit_persists_formula_metadata(
+    sell_agent, broker, db_session_factory, monkeypatch
+):
+    cancel = AsyncMock(return_value=True)
+    monkeypatch.setattr(broker, "submit_order", AsyncMock(return_value=OrderResult(
+        order_id="sell-2",
+        ticker="AAPL",
+        side=OrderSide.SELL,
+        quantity=10,
+        order_type=OrderType.MARKET,
+        status=OrderStatus.FILLED,
+        fill_price=10.1,
+        filled_quantity=10,
+    )))
+    monkeypatch.setattr(broker, "cancel_order", cancel)
+
+    db = db_session_factory()
+    signal = Signal(
+        ticker="AAPL",
+        signal_type=SignalType.BREAKOUT,
+        score=0.9,
+        liquidity_imbalance=0.8,
+        spread_compression=0.8,
+        bid_stacking=0.8,
+        volume_acceleration=0.8,
+        order_aggression=0.8,
+        ml_confidence=0.5,
+        entry_formula_score=0.84,
+        entry_formula_preset="balanced",
+    )
+    db.add(signal)
+    db.flush()
+    db.add(
+        Trade(
+            id=2,
+            ticker="AAPL",
+            signal_id=signal.id,
+            side=TradeSide.BUY,
+            status=TradeStatus.FILLED,
+            quantity=10,
+            entry_price=10.0,
+            stop_loss_price=9.5,
+            target_price=10.8,
+            target_order_id="target-2",
+            stop_order_id="stop-2",
+            entry_formula_preset="balanced",
+        )
+    )
+    db.flush()
+
+    closed = await sell_agent.execute_exit(
+        db=db,
+        position=OpenPosition(
+            ticker="AAPL",
+            trade_id=2,
+            quantity=10,
+            entry_price=10.0,
+            stop_loss=9.5,
+            target=10.8,
+            highest_price=10.8,
+            entry_time=datetime.now(),
+        ),
+        assessment=type(
+            "Assessment",
+            (),
+            {
+                "reason": "formula_exit",
+                "current_price": 10.0,
+                "stop_loss": 9.5,
+                "highest_price": 10.8,
+                "exit_score": 0.81,
+            },
+        )(),
+    )
+
+    trade = db.query(Trade).filter_by(id=2).one()
+    assert closed is True
+    assert trade.exit_formula_score == 0.81
+    assert trade.exit_formula_preset == "balanced"
     db.close()

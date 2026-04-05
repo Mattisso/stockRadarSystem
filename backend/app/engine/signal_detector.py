@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from app.data.tick_buffer import MarketSnapshot, TickBuffer
+from app.core.config import settings
 from app.core.logging import get_logger
+from app.data.tick_buffer import MarketSnapshot, TickBuffer
+from app.engine.entry_formula import EntryFormulaConfig, EntryFormulaInputs, EntryFormulaScorer
 from app.engine.l2_pattern_engine import L2PatternEngine
 
 log = get_logger(__name__)
@@ -28,6 +30,8 @@ class FeatureVector:
     composite_score: float
     signal_type: SignalType
     ml_confidence: float | None = None
+    entry_formula_score: float | None = None
+    entry_formula_preset: str | None = None
 
 
 class SignalDetector:
@@ -52,6 +56,20 @@ class SignalDetector:
         self.minimum_history = minimum_history
         self.ml_scorer = ml_scorer
         self.l2_pattern_engine = L2PatternEngine()
+        self.entry_formula = EntryFormulaScorer(
+            EntryFormulaConfig(
+                breakout_score_weight=settings.strategy_entry_breakout_score_weight,
+                liquidity_imbalance_weight=settings.strategy_entry_liquidity_imbalance_weight,
+                bid_stacking_weight=settings.strategy_entry_bid_stacking_weight,
+                volume_acceleration_weight=settings.strategy_entry_volume_acceleration_weight,
+                order_aggression_weight=settings.strategy_entry_order_aggression_weight,
+                ml_confidence_weight=settings.strategy_entry_ml_confidence_weight,
+                entry_threshold=settings.strategy_entry_threshold,
+                min_spread_compression=settings.strategy_entry_min_spread_compression,
+                max_spoofing_risk=settings.strategy_entry_max_spoofing_risk,
+                min_ml_confidence=settings.strategy_entry_min_ml_confidence,
+            )
+        )
 
     def compute_signal(self, ticker: str) -> FeatureVector | None:
         """Compute the feature vector for a ticker. Returns None if insufficient data."""
@@ -67,6 +85,7 @@ class SignalDetector:
         va = self._volume_acceleration(latest, history)
         sc = l2_signal.momentum_confirmation if l2_signal is not None else self._spread_compression(latest, history)
         oa = (1.0 - l2_signal.spoofing_score) if l2_signal is not None else self._order_aggression(history)
+        spoofing_risk = l2_signal.spoofing_score if l2_signal is not None else 0.0
 
         rule_score = (
             self.WEIGHTS["liquidity_imbalance"] * li
@@ -78,7 +97,7 @@ class SignalDetector:
 
         # Hybrid ML scoring (if available)
         ml_confidence = None
-        score = rule_score
+        breakout_score = rule_score
         if self.ml_scorer is not None:
             fv = FeatureVector(
                 ticker=ticker,
@@ -90,9 +109,29 @@ class SignalDetector:
                 composite_score=round(rule_score, 4),
                 signal_type=SignalType.FALSE_BREAKOUT,  # placeholder
             )
-            score, ml_confidence = self.ml_scorer.score(fv)
+            breakout_score, ml_confidence = self.ml_scorer.score(fv)
 
+        score = breakout_score
+        entry_formula_score = None
+        entry_formula_preset = None
         signal_type = SignalType.BREAKOUT if score >= self.THRESHOLD else SignalType.FALSE_BREAKOUT
+        if settings.strategy_entry_formula_enabled:
+            formula_result = self.entry_formula.score(
+                EntryFormulaInputs(
+                    breakout_score=breakout_score,
+                    liquidity_imbalance=li,
+                    bid_stacking=bs,
+                    spread_compression=sc,
+                    volume_acceleration=va,
+                    order_aggression=oa,
+                    spoofing_risk=spoofing_risk,
+                    ml_confidence=ml_confidence,
+                )
+            )
+            score = formula_result.score
+            entry_formula_score = formula_result.score
+            entry_formula_preset = settings.strategy_entry_formula_preset
+            signal_type = SignalType.BREAKOUT if formula_result.allowed else SignalType.FALSE_BREAKOUT
 
         return FeatureVector(
             ticker=ticker,
@@ -104,6 +143,8 @@ class SignalDetector:
             composite_score=round(score, 4),
             signal_type=signal_type,
             ml_confidence=ml_confidence,
+            entry_formula_score=entry_formula_score,
+            entry_formula_preset=entry_formula_preset,
         )
 
     # ── Feature 1: Liquidity Imbalance ──────────────────────────────

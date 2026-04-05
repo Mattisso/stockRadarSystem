@@ -230,6 +230,7 @@ class BuyAgent:
             stop_loss_price=params.stop_loss_price,
             target_price=params.target_price,
             signal_score=signal_score,
+            entry_formula_preset=signal_record.entry_formula_preset,
             execution_phase="entry_submitted",
             stop_revision_count=0,
             entry_time=datetime.now(),

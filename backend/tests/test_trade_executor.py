@@ -134,6 +134,8 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
             order_aggression=0.8,
             composite_score=0.85,
             signal_type=SignalType.BREAKOUT,
+            entry_formula_score=0.85,
+            entry_formula_preset="balanced",
         ),
     ))
 
@@ -189,7 +191,10 @@ async def test_scan_signals_tracks_filled_buy(executor, db_session_factory):
     assert trade.execution_phase == "managed"
     assert trade.entry_order_id == "ord-1"
     assert trade.last_stop_price == 3.0
+    assert trade.entry_formula_preset == "balanced"
     assert signal.stage == "ready_to_buy"
+    assert signal.entry_formula_score == 0.85
+    assert signal.entry_formula_preset == "balanced"
     db.close()
 
 
@@ -209,6 +214,8 @@ async def test_scan_signals_tracks_bracket_child_ids_in_execution_state(executor
             order_aggression=0.8,
             composite_score=0.85,
             signal_type=SignalType.BREAKOUT,
+            entry_formula_score=0.85,
+            entry_formula_preset="balanced",
         ),
     ))
 

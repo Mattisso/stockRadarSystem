@@ -9,6 +9,7 @@ from app.broker.interface import OrderBook, OrderSide, OrderStatus, OrderType
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.data.tick_buffer import MarketSnapshot
+from app.engine.exit_formula import ExitFormulaConfig, ExitFormulaInputs, ExitFormulaScorer
 from app.models.signal import Signal
 from app.models.trade import Trade, TradeStatus
 from app.risk.risk_manager import RiskManager
@@ -38,6 +39,7 @@ class ExitAssessment:
     current_price: float
     stop_loss: float
     highest_price: float
+    exit_score: float | None = None
 
 
 class SellAgent:
@@ -46,6 +48,15 @@ class SellAgent:
     def __init__(self, broker, risk_manager: RiskManager) -> None:
         self.broker = broker
         self.risk_manager = risk_manager
+        self.exit_formula = ExitFormulaScorer(
+            ExitFormulaConfig(
+                l2_weakness_weight=settings.strategy_exit_l2_weakness_weight,
+                momentum_decay_weight=settings.strategy_exit_momentum_decay_weight,
+                spread_worsening_weight=settings.strategy_exit_spread_worsening_weight,
+                pnl_drawdown_from_peak_weight=settings.strategy_exit_pnl_drawdown_from_peak_weight,
+                exit_threshold=settings.strategy_exit_threshold,
+            )
+        )
 
     def assess_exit(self, position: OpenPosition, latest: MarketSnapshot) -> ExitAssessment:
         """Update trailing state and decide whether the position should be exited."""
@@ -83,6 +94,32 @@ class SellAgent:
             and current_price <= position.entry_price
         ):
             return ExitAssessment("time_stop", current_price, effective_stop, highest_price)
+
+        if settings.strategy_exit_formula_enabled:
+            exit_formula = self.exit_formula.score(
+                ExitFormulaInputs(
+                    l2_weakness=self._l2_weakness_score(latest.order_book),
+                    momentum_decay=self._momentum_decay_score(
+                        entry_price=position.entry_price,
+                        current_price=current_price,
+                        highest_price=highest_price,
+                    ),
+                    spread_worsening=self._spread_worsening_score(latest),
+                    pnl_drawdown_from_peak=self._pnl_drawdown_from_peak_score(
+                        entry_price=position.entry_price,
+                        current_price=current_price,
+                        highest_price=highest_price,
+                    ),
+                )
+            )
+            if exit_formula.should_exit:
+                return ExitAssessment(
+                    "formula_exit",
+                    current_price,
+                    effective_stop,
+                    highest_price,
+                    exit_score=exit_formula.score,
+                )
 
         if l2_reason is not None:
             return ExitAssessment(l2_reason, current_price, effective_stop, highest_price)
@@ -133,6 +170,9 @@ class SellAgent:
             trade.last_stop_price = position.stop_loss
             trade.execution_phase = "closed"
             trade.close_reason = assessment.reason
+            trade.exit_formula_score = assessment.exit_score
+            if assessment.exit_score is not None:
+                trade.exit_formula_preset = settings.strategy_exit_formula_preset
 
             if trade.signal_id:
                 signal = db.query(Signal).filter_by(id=trade.signal_id).first()
@@ -179,6 +219,52 @@ class SellAgent:
         if imbalance < settings.l2_exit_imbalance_threshold:
             return "l2_weakness"
         return None
+
+    def _l2_weakness_score(self, order_book: OrderBook | None) -> float:
+        if order_book is None or not order_book.bids or not order_book.asks:
+            return 0.0
+
+        bid_liquidity = sum(level.size for level in order_book.bids[:5])
+        ask_liquidity = sum(level.size for level in order_book.asks[:5])
+        total = bid_liquidity + ask_liquidity
+        if total <= 0:
+            return 0.0
+        imbalance = bid_liquidity / total
+        return max(0.0, min(1.0, (0.5 - imbalance) / 0.5))
+
+    def _momentum_decay_score(self, *, entry_price: float, current_price: float, highest_price: float) -> float:
+        if highest_price <= entry_price:
+            return 0.0
+        drawdown = max(0.0, highest_price - current_price)
+        peak_gain = highest_price - entry_price
+        if peak_gain <= 0:
+            return 0.0
+        return max(0.0, min(1.0, drawdown / peak_gain))
+
+    def _spread_worsening_score(self, latest: MarketSnapshot) -> float:
+        midpoint = (latest.quote.bid + latest.quote.ask) / 2 if (latest.quote.bid + latest.quote.ask) else latest.quote.last
+        if midpoint <= 0:
+            return 0.0
+        spread_pct = max(0.0, latest.quote.ask - latest.quote.bid) / midpoint
+        if settings.execution_gate_max_spread_pct <= 0:
+            return 0.0
+        return max(0.0, min(1.0, spread_pct / settings.execution_gate_max_spread_pct))
+
+    def _pnl_drawdown_from_peak_score(
+        self,
+        *,
+        entry_price: float,
+        current_price: float,
+        highest_price: float,
+    ) -> float:
+        if highest_price <= entry_price:
+            return 0.0
+        current_profit = current_price - entry_price
+        peak_profit = highest_price - entry_price
+        if peak_profit <= 0:
+            return 0.0
+        drawdown = max(0.0, peak_profit - max(0.0, current_profit))
+        return max(0.0, min(1.0, drawdown / peak_profit))
 
     def strongest_stable_bid(self, order_book: OrderBook | None) -> float | None:
         """Return the strongest near-touch bid level used for runner trailing."""

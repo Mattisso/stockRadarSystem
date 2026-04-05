@@ -145,6 +145,8 @@ class TradeExecutor:
                     volume_acceleration=feature.volume_acceleration,
                     order_aggression=feature.order_aggression,
                     ml_confidence=feature.ml_confidence,
+                    entry_formula_score=feature.entry_formula_score,
+                    entry_formula_preset=feature.entry_formula_preset,
                     stage=stage_value,
                     reason=reason_value,
                 )
@@ -211,6 +213,7 @@ class TradeExecutor:
                     trade.entry_order_id = result.order_id
                     trade.last_stop_price = result.stop_loss
                     trade.stop_revision_count = trade.stop_revision_count or 0
+                    trade.entry_formula_preset = feature.entry_formula_preset
 
                 TRADES_EXECUTED.labels(side="buy").inc()
                 OPEN_POSITIONS.set(len(self._open_positions))

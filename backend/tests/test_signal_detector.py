@@ -130,9 +130,21 @@ def test_all_features_bounded():
 def test_threshold_breakout():
     """Verify that score >= 0.65 produces BREAKOUT."""
     buf = TickBuffer()
-    # Craft conditions likely to produce a high score:
-    # heavy bids, tight spread, high volume
-    for _ in range(15):
+    # Build rising pressure into the recent history so the balanced formula
+    # sees both strong breakout characteristics and improving tape quality.
+    for _ in range(10):
+        buf.push(
+            "BULL",
+            _make_snapshot(
+                ticker="BULL",
+                bid=4.98,
+                ask=5.03,
+                volume=700_000,
+                bid_sizes=[2600, 2400, 2200, 2000, 1800, 1600, 1400, 1200, 1000, 900],
+                ask_sizes=[2400, 2300, 2200, 2100, 2000, 1900, 1800, 1700, 1600, 1500],
+            ),
+        )
+    for _ in range(5):
         buf.push(
             "BULL",
             _make_snapshot(
@@ -140,8 +152,8 @@ def test_threshold_breakout():
                 bid=5.00,
                 ask=5.01,  # very tight spread
                 volume=3_000_000,
-                bid_sizes=[8000, 7000, 6000, 100, 100, 100, 100, 100, 100, 100],
-                ask_sizes=[200, 200, 200, 200, 200, 200, 200, 200, 200, 200],
+                bid_sizes=[8000, 7200, 6500, 5400, 4600, 3800, 3000, 2400, 1900, 1500],
+                ask_sizes=[1800, 1700, 1600, 1500, 1400, 1300, 1200, 1100, 1000, 900],
             ),
         )
     detector = SignalDetector(buf)
@@ -149,3 +161,4 @@ def test_threshold_breakout():
     assert result is not None
     # This crafted scenario should produce a high score
     assert result.composite_score > 0.5
+    assert result.signal_type == SignalType.BREAKOUT

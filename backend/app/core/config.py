@@ -59,6 +59,25 @@ class Settings(BaseSettings):
     execution_time_stop_seconds: int = 20
     execution_min_progress_pct: float = 0.003
     runner_trigger_profit_pct: float = 0.03
+    strategy_entry_formula_enabled: bool = True
+    strategy_entry_formula_preset: str = "balanced"
+    strategy_entry_breakout_score_weight: float = 0.35
+    strategy_entry_liquidity_imbalance_weight: float = 0.25
+    strategy_entry_bid_stacking_weight: float = 0.15
+    strategy_entry_volume_acceleration_weight: float = 0.10
+    strategy_entry_order_aggression_weight: float = 0.10
+    strategy_entry_ml_confidence_weight: float = 0.05
+    strategy_entry_threshold: float = 0.72
+    strategy_entry_min_spread_compression: float = 0.55
+    strategy_entry_max_spoofing_risk: float = 0.35
+    strategy_entry_min_ml_confidence: float = 0.0
+    strategy_exit_formula_enabled: bool = True
+    strategy_exit_formula_preset: str = "balanced"
+    strategy_exit_l2_weakness_weight: float = 0.40
+    strategy_exit_momentum_decay_weight: float = 0.25
+    strategy_exit_spread_worsening_weight: float = 0.20
+    strategy_exit_pnl_drawdown_from_peak_weight: float = 0.15
+    strategy_exit_threshold: float = 0.70
 
     # --- Universe Filter ---
     universe_min_price: float = 1.0
