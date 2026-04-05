@@ -47,6 +47,9 @@ def test_upsert_day_aggregates_and_build_universe(db):
     rows = db.query(UniverseDaily).all()
     assert len(rows) == 1
     assert rows[0].ticker == "LCID"
+    assert rows[0].open_price == 3.25
+    assert rows[0].last_price == 3.45
+    assert rows[0].avg_volume == 500_000
 
 
 def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
@@ -80,4 +83,4 @@ def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
     rows = db.query(PolygonMinuteAggregate).all()
     assert len(rows) == 1
     assert rows[0].ticker == "LCID"
-    assert rows[0].minute_ts == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)
+    assert rows[0].minute_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)

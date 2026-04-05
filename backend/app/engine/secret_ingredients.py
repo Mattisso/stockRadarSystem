@@ -1,6 +1,6 @@
 """First-sprint Secret Ingredients persistence and handoff helpers."""
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 import json
 
@@ -14,6 +14,16 @@ from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
 
 
+@dataclass(frozen=True)
+class DailyUniverseSnapshot:
+    ticker: str
+    exchange: str = "NASDAQ"
+    open_price: float | None = None
+    prev_close: float | None = None
+    last_price: float | None = None
+    avg_volume: int | None = None
+
+
 class SecretIngredientsService:
     """Persist first-sprint Secret Ingredients outputs around the existing L1 path."""
 
@@ -25,9 +35,11 @@ class SecretIngredientsService:
         tickers: list[str],
         *,
         trade_date: date | None = None,
+        snapshots_by_ticker: dict[str, DailyUniverseSnapshot] | None = None,
     ) -> int:
         trade_date = trade_date or date.today()
         rows_added = 0
+        snapshots_by_ticker = snapshots_by_ticker or {}
         symbols = {
             symbol.ticker: symbol
             for symbol in self.db.query(Symbol).filter(Symbol.ticker.in_(tickers)).all()
@@ -39,17 +51,39 @@ class SecretIngredientsService:
                 .first()
             )
             symbol = symbols.get(ticker)
+            snapshot = snapshots_by_ticker.get(ticker)
+            exchange = (
+                snapshot.exchange if snapshot is not None and snapshot.exchange else
+                symbol.exchange if symbol is not None else
+                "NASDAQ"
+            )
+            open_price = snapshot.open_price if snapshot is not None else None
+            prev_close = snapshot.prev_close if snapshot is not None else None
+            last_price = (
+                snapshot.last_price if snapshot is not None and snapshot.last_price is not None else
+                symbol.last_price if symbol is not None else
+                None
+            )
+            avg_volume = (
+                snapshot.avg_volume if snapshot is not None and snapshot.avg_volume is not None else
+                symbol.avg_volume if symbol is not None else
+                None
+            )
             if existing is not None:
-                if symbol is not None:
-                    existing.last_price = symbol.last_price
-                    existing.avg_volume = symbol.avg_volume
+                existing.exchange = exchange
+                existing.open_price = open_price
+                existing.prev_close = prev_close
+                existing.last_price = last_price
+                existing.avg_volume = avg_volume
                 continue
             row = UniverseDaily(
                 trade_date=trade_date,
                 ticker=ticker,
-                exchange=symbol.exchange if symbol is not None else "NASDAQ",
-                last_price=symbol.last_price if symbol is not None else None,
-                avg_volume=symbol.avg_volume if symbol is not None else None,
+                exchange=exchange,
+                open_price=open_price,
+                prev_close=prev_close,
+                last_price=last_price,
+                avg_volume=avg_volume,
             )
             self.db.add(row)
             rows_added += 1

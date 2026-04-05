@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.engine.secret_ingredients import SecretIngredientsService
+from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 
@@ -77,7 +77,21 @@ class PolygonAggregateService:
             .all()
         )
         tickers = [row.ticker for row in rows]
-        SecretIngredientsService(self.db).record_daily_universe(tickers, trade_date=trade_date)
+        snapshots_by_ticker = {
+            row.ticker: DailyUniverseSnapshot(
+                ticker=row.ticker,
+                exchange="NASDAQ",
+                open_price=row.open,
+                last_price=row.close,
+                avg_volume=row.volume,
+            )
+            for row in rows
+        }
+        SecretIngredientsService(self.db).record_daily_universe(
+            tickers,
+            trade_date=trade_date,
+            snapshots_by_ticker=snapshots_by_ticker,
+        )
         self.db.flush()
         return tickers
 

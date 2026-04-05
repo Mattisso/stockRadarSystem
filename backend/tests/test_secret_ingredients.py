@@ -3,7 +3,7 @@
 from datetime import date, datetime, timedelta
 
 from app.engine.secret_candidate_scorer import SecretCandidateEvent
-from app.engine.secret_ingredients import SecretIngredientsService
+from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.symbol import Symbol
@@ -24,6 +24,32 @@ def test_record_daily_universe_is_idempotent(db):
     assert added_second == 0
     assert len(rows) == 1
     assert rows[0].ticker == "SIRI"
+
+
+def test_record_daily_universe_prefers_snapshot_metadata_when_provided(db):
+    db.add(Symbol(ticker="SIRI", exchange="NASDAQ", last_price=3.2, avg_volume=1000000, is_active=True))
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    service.record_daily_universe(
+        ["SIRI"],
+        trade_date=date(2026, 3, 31),
+        snapshots_by_ticker={
+            "SIRI": DailyUniverseSnapshot(
+                ticker="SIRI",
+                exchange="NASDAQ",
+                open_price=3.1,
+                last_price=3.35,
+                avg_volume=2_500_000,
+            )
+        },
+    )
+    db.commit()
+
+    row = db.query(UniverseDaily).one()
+    assert row.open_price == 3.1
+    assert row.last_price == 3.35
+    assert row.avg_volume == 2_500_000
 
 
 def test_latest_daily_universe_tickers_returns_most_recent_snapshot(db):
