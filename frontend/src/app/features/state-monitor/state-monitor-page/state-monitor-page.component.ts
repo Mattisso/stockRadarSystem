@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, OnDestroy, OnInit } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { MatCardModule } from '@angular/material/card';
@@ -17,7 +18,7 @@ import {
 @Component({
   selector: 'app-state-monitor-page',
   standalone: true,
-  imports: [MatCardModule, MatIconModule, LoadingComponent, StateMonitorTableComponent],
+  imports: [DatePipe, MatCardModule, MatIconModule, LoadingComponent, StateMonitorTableComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './state-monitor-page.component.html',
   styleUrl: './state-monitor-page.component.scss',
