@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4201,"
         "http://localhost:4201"
     )
+    cors_allowed_origin_regex: str = r"https://.*\.trycloudflare\.com"
 
     # --- Trading ---
     trading_mode: str = "paper"  # "paper" | "live"

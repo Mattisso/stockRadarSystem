@@ -292,11 +292,26 @@ tunnel-k8s:
 	kubectl port-forward svc/stock-radar-api 18100:8000 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_API_LOG) 2>&1 &
 	kubectl port-forward svc/stock-radar-frontend 14200:4200 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_FRONTEND_LOG) 2>&1 &
 	@sleep 3
-	# Start Tunnels in Tmux
+	# Start backend tunnel first
 	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:18100 --no-autoupdate 2>&1 | tee $(CF_BACKEND_LOG)'
+	@echo "Waiting for backend URL..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		BACKEND_URL=$$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1); \
+		if [ -n "$$BACKEND_URL" ]; then \
+			break; \
+		fi; \
+		sleep 1; \
+	done; \
+	BACKEND_URL=$$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1); \
+	if [ -z "$$BACKEND_URL" ]; then \
+		echo "Backend tunnel URL not found."; \
+		exit 1; \
+	fi; \
+	echo "Patching frontend runtime config to $$BACKEND_URL/api"; \
+	kubectl exec -n $(NAMESPACE) deploy/stock-radar-frontend -- sh -lc 'printf "%s\n" "window.__stockRadarConfig = {" "  apiBaseUrl: \"'$$BACKEND_URL'/api\"," "  wsBaseUrl: \"'$$BACKEND_URL'/api\"," "};" > /usr/share/nginx/html/runtime-config.js'; \
 	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee $(CF_FRONTEND_LOG)'
-	@echo "Waiting for URLs..."
-	@sleep 12
+	@echo "Waiting for frontend URL..."
+	@sleep 8
 	@echo "\n🚀 PUBLIC LINKS:"
 	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) | head -n 1)"
 	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)"

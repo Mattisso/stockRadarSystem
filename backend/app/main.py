@@ -618,6 +618,7 @@ allowed_origins = [origin.strip() for origin in settings.cors_allowed_origins.sp
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=settings.cors_allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -629,6 +630,18 @@ Instrumentator(
     should_group_status_codes=False,
     excluded_handlers=["/metrics"],
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return {
+        "status": "ok",
+        "name": "Stock Radar System API",
+        "docs": "/docs",
+        "health": "/api/health",
+        "metrics": "/metrics",
+    }
+
 
 app.include_router(public_router, prefix="/api")
 app.include_router(router, prefix="/api")
