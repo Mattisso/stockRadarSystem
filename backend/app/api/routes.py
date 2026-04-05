@@ -457,6 +457,68 @@ def get_secret_sauce_funnel(
         .filter(UniverseDaily.trade_date == selected_trade_date)
         .all()
     )
+    candidate_rows = (
+        db.query(L1Candidate)
+        .filter(L1Candidate.detected_at >= start_dt)
+        .filter(L1Candidate.detected_at < end_dt)
+        .all()
+    )
+    handoff_rows = (
+        db.query(L1ToL2Event)
+        .filter(L1ToL2Event.escalate_ts >= start_dt)
+        .filter(L1ToL2Event.escalate_ts < end_dt)
+        .all()
+    )
+
+    universe_tickers = {row.ticker for row in universe_rows}
+    candidate_tickers = {row.ticker for row in candidate_rows}
+    handoff_tickers = {row.ticker for row in handoff_rows}
+
+    universe_count = len(universe_tickers)
+    candidate_count = len(candidate_tickers & universe_tickers) if universe_tickers else len(candidate_tickers)
+    handoff_count = len(handoff_tickers & candidate_tickers) if candidate_tickers else len(handoff_tickers)
+
+    latency_values = [row.latency_ms for row in handoff_rows if row.latency_ms is not None]
+    latency_values.sort()
+    latency_summary = SecretSauceLatencySummaryResponse(
+        count=len(latency_values),
+        avg_ms=(sum(latency_values) / len(latency_values)) if latency_values else None,
+        median_ms=median(latency_values) if latency_values else None,
+        p95_ms=(latency_values[min(len(latency_values) - 1, int(len(latency_values) * 0.95))] if latency_values else None),
+    )
+
+    reason_counter: Counter[str] = Counter()
+    for row in candidate_rows:
+        if not row.reason_flags:
+            continue
+        for flag in (part.strip() for part in row.reason_flags.split(",") if part.strip()):
+            reason_counter[flag] += 1
+
+    escalation_counter: Counter[str] = Counter(
+        row.escalation_reason for row in handoff_rows if row.escalation_reason
+    )
+
+    top_reason_flags = [
+        SecretSauceReasonCountResponse(label=label, count=count)
+        for label, count in reason_counter.most_common(5)
+    ]
+    top_escalation_reasons = [
+        SecretSauceReasonCountResponse(label=label, count=count)
+        for label, count in escalation_counter.most_common(5)
+    ]
+
+    return SecretSauceFunnelResponse(
+        trade_date=selected_trade_date,
+        universe_count=universe_count,
+        candidate_count=candidate_count,
+        handoff_count=handoff_count,
+        candidate_conversion_pct=(candidate_count / universe_count * 100.0) if universe_count else 0.0,
+        handoff_conversion_pct=(handoff_count / candidate_count * 100.0) if candidate_count else 0.0,
+        universe_to_handoff_pct=(handoff_count / universe_count * 100.0) if universe_count else 0.0,
+        latency=latency_summary,
+        top_reason_flags=top_reason_flags,
+        top_escalation_reasons=top_escalation_reasons,
+    )
 
 
 @router.get("/polygon/day-aggregates", response_model=list[PolygonDayAggregateResponse])
@@ -520,68 +582,6 @@ def get_polygon_ticks(
         query.order_by(PolygonTick.tick_ts.desc(), PolygonTick.id.desc())
         .limit(limit)
         .all()
-    )
-    candidate_rows = (
-        db.query(L1Candidate)
-        .filter(L1Candidate.detected_at >= start_dt)
-        .filter(L1Candidate.detected_at < end_dt)
-        .all()
-    )
-    handoff_rows = (
-        db.query(L1ToL2Event)
-        .filter(L1ToL2Event.escalate_ts >= start_dt)
-        .filter(L1ToL2Event.escalate_ts < end_dt)
-        .all()
-    )
-
-    universe_tickers = {row.ticker for row in universe_rows}
-    candidate_tickers = {row.ticker for row in candidate_rows}
-    handoff_tickers = {row.ticker for row in handoff_rows}
-
-    universe_count = len(universe_tickers)
-    candidate_count = len(candidate_tickers & universe_tickers) if universe_tickers else len(candidate_tickers)
-    handoff_count = len(handoff_tickers & candidate_tickers) if candidate_tickers else len(handoff_tickers)
-
-    latency_values = [row.latency_ms for row in handoff_rows if row.latency_ms is not None]
-    latency_values.sort()
-    latency_summary = SecretSauceLatencySummaryResponse(
-        count=len(latency_values),
-        avg_ms=(sum(latency_values) / len(latency_values)) if latency_values else None,
-        median_ms=median(latency_values) if latency_values else None,
-        p95_ms=(latency_values[min(len(latency_values) - 1, int(len(latency_values) * 0.95))] if latency_values else None),
-    )
-
-    reason_counter: Counter[str] = Counter()
-    for row in candidate_rows:
-        if not row.reason_flags:
-            continue
-        for flag in (part.strip() for part in row.reason_flags.split(",") if part.strip()):
-            reason_counter[flag] += 1
-
-    escalation_counter: Counter[str] = Counter(
-        row.escalation_reason for row in handoff_rows if row.escalation_reason
-    )
-
-    top_reason_flags = [
-        SecretSauceReasonCountResponse(label=label, count=count)
-        for label, count in reason_counter.most_common(5)
-    ]
-    top_escalation_reasons = [
-        SecretSauceReasonCountResponse(label=label, count=count)
-        for label, count in escalation_counter.most_common(5)
-    ]
-
-    return SecretSauceFunnelResponse(
-        trade_date=selected_trade_date,
-        universe_count=universe_count,
-        candidate_count=candidate_count,
-        handoff_count=handoff_count,
-        candidate_conversion_pct=(candidate_count / universe_count * 100.0) if universe_count else 0.0,
-        handoff_conversion_pct=(handoff_count / candidate_count * 100.0) if candidate_count else 0.0,
-        universe_to_handoff_pct=(handoff_count / universe_count * 100.0) if universe_count else 0.0,
-        latency=latency_summary,
-        top_reason_flags=top_reason_flags,
-        top_escalation_reasons=top_escalation_reasons,
     )
 
 

@@ -111,7 +111,7 @@ tf-destroy:
 	cd terraform/database && terraform destroy
 
 # ── Kubernetes ──────────────────────────────────────────────────────
-.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-docs open-redoc open-all
+.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-docs open-redoc open-all print-client-tunnel
 
 ns:
 	kubectl apply -f kubernetes/namespace.yaml
@@ -242,6 +242,18 @@ open-redoc:
 	fi
 
 open-all: open-api open-frontend open-prometheus open-grafana open-docs
+
+print-client-tunnel:
+	@echo "Run this on your client machine and keep it open:"
+	@echo "ssh -L 18100:127.0.0.1:18100 -L 14200:127.0.0.1:14200 $(CURRENT_USER)@<ubuntu-host>"
+	@echo ""
+	@echo "Then run these on Ubuntu:"
+	@echo "make port-forward-api"
+	@echo "make port-forward-frontend"
+	@echo ""
+	@echo "Then open on the client machine:"
+	@echo "http://127.0.0.1:18100"
+	@echo "http://127.0.0.1:14200"
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
 .PHONY: dev test migrate serve-frontend tunnel tunnel-frontend

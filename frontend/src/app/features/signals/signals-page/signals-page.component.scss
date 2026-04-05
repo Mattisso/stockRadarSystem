@@ -2,6 +2,41 @@ h2 {
   margin: 0 0 16px;
 }
 
+.signals-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+
+  span {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  select {
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.85);
+    color: inherit;
+  }
+}
+
+.results-count {
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 0.9rem;
+}
+
 .signals-layout {
   display: flex;
   gap: 16px;
@@ -20,4 +55,16 @@ app-signal-detail {
   background: rgba(244, 67, 54, 0.1);
   color: #f44336;
   border-radius: 8px;
+}
+
+@media (max-width: 960px) {
+  .signals-toolbar,
+  .signals-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  app-signal-detail {
+    width: auto;
+  }
 }

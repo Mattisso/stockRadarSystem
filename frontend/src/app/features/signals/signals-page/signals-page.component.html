@@ -4,8 +4,19 @@
   <div class="error-banner">{{ error() }}</div>
 } @else {
   <h2>Signals</h2>
+  <div class="signals-toolbar">
+    <label class="filter-field">
+      <span>Stage</span>
+      <select [value]="stageFilter()" (change)="onStageFilterChanged($any($event.target).value)">
+        @for (option of stageOptions; track option.value) {
+          <option [value]="option.value">{{ option.label }}</option>
+        }
+      </select>
+    </label>
+    <div class="results-count">{{ filteredSignals().length }} signal(s)</div>
+  </div>
   <div class="signals-layout">
-    <app-signals-table [signals]="signals()" (signalSelected)="onSignalSelected($event)" />
+    <app-signals-table [signals]="filteredSignals()" (signalSelected)="onSignalSelected($event)" />
     @if (selectedSignal(); as detail) {
       <app-signal-detail [signal]="detail" />
     }
