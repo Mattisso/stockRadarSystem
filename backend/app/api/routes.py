@@ -50,6 +50,8 @@ from app.schemas.ml import (
     PolygonDayAggregateResponse,
     PolygonMinuteAggregateResponse,
     PolygonTickResponse,
+    L2HealthResponse,
+    L2SubscriptionStatusResponse,
     SecretReplayRequest,
     SecretReplayResponse,
     SignalAccuracyBucketResponse,
@@ -101,6 +103,7 @@ async def contract_metadata():
         ],
         protected_routes=[
             "/api/health/broker",
+            "/api/health/l2",
             "/api/health/system",
             "/api/universe",
             "/api/trades",
@@ -212,6 +215,61 @@ async def get_portfolio(broker=Depends(get_broker)):
 async def system_health(runtime=Depends(get_runtime)):
     """Detailed orchestration health including background worker state."""
     return runtime.snapshot()
+
+
+@router.get("/health/l2", response_model=L2HealthResponse)
+async def l2_health(request: Request):
+    """Report runtime IBKR L2 subscription/depth status."""
+    state_machine = getattr(request.app.state, "state_machine", None)
+    if state_machine is None:
+        return L2HealthResponse(
+            active_count=0,
+            books_with_depth_count=0,
+            subscribed_tickers=[],
+            subscriptions=[],
+        )
+
+    manager = getattr(state_machine, "l2_manager", None)
+    if manager is None:
+        return L2HealthResponse(
+            active_count=0,
+            books_with_depth_count=0,
+            subscribed_tickers=[],
+            subscriptions=[],
+        )
+
+    subscriptions: list[L2SubscriptionStatusResponse] = []
+    books_with_depth_count = 0
+    for ticker in sorted(manager.active_symbols):
+        record = manager._active.get(ticker)  # noqa: SLF001 - runtime diagnostics
+        order_book = None
+        if record is not None:
+            try:
+                order_book = await manager.get_order_book(ticker)
+            except Exception:
+                order_book = None
+        bid_levels = len(order_book.bids) if order_book is not None and order_book.bids else 0
+        ask_levels = len(order_book.asks) if order_book is not None and order_book.asks else 0
+        has_depth = bid_levels > 0 or ask_levels > 0
+        if has_depth:
+            books_with_depth_count += 1
+        subscriptions.append(
+            L2SubscriptionStatusResponse(
+                ticker=ticker,
+                confirmed=record.confirmed if record is not None else False,
+                has_depth=has_depth,
+                bid_levels=bid_levels,
+                ask_levels=ask_levels,
+                last_updated_at=record.last_updated_at if record is not None else None,
+            )
+        )
+
+    return L2HealthResponse(
+        active_count=len(manager.active_symbols),
+        books_with_depth_count=books_with_depth_count,
+        subscribed_tickers=sorted(manager.active_symbols),
+        subscriptions=subscriptions,
+    )
 
 
 # ── Breakout Engine Endpoints ─────────────────────────────────────────

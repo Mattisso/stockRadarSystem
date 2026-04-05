@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe, FormsModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
@@ -40,6 +40,9 @@ export class PolygonDataPageComponent implements OnInit {
   readonly dayColumns = ['trade_date', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly minuteColumns = ['minute_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly tickColumns = ['tick_ts', 'ticker', 'event_type', 'bid', 'ask', 'last', 'volume'];
+  readonly filteredDayAggregates = computed(() => this.dayAggregates());
+  readonly filteredMinuteAggregates = computed(() => this.minuteAggregates());
+  readonly filteredTicks = computed(() => this.ticks());
 
   ngOnInit(): void {
     this.reload();

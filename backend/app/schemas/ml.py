@@ -271,3 +271,19 @@ class PolygonTickResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class L2SubscriptionStatusResponse(BaseModel):
+    ticker: str
+    confirmed: bool
+    has_depth: bool
+    bid_levels: int
+    ask_levels: int
+    last_updated_at: float | None = None
+
+
+class L2HealthResponse(BaseModel):
+    active_count: int
+    books_with_depth_count: int
+    subscribed_tickers: list[str]
+    subscriptions: list[L2SubscriptionStatusResponse]

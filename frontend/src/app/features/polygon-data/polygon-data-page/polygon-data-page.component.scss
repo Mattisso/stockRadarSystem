@@ -18,6 +18,11 @@
   width: 100%;
 }
 
+.table-shell {
+  max-height: 420px;
+  overflow: auto;
+}
+
 .ticker {
   font-weight: 600;
 }

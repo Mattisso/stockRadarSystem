@@ -6,3 +6,4 @@ export * from './analytics.model';
 export * from './state-machine.model';
 export * from './secret-sauce.model';
 export * from './polygon-data.model';
+export * from './l2-health.model';
