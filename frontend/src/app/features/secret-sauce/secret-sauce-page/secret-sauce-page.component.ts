@@ -35,6 +35,7 @@ import { SecretSauceApiService } from '../secret-sauce-api.service';
 })
 export class SecretSaucePageComponent implements OnInit {
   private readonly api = inject(SecretSauceApiService);
+  private readonly defaultLimit = 100;
 
   funnel = signal<ISecretSauceFunnel | null>(null);
   l2Health = signal<IL2Health | null>(null);
@@ -42,8 +43,45 @@ export class SecretSaucePageComponent implements OnInit {
   l1Candidates = signal<ISecretL1Candidate[]>([]);
   l1ToL2Events = signal<ISecretL1ToL2Event[]>([]);
   tickerFilter = signal('');
-  loading = signal(false);
-  error = signal<string | null>(null);
+  readonly funnelLoading = signal(false);
+  readonly l2Loading = signal(false);
+  readonly universeLoading = signal(false);
+  readonly candidatesLoading = signal(false);
+  readonly handoffLoading = signal(false);
+  readonly funnelError = signal<string | null>(null);
+  readonly l2Error = signal<string | null>(null);
+  readonly universeError = signal<string | null>(null);
+  readonly candidatesError = signal<string | null>(null);
+  readonly handoffError = signal<string | null>(null);
+  readonly loading = computed(
+    () =>
+      this.funnelLoading() ||
+      this.l2Loading() ||
+      this.universeLoading() ||
+      this.candidatesLoading() ||
+      this.handoffLoading(),
+  );
+  readonly hasAnyData = computed(
+    () =>
+      this.funnel() !== null ||
+      this.l2Health() !== null ||
+      this.universeDaily().length > 0 ||
+      this.l1Candidates().length > 0 ||
+      this.l1ToL2Events().length > 0,
+  );
+  readonly pageError = computed(() => {
+    if (this.hasAnyData()) {
+      return null;
+    }
+
+    return (
+      this.funnelError() ||
+      this.l2Error() ||
+      this.universeError() ||
+      this.candidatesError() ||
+      this.handoffError()
+    );
+  });
 
   readonly universeColumns = ['trade_date', 'ticker', 'exchange', 'last_price', 'avg_volume', 'created_at'];
   readonly candidateColumns = ['detected_at', 'ticker', 'breakout_score', 'price', 'pct_change_1m', 'volume_ratio', 'reason_flags'];
@@ -58,22 +96,11 @@ export class SecretSaucePageComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    this.loading.set(true);
-    this.error.set(null);
-    this.api.loadOps().subscribe({
-      next: data => {
-        this.funnel.set(data.funnel);
-        this.l2Health.set(data.l2Health);
-        this.universeDaily.set(data.universeDaily);
-        this.l1Candidates.set(data.l1Candidates);
-        this.l1ToL2Events.set(data.l1ToL2Events);
-        this.loading.set(false);
-      },
-      error: error => {
-        this.error.set(error.message ?? 'Failed to load Secret Sauce ops data');
-        this.loading.set(false);
-      },
-    });
+    this.loadFunnel();
+    this.loadL2Health();
+    this.loadUniverseDaily();
+    this.loadL1Candidates();
+    this.loadL1ToL2Events();
   }
 
   private filterByTicker<T>(rows: T[], tickerSelector: (row: T) => string): T[] {
@@ -82,5 +109,87 @@ export class SecretSaucePageComponent implements OnInit {
       return rows;
     }
     return rows.filter(row => tickerSelector(row).toUpperCase().includes(filter));
+  }
+
+  private loadFunnel(): void {
+    this.funnelLoading.set(true);
+    this.funnelError.set(null);
+    this.api.getFunnel().subscribe({
+      next: data => {
+        this.funnel.set(data);
+        this.funnelLoading.set(false);
+      },
+      error: error => {
+        this.funnelError.set(this.toErrorMessage(error, 'Failed to load funnel summary'));
+        this.funnelLoading.set(false);
+      },
+    });
+  }
+
+  private loadL2Health(): void {
+    this.l2Loading.set(true);
+    this.l2Error.set(null);
+    this.api.getL2Health().subscribe({
+      next: data => {
+        this.l2Health.set(data);
+        this.l2Loading.set(false);
+      },
+      error: error => {
+        this.l2Error.set(this.toErrorMessage(error, 'Failed to load L2 health'));
+        this.l2Loading.set(false);
+      },
+    });
+  }
+
+  private loadUniverseDaily(): void {
+    this.universeLoading.set(true);
+    this.universeError.set(null);
+    this.api.getUniverseDaily(this.defaultLimit).subscribe({
+      next: data => {
+        this.universeDaily.set(data);
+        this.universeLoading.set(false);
+      },
+      error: error => {
+        this.universeError.set(this.toErrorMessage(error, 'Failed to load universe snapshots'));
+        this.universeLoading.set(false);
+      },
+    });
+  }
+
+  private loadL1Candidates(): void {
+    this.candidatesLoading.set(true);
+    this.candidatesError.set(null);
+    this.api.getL1Candidates(this.defaultLimit).subscribe({
+      next: data => {
+        this.l1Candidates.set(data);
+        this.candidatesLoading.set(false);
+      },
+      error: error => {
+        this.candidatesError.set(this.toErrorMessage(error, 'Failed to load L1 candidates'));
+        this.candidatesLoading.set(false);
+      },
+    });
+  }
+
+  private loadL1ToL2Events(): void {
+    this.handoffLoading.set(true);
+    this.handoffError.set(null);
+    this.api.getL1ToL2Events(this.defaultLimit).subscribe({
+      next: data => {
+        this.l1ToL2Events.set(data);
+        this.handoffLoading.set(false);
+      },
+      error: error => {
+        this.handoffError.set(this.toErrorMessage(error, 'Failed to load L1 to L2 events'));
+        this.handoffLoading.set(false);
+      },
+    });
+  }
+
+  private toErrorMessage(error: unknown, fallback: string): string {
+    if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') {
+      return error.message;
+    }
+    return fallback;
   }
 }
