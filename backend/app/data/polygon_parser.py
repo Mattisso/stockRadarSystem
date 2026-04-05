@@ -10,6 +10,20 @@ from app.broker.interface import Quote
 class PolygonMessageParser:
     """Parse Polygon quote and trade payloads into internal Quote objects."""
 
+    @staticmethod
+    def _quote_last_price(msg: dict[str, Any]) -> float:
+        """Map quote events to a neutral synthetic price for downstream L1 features.
+
+        Polygon quote updates do not contain a trade-last price. Using the bid as
+        `last` biases downstream price-velocity calculations downward, so prefer
+        the midpoint when both sides are present.
+        """
+        bid = msg.get("bp", 0.0) or 0.0
+        ask = msg.get("ap", 0.0) or 0.0
+        if bid > 0 and ask > 0:
+            return (bid + ask) / 2
+        return bid or ask
+
     def parse_message(self, msg: dict[str, Any]) -> Quote | None:
         """Parse a single Polygon message.
 
@@ -29,7 +43,7 @@ class PolygonMessageParser:
                 ticker=msg.get("sym", ""),
                 bid=msg.get("bp", 0.0),
                 ask=msg.get("ap", 0.0),
-                last=msg.get("bp", 0.0),
+                last=self._quote_last_price(msg),
                 volume=msg.get("z", 0),
                 timestamp=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
                 event_type="quote",

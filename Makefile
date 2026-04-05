@@ -178,10 +178,10 @@ port-forward-stop:
 open-api:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:18100; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:18100; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100; \
 	else \
 		echo "Open http://127.0.0.1:18100 manually"; \
 	fi
@@ -189,10 +189,10 @@ open-api:
 open-frontend:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-frontend 14200:4200 > $(PF_FRONTEND_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:14200; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:14200; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:14200; \
 	else \
 		echo "Open http://127.0.0.1:14200 manually"; \
 	fi
@@ -200,10 +200,10 @@ open-frontend:
 open-prometheus:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-prometheus 19090:9090 > $(PF_PROMETHEUS_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:19090; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:19090; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:19090; \
 	else \
 		echo "Open http://127.0.0.1:19090 manually"; \
 	fi
@@ -211,10 +211,10 @@ open-prometheus:
 open-grafana:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-grafana 13000:3000 > $(PF_GRAFANA_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:13000; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:13000; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:13000; \
 	else \
 		echo "Open http://127.0.0.1:13000 manually"; \
 	fi
@@ -222,10 +222,10 @@ open-grafana:
 open-docs:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:18100/docs; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:18100/docs; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100/docs; \
 	else \
 		echo "Open http://127.0.0.1:18100/docs manually"; \
 	fi
@@ -233,10 +233,10 @@ open-docs:
 open-redoc:
 	@kubectl port-forward -n $(NAMESPACE) svc/stock-radar-api 18100:8000 > $(PF_API_LOG) 2>&1 &
 	@sleep 2
-	@if command -v open >/dev/null 2>&1; then \
-		open http://127.0.0.1:18100/redoc; \
-	elif command -v xdg-open >/dev/null 2>&1; then \
+	@if [ -n "$$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then \
 		xdg-open http://127.0.0.1:18100/redoc; \
+	elif [ -n "$$DISPLAY" ] && command -v open >/dev/null 2>&1; then \
+		open http://127.0.0.1:18100/redoc; \
 	else \
 		echo "Open http://127.0.0.1:18100/redoc manually"; \
 	fi

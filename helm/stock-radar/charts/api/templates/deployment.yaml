@@ -91,6 +91,10 @@ spec:
               value: {{ .Values.polygon.subscriptionBatchSize | quote }}
             - name: POLYGON_QUEUE_MAXSIZE
               value: {{ .Values.polygon.queueMaxsize | quote }}
+            - name: POLYGON_PERSIST_TICKS
+              value: {{ .Values.polygon.persistTicks | quote }}
+            - name: POLYGON_PERSIST_BATCH_SIZE
+              value: {{ .Values.polygon.persistBatchSize | quote }}
             {{- end }}
           {{- if .Values.probes.startup.enabled }}
           startupProbe:

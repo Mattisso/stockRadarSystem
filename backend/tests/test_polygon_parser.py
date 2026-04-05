@@ -23,9 +23,27 @@ def test_parse_quote_message():
     assert quote.ticker == "AAPL"
     assert quote.bid == 150.25
     assert quote.ask == 150.3
-    assert quote.last == 150.25
+    assert quote.last == 150.275
     assert quote.volume == 12345
     assert quote.timestamp == datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    assert quote.event_type == "quote"
+
+
+def test_parse_quote_message_falls_back_when_only_one_side_present():
+    parser = PolygonMessageParser()
+    timestamp_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+    quote = parser.parse_message({
+        "ev": "Q",
+        "sym": "AAPL",
+        "bp": 150.25,
+        "ap": 0.0,
+        "z": 10,
+        "t": timestamp_ms,
+    })
+
+    assert quote is not None
+    assert quote.last == 150.25
 
 
 def test_parse_non_quote_message_returns_none():

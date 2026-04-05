@@ -147,11 +147,19 @@ async def lifespan(app: FastAPI):
     runtime.mark_service("breakout_engine", True)
     if polygon_client:
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
+        from app.data.polygon_tick_persister import PolygonTickPersister
 
+        tick_persister = None
+        if settings.polygon_persist_ticks:
+            tick_persister = PolygonTickPersister(
+                SessionLocal,
+                batch_size=settings.polygon_persist_batch_size,
+            )
         polygon_queue_consumer = BreakoutQueueConsumer(
             polygon_queue,
             breakout_engine,
             l1_feature_engine=l1_feature_engine,
+            tick_persister=tick_persister,
         )
         await polygon_queue_consumer.start()
         await polygon_client.start()

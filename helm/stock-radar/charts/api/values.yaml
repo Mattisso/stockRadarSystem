@@ -74,6 +74,8 @@ polygon:
   reconnectMaxDelay: "30.0"
   subscriptionBatchSize: "500"
   queueMaxsize: "10000"
+  persistTicks: "false"
+  persistBatchSize: "100"
 
 probes:
   startup:

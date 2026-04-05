@@ -21,6 +21,8 @@ api:
     enabled: true
     mode: "websocket"
     restPollInterval: "30.0"
+    persistTicks: "true"
+    persistBatchSize: "250"
 
 frontend:
   image:

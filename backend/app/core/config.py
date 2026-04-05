@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     polygon_reconnect_max_delay: float = 30.0
     polygon_subscription_batch_size: int = 500
     polygon_queue_maxsize: int = 10_000
+    polygon_persist_ticks: bool = False
+    polygon_persist_batch_size: int = 100
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55
