@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.symbol import Symbol
 
 
 @dataclass(slots=True)
@@ -87,6 +88,7 @@ class PolygonAggregateService:
             )
             for row in rows
         }
+        self._sync_symbols_from_day_rows(rows)
         SecretIngredientsService(self.db).record_daily_universe(
             tickers,
             trade_date=trade_date,
@@ -128,6 +130,38 @@ class PolygonAggregateService:
     def latest_day_aggregate_date(self) -> date | None:
         row = self.db.query(PolygonDayAggregate.trade_date).order_by(PolygonDayAggregate.trade_date.desc()).first()
         return row[0] if row is not None else None
+
+    def _sync_symbols_from_day_rows(self, rows: list[PolygonDayAggregate]) -> None:
+        tickers = [row.ticker for row in rows]
+        if not tickers:
+            return
+
+        self.db.query(Symbol).filter(Symbol.ticker.notin_(tickers)).update(
+            {"is_active": False},
+            synchronize_session="fetch",
+        )
+
+        existing_symbols = {
+            symbol.ticker: symbol
+            for symbol in self.db.query(Symbol).filter(Symbol.ticker.in_(tickers)).all()
+        }
+
+        for row in rows:
+            symbol = existing_symbols.get(row.ticker)
+            if symbol is None:
+                symbol = Symbol(
+                    ticker=row.ticker,
+                    exchange="NASDAQ",
+                    name="",
+                    is_active=True,
+                )
+                self.db.add(symbol)
+            symbol.exchange = symbol.exchange or "NASDAQ"
+            symbol.last_price = row.close
+            symbol.avg_volume = max(0, row.volume)
+            symbol.is_active = True
+
+        self.db.flush()
 
     @staticmethod
     def _normalize_minute_ts(value: datetime) -> datetime:

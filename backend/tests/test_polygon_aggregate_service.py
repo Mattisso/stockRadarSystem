@@ -7,12 +7,15 @@ from app.data.polygon_aggregate_service import (
 )
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
 
 
 def test_upsert_day_aggregates_and_build_universe(db):
     service = PolygonAggregateService(db)
     trade_date = date(2026, 4, 4)
+    db.add(Symbol(ticker="OLD", exchange="NASDAQ", last_price=1.2, avg_volume=1000, is_active=True))
+    db.commit()
 
     inserted = service.upsert_day_aggregates(
         [
@@ -50,6 +53,12 @@ def test_upsert_day_aggregates_and_build_universe(db):
     assert rows[0].open_price == 3.25
     assert rows[0].last_price == 3.45
     assert rows[0].avg_volume == 500_000
+    lcid_symbol = db.query(Symbol).filter_by(ticker="LCID").one()
+    assert lcid_symbol.last_price == 3.45
+    assert lcid_symbol.avg_volume == 500_000
+    assert lcid_symbol.is_active is True
+    old_symbol = db.query(Symbol).filter_by(ticker="OLD").one()
+    assert old_symbol.is_active is False
 
 
 def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
