@@ -2,15 +2,17 @@ NAMESPACE := stock-radar
 REGISTRY := localhost:32000
 HELM_DIR := helm/stock-radar
 CURRENT_USER ?= $(shell id -un)
+export KUBECONFIG ?= $(HOME)/.kube/merged-config
 PF_API_LOG := /tmp/stock-radar-port-forward-api.$(CURRENT_USER).log
 PF_FRONTEND_LOG := /tmp/stock-radar-port-forward-frontend.$(CURRENT_USER).log
 PF_PROMETHEUS_LOG := /tmp/stock-radar-port-forward-prometheus.$(CURRENT_USER).log
 PF_GRAFANA_LOG := /tmp/stock-radar-port-forward-grafana.$(CURRENT_USER).log
 CF_BACKEND_LOG := /tmp/cf_be.$(CURRENT_USER).log
 CF_FRONTEND_LOG := /tmp/cf_fe.$(CURRENT_USER).log
+CF_GRAFANA_LOG := /tmp/cf_grafana.$(CURRENT_USER).log
 
 # ── Tilt (local K8s dev) ────────────────────────────────────────────
-.PHONY: up down logs stop restart refresh build-api build-frontend
+.PHONY: up down logs stop restart refresh trigger-api trigger-frontend
 
 up:
 	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
@@ -49,14 +51,14 @@ refresh: down
 	docker system prune -f
 	$(MAKE) up
 
-build-api:
+trigger-api:
 	tilt trigger stock-radar-api
 
-build-frontend:
+trigger-frontend:
 	tilt trigger stock-radar-frontend
 
 # ── Docker ──────────────────────────────────────────────────────────
-.PHONY: build build-dev build-prod push build-frontend
+.PHONY: build build-dev build-prod push docker-build-frontend
 
 build-dev:
 	docker build -t $(REGISTRY)/stock-radar-api:dev \
@@ -66,11 +68,11 @@ build-prod:
 	docker build -t $(REGISTRY)/stock-radar-api:latest \
 		-f backend/Dockerfile_prod .
 
-build-frontend:
+docker-build-frontend:
 	docker build -t $(REGISTRY)/stock-radar-frontend:latest \
 		-f frontend/Dockerfile_prod .
 
-build: build-prod build-frontend
+build: build-prod docker-build-frontend
 
 push:
 	docker push $(REGISTRY)/stock-radar-api:latest
@@ -302,10 +304,12 @@ tunnel-k8s:
 	-pkill -f "cloudflared"
 	-tmux kill-session -t cf-backend 2>/dev/null || true
 	-tmux kill-session -t cf-frontend 2>/dev/null || true
+	-tmux kill-session -t cf-grafana 2>/dev/null || true
 	@sleep 2
 	# Start Port-Forwards
 	kubectl port-forward svc/stock-radar-api 18100:8000 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_API_LOG) 2>&1 &
 	kubectl port-forward svc/stock-radar-frontend 14200:4200 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_FRONTEND_LOG) 2>&1 &
+	kubectl port-forward svc/stock-radar-grafana 13000:3000 -n $(NAMESPACE) --address 0.0.0.0 > $(PF_GRAFANA_LOG) 2>&1 &
 	@sleep 3
 	# Start backend tunnel first
 	tmux new-session -d -s cf-backend 'cloudflared tunnel --url http://localhost:18100 --no-autoupdate 2>&1 | tee $(CF_BACKEND_LOG)'
@@ -324,12 +328,14 @@ tunnel-k8s:
 	fi; \
 	echo "Patching frontend runtime config to $$BACKEND_URL/api"; \
 	kubectl exec -n $(NAMESPACE) deploy/stock-radar-frontend -- sh -lc 'printf "%s\n" "window.__stockRadarConfig = {" "  apiBaseUrl: \"'$$BACKEND_URL'/api\"," "  wsBaseUrl: \"'$$BACKEND_URL'/api\"," "};" > /usr/share/nginx/html/runtime-config.js'; \
-	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee $(CF_FRONTEND_LOG)'
+	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee $(CF_FRONTEND_LOG)'; \
+	tmux new-session -d -s cf-grafana 'cloudflared tunnel --url http://localhost:13000 --no-autoupdate 2>&1 | tee $(CF_GRAFANA_LOG)'
 	@echo "Waiting for frontend URL..."
 	@sleep 8
 	@echo "\n🚀 PUBLIC LINKS:"
 	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) | head -n 1)"
 	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)"
+	@echo "Grafana:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_GRAFANA_LOG) | head -n 1)"
 	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)/docs\n"
 
 tunnel-status:
@@ -342,13 +348,16 @@ tunnel-status:
 	@echo "=== Public URLs ==="
 	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) 2>/dev/null | head -n 1 || true)"
 	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) 2>/dev/null | head -n 1 || true)"
+	@echo "Grafana:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_GRAFANA_LOG) 2>/dev/null | head -n 1 || true)"
 	@echo "Docs:     $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) 2>/dev/null | head -n 1 | sed 's#$$#/docs#' || true)"
 	@echo ""
 	@echo "=== Logs ==="
 	@echo "$(CF_FRONTEND_LOG)"
 	@echo "$(CF_BACKEND_LOG)"
+	@echo "$(CF_GRAFANA_LOG)"
 	@echo "$(PF_API_LOG)"
 	@echo "$(PF_FRONTEND_LOG)"
+	@echo "$(PF_GRAFANA_LOG)"
 
 tunnel-stop:
 	@echo "Stopping Cloudflare tunnels and related port-forwards..."
@@ -356,6 +365,7 @@ tunnel-stop:
 	-pkill -f "kubectl port-forward"
 	-tmux kill-session -t cf-backend 2>/dev/null || true
 	-tmux kill-session -t cf-frontend 2>/dev/null || true
+	-tmux kill-session -t cf-grafana 2>/dev/null || true
 	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
