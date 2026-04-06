@@ -10,7 +10,7 @@ CF_BACKEND_LOG := /tmp/cf_be.$(CURRENT_USER).log
 CF_FRONTEND_LOG := /tmp/cf_fe.$(CURRENT_USER).log
 
 # ── Tilt (local K8s dev) ────────────────────────────────────────────
-.PHONY: up down logs stop restart refresh
+.PHONY: up down logs stop restart refresh build-api build-frontend
 
 up:
 	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
@@ -48,6 +48,12 @@ restart: down up
 refresh: down
 	docker system prune -f
 	$(MAKE) up
+
+build-api:
+	tilt trigger stock-radar-api
+
+build-frontend:
+	tilt trigger stock-radar-frontend
 
 # ── Docker ──────────────────────────────────────────────────────────
 .PHONY: build build-dev build-prod push build-frontend
