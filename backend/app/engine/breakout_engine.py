@@ -8,9 +8,9 @@ This is the first stage in the Arch v2.0 two-tier pipeline:
   BreakoutEngine (L1 scan) → StateMachine → SignalDetector (L1+L2) → TradeExecutor
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 from app.broker.interface import Quote
 from app.core.logging import get_logger
@@ -57,11 +57,17 @@ class SymbolTracker:
         if self.prev_close is None:
             self.prev_close = tick.price
 
+    def _clock_now(self) -> datetime:
+        latest = self.ticks[-1].timestamp if self.ticks else None
+        if latest is not None and latest.tzinfo is not None:
+            return datetime.now(tz=timezone.utc)
+        return datetime.now()
+
     def pct_change(self, seconds: int) -> float:
         """Percent change over the last N seconds."""
         if len(self.ticks) < 2:
             return 0.0
-        cutoff = datetime.now() - timedelta(seconds=seconds)
+        cutoff = self._clock_now() - timedelta(seconds=seconds)
         baseline = None
         for t in self.ticks:
             if t.timestamp >= cutoff:
@@ -74,7 +80,7 @@ class SymbolTracker:
 
     def volume_ratio(self, seconds: int = 60) -> float:
         """Current minute volume vs average minute volume over rolling window."""
-        now = datetime.now()
+        now = self._clock_now()
         cutoff_recent = now - timedelta(seconds=seconds)
         cutoff_total = now - timedelta(seconds=300)  # 5 min window
 
@@ -104,7 +110,7 @@ class SymbolTracker:
     def can_emit(self) -> bool:
         if self.last_event_time is None:
             return True
-        return (datetime.now() - self.last_event_time).total_seconds() >= self.COOLDOWN_SECONDS
+        return (self._clock_now() - self.last_event_time).total_seconds() >= self.COOLDOWN_SECONDS
 
 
 class BreakoutEngine:
@@ -177,7 +183,7 @@ class BreakoutEngine:
                     volume_ratio=round(vol_ratio, 2),
                 )
                 events.append(event)
-                tracker.last_event_time = datetime.now()
+                tracker.last_event_time = tracker._clock_now()
 
         return events
 
