@@ -111,7 +111,7 @@ tf-destroy:
 	cd terraform/database && terraform destroy
 
 # ── Kubernetes ──────────────────────────────────────────────────────
-.PHONY: ns secret status port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-docs open-redoc open-all print-client-tunnel
+.PHONY: ns secret status restart-api restart-frontend port-forward-api port-forward-frontend port-forward-prometheus port-forward-grafana port-forward-all port-forward-stop open-api open-frontend open-prometheus open-grafana open-docs open-redoc open-all print-client-tunnel
 
 ns:
 	kubectl apply -f kubernetes/namespace.yaml
@@ -135,6 +135,14 @@ status:
 	@echo ""
 	@echo "=== Services ==="
 	kubectl get svc -n $(NAMESPACE)
+
+restart-api:
+	kubectl rollout restart -n $(NAMESPACE) deployment/stock-radar-api
+	kubectl rollout status -n $(NAMESPACE) deployment/stock-radar-api
+
+restart-frontend:
+	kubectl rollout restart -n $(NAMESPACE) deployment/stock-radar-frontend
+	kubectl rollout status -n $(NAMESPACE) deployment/stock-radar-frontend
 
 port-forward-api:
 	@echo "Port-forwarding API on http://127.0.0.1:18100 -> svc/stock-radar-api:8000"
