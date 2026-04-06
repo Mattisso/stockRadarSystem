@@ -299,7 +299,6 @@ tunnel-frontend:
 
 tunnel-k8s:
 	@echo "Restarting K8s Port-Forwards and Tunnels..."
-	@echo "Note: keep 'make up' / Tilt running while using this target. See docs/tunnel_k8s_operational_note.md"
 	-pkill -f "kubectl port-forward"
 	-pkill -f "cloudflared"
 	-tmux kill-session -t cf-backend 2>/dev/null || true
@@ -361,8 +360,8 @@ tunnel-status:
 
 tunnel-stop:
 	@echo "Stopping Cloudflare tunnels and related port-forwards..."
-	-pkill -f "cloudflared"
 	-pkill -f "kubectl port-forward"
+	-pkill -f "cloudflared"
 	-tmux kill-session -t cf-backend 2>/dev/null || true
 	-tmux kill-session -t cf-frontend 2>/dev/null || true
 	-tmux kill-session -t cf-grafana 2>/dev/null || true
