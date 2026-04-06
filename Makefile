@@ -329,8 +329,15 @@ tunnel-k8s:
 	kubectl exec -n $(NAMESPACE) deploy/stock-radar-frontend -- sh -lc 'printf "%s\n" "window.__stockRadarConfig = {" "  apiBaseUrl: \"'$$BACKEND_URL'/api\"," "  wsBaseUrl: \"'$$BACKEND_URL'/api\"," "};" > /usr/share/nginx/html/runtime-config.js'; \
 	tmux new-session -d -s cf-frontend 'cloudflared tunnel --url http://localhost:14200 --no-autoupdate 2>&1 | tee $(CF_FRONTEND_LOG)'; \
 	tmux new-session -d -s cf-grafana 'cloudflared tunnel --url http://localhost:13000 --no-autoupdate 2>&1 | tee $(CF_GRAFANA_LOG)'
-	@echo "Waiting for frontend URL..."
-	@sleep 8
+	@echo "Waiting for frontend and Grafana URLs..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		FRONTEND_URL=$$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) | head -n 1); \
+		GRAFANA_URL=$$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_GRAFANA_LOG) | head -n 1); \
+		if [ -n "$$FRONTEND_URL" ] && [ -n "$$GRAFANA_URL" ]; then \
+			break; \
+		fi; \
+		sleep 1; \
+	done
 	@echo "\n🚀 PUBLIC LINKS:"
 	@echo "Frontend: $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_FRONTEND_LOG) | head -n 1)"
 	@echo "Backend:  $$(grep -o 'https://[a-z-]*\.trycloudflare\.com' $(CF_BACKEND_LOG) | head -n 1)"
