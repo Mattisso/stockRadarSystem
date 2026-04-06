@@ -94,14 +94,23 @@ class TradeAnalytics:
             key = f"{bucket_low:.2f}-{bucket_high:.2f}"
 
             if key not in buckets:
-                buckets[key] = {"range": key, "total": 0, "wins": 0}
+                buckets[key] = {
+                    "range": key,
+                    "total": 0,
+                    "wins": 0,
+                    "total_pnl": 0.0,
+                }
             buckets[key]["total"] += 1
+            buckets[key]["total_pnl"] += float(s.outcome_pnl or 0.0)
             if s.outcome_pnl > 0:
                 buckets[key]["wins"] += 1
 
         result = []
         for bucket in sorted(buckets.values(), key=lambda b: b["range"]):
             bucket["win_rate"] = round(bucket["wins"] / bucket["total"], 4) if bucket["total"] > 0 else 0.0
+            bucket["average_pnl"] = round(bucket["total_pnl"] / bucket["total"], 2) if bucket["total"] > 0 else 0.0
+            bucket["expectancy"] = bucket["average_pnl"]
+            del bucket["total_pnl"]
             result.append(bucket)
 
         return result

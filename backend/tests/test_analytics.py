@@ -95,6 +95,8 @@ def test_signal_accuracy_buckets(db):
         assert "total" in b
         assert "wins" in b
         assert "win_rate" in b
+        assert "average_pnl" in b
+        assert "expectancy" in b
         assert 0.0 <= b["win_rate"] <= 1.0
 
 

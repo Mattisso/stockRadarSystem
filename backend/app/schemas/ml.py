@@ -62,6 +62,8 @@ class SignalAccuracyBucketResponse(BaseModel):
     total: int
     wins: int
     win_rate: float
+    average_pnl: float
+    expectancy: float
 
 
 class ApiContractResponse(BaseModel):

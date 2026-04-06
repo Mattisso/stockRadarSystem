@@ -25,6 +25,8 @@ export interface ISignalAccuracyBucket {
   total: number;
   wins: number;
   win_rate: number;
+  average_pnl: number;
+  expectancy: number;
 }
 
 export interface IRetrainResponse {
