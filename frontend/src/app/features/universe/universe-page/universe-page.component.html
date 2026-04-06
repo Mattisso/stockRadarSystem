@@ -4,5 +4,65 @@
   <div class="error-banner">{{ error() }}</div>
 } @else {
   <h2>Universe</h2>
-  <app-universe-table [symbols]="symbols()" />
+  <div class="filters">
+    <label class="filter-field">
+      <span>Ticker</span>
+      <input
+        type="text"
+        [ngModel]="tickerFilter()"
+        (ngModelChange)="updateTickerFilter($event)"
+        placeholder="e.g. LCID"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Exchange</span>
+      <select [ngModel]="exchangeFilter()" (ngModelChange)="updateExchangeFilter($event)">
+        @for (option of exchangeOptions(); track option) {
+          <option [value]="option">{{ option === 'all' ? 'All exchanges' : option }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="filter-field">
+      <span>Status</span>
+      <select [ngModel]="statusFilter()" (ngModelChange)="updateStatusFilter($event)">
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </label>
+
+    <label class="filter-field">
+      <span>Rows Per Page</span>
+      <select [ngModel]="pageSize()" (ngModelChange)="updatePageSize($event)">
+        @for (size of pageSizeOptions; track size) {
+          <option [value]="size">{{ size }}</option>
+        }
+      </select>
+    </label>
+
+    <button type="button" class="clear-button" (click)="clearFilters()">Clear</button>
+  </div>
+
+  <div class="results-summary">
+    Showing {{ pagedSymbols().length }} of {{ filteredSymbols().length }} symbols
+  </div>
+
+  <app-universe-table [symbols]="pagedSymbols()" />
+
+  <div class="pagination">
+    <button type="button" class="page-button" (click)="previousPage()" [disabled]="currentPage() <= 1">
+      Previous
+    </button>
+    <span class="page-label">Page {{ currentPage() }} of {{ totalPages() }}</span>
+    <button
+      type="button"
+      class="page-button"
+      (click)="nextPage()"
+      [disabled]="currentPage() >= totalPages()"
+    >
+      Next
+    </button>
+  </div>
 }
