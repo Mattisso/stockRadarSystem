@@ -1,0 +1,22 @@
+api:
+  ingress:
+    enabled: true
+    className: public
+    hosts:
+      - host: api.yourdomain.com
+        paths:
+          - path: /
+            pathType: Prefix
+
+frontend:
+  ingress:
+    enabled: true
+    className: public
+    hosts:
+      - host: app.yourdomain.com
+        paths:
+          - path: /
+            pathType: Prefix
+  runtimeConfig:
+    apiBaseUrl: "https://api.yourdomain.com/api"
+    wsBaseUrl: "wss://api.yourdomain.com/api"
