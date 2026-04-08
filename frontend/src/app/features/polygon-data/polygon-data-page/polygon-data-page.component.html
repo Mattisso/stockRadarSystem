@@ -8,6 +8,10 @@
     <p>Raw day aggregates, minute aggregates, and persisted live ticks.</p>
   </div>
 
+  @if (ticksWarning()) {
+    <div class="error-banner">{{ ticksWarning() }}</div>
+  }
+
   <div class="filter-row">
     <mat-form-field appearance="outline">
       <mat-label>Ticker filter</mat-label>

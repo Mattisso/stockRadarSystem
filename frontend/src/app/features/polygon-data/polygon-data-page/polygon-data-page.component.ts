@@ -37,6 +37,7 @@ export class PolygonDataPageComponent implements OnInit {
   ticks = signal<IPolygonTick[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
+  ticksWarning = signal<string | null>(null);
 
   readonly dayColumns = ['trade_date', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly minuteColumns = ['minute_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
@@ -57,10 +58,12 @@ export class PolygonDataPageComponent implements OnInit {
         this.dayAggregates.set(data.dayAggregates);
         this.minuteAggregates.set(data.minuteAggregates);
         this.ticks.set(data.ticks);
+        this.ticksWarning.set(data.ticksWarning);
         this.loading.set(false);
       },
       error: error => {
         this.error.set(error.message ?? 'Failed to load Polygon data');
+        this.ticksWarning.set(null);
         this.loading.set(false);
       },
     });
