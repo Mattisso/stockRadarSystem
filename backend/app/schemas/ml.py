@@ -261,6 +261,19 @@ class PolygonMinuteAggregateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PolygonSecondAggregateResponse(BaseModel):
+    id: int
+    ticker: str
+    second_ts: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    vwap: float | None = None
+    transactions: int | None = None
+
+
 class PolygonTickResponse(BaseModel):
     id: int
     ticker: str

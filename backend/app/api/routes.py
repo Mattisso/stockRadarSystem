@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -49,6 +50,7 @@ from app.schemas.ml import (
     SecretSauceReasonCountResponse,
     PolygonDayAggregateResponse,
     PolygonMinuteAggregateResponse,
+    PolygonSecondAggregateResponse,
     PolygonTickResponse,
     L2HealthResponse,
     L2SubscriptionStatusResponse,
@@ -111,6 +113,10 @@ async def contract_metadata():
             "/api/state-machine",
             "/api/portfolio",
             "/api/breakouts",
+            "/api/polygon/day-aggregates",
+            "/api/polygon/minute-aggregates",
+            "/api/polygon/second-aggregates",
+            "/api/polygon/ticks",
             "/api/secret-sauce/contract",
             "/api/secret-sauce/handoffs",
             "/api/secret-sauce/queue",
@@ -142,6 +148,27 @@ async def contract_metadata():
 # ── Protected routes (require JWT) ───────────────────────────────────
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+
+def _latest_universe_tickers(
+    db: Session,
+    *,
+    max_price: float | None = None,
+) -> list[str]:
+    latest_trade_date = (
+        db.query(UniverseDaily.trade_date)
+        .order_by(UniverseDaily.trade_date.desc())
+        .limit(1)
+        .scalar()
+    )
+    if latest_trade_date is None:
+        return []
+
+    query = db.query(UniverseDaily).filter(UniverseDaily.trade_date == latest_trade_date)
+    if max_price is not None:
+        query = query.filter(func.coalesce(UniverseDaily.open_price, UniverseDaily.last_price, 0) <= max_price)
+    rows = query.order_by(UniverseDaily.ticker.asc()).all()
+    return [row.ticker for row in rows]
 
 
 @router.get("/health/broker")
@@ -526,6 +553,7 @@ def get_polygon_day_aggregates(
     limit: int = 200,
     trade_date: str | None = None,
     ticker: str | None = None,
+    universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonDayAggregate)
@@ -541,6 +569,11 @@ def get_polygon_day_aggregates(
         query = query.filter(PolygonDayAggregate.trade_date == latest_trade_date)
     else:
         query = query.filter(PolygonDayAggregate.trade_date == trade_date)
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return []
+        query = query.filter(PolygonDayAggregate.ticker.in_(universe_tickers))
     if ticker:
         query = query.filter(PolygonDayAggregate.ticker == ticker.upper())
     return (
@@ -554,9 +587,15 @@ def get_polygon_day_aggregates(
 def get_polygon_minute_aggregates(
     limit: int = 200,
     ticker: str | None = None,
+    universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonMinuteAggregate)
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return []
+        query = query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
     if ticker:
         query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
     return (
@@ -566,14 +605,123 @@ def get_polygon_minute_aggregates(
     )
 
 
+@router.get("/polygon/second-aggregates", response_model=list[PolygonSecondAggregateResponse])
+def get_polygon_second_aggregates(
+    limit: int = 200,
+    ticker: str | None = None,
+    event_type: str | None = None,
+    universe_only: bool = True,
+    db: Session = Depends(get_db),
+):
+    universe_tickers = _latest_universe_tickers(
+        db,
+        max_price=settings.secret_universe_max_price if universe_only else None,
+    )
+    if universe_only and not universe_tickers:
+        return []
+
+    params: dict[str, object] = {
+        "limit": limit,
+        "ticker": ticker.upper() if ticker else None,
+        "event_type": event_type.lower() if event_type else None,
+        "max_price": settings.secret_universe_max_price,
+    }
+    universe_cte = """
+        latest_universe AS (
+            SELECT MAX(trade_date) AS trade_date
+            FROM stock_radar.universe_daily
+        ),
+        universe AS (
+            SELECT ticker
+            FROM stock_radar.universe_daily
+            WHERE trade_date = (SELECT trade_date FROM latest_universe)
+              AND COALESCE(open_price, last_price, 0) <= :max_price
+        ),
+    """ if universe_only else ""
+    universe_filter = "AND ticker IN (SELECT ticker FROM universe)" if universe_only else ""
+    sql = text(
+        f"""
+        WITH
+        {universe_cte}
+        base AS (
+            SELECT
+                date_trunc('second', tick_ts) AS second_ts,
+                ticker,
+                last,
+                volume,
+                tick_ts,
+                id
+            FROM stock_radar.polygon_ticks
+            WHERE (:ticker IS NULL OR ticker = :ticker)
+              AND (:event_type IS NULL OR event_type = :event_type)
+              {universe_filter}
+        ),
+        agg AS (
+            SELECT
+                second_ts,
+                ticker,
+                MAX(last) AS high,
+                MIN(last) AS low,
+                SUM(volume) AS volume,
+                AVG(last) AS vwap,
+                COUNT(*)::int AS transactions
+            FROM base
+            GROUP BY second_ts, ticker
+        ),
+        open_rows AS (
+            SELECT DISTINCT ON (second_ts, ticker)
+                second_ts,
+                ticker,
+                last AS open
+            FROM base
+            ORDER BY second_ts, ticker, tick_ts ASC, id ASC
+        ),
+        close_rows AS (
+            SELECT DISTINCT ON (second_ts, ticker)
+                second_ts,
+                ticker,
+                last AS close
+            FROM base
+            ORDER BY second_ts, ticker, tick_ts DESC, id DESC
+        )
+        SELECT
+            ROW_NUMBER() OVER (ORDER BY agg.second_ts DESC, agg.ticker ASC)::int AS id,
+            agg.ticker,
+            agg.second_ts,
+            open_rows.open,
+            agg.high,
+            agg.low,
+            close_rows.close,
+            agg.volume::int AS volume,
+            agg.vwap,
+            agg.transactions
+        FROM agg
+        JOIN open_rows USING (second_ts, ticker)
+        JOIN close_rows USING (second_ts, ticker)
+        ORDER BY agg.second_ts DESC, agg.ticker ASC
+        LIMIT :limit
+        """
+    )
+    return [
+        PolygonSecondAggregateResponse.model_validate(dict(row._mapping))
+        for row in db.execute(sql, params).fetchall()
+    ]
+
+
 @router.get("/polygon/ticks", response_model=list[PolygonTickResponse])
 def get_polygon_ticks(
     limit: int = 200,
     ticker: str | None = None,
     event_type: str | None = None,
+    universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonTick)
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return []
+        query = query.filter(PolygonTick.ticker.in_(universe_tickers))
     if ticker:
         query = query.filter(PolygonTick.ticker == ticker.upper())
     if event_type:

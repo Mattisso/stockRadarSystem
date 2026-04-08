@@ -7,7 +7,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
-import { IPolygonDayAggregate, IPolygonMinuteAggregate, IPolygonTick } from '../../../shared/models';
+import {
+  IPolygonDayAggregate,
+  IPolygonMinuteAggregate,
+  IPolygonSecondAggregate,
+  IPolygonTick,
+} from '../../../shared/models';
 import { PolygonDataApiService } from '../polygon-data-api.service';
 
 @Component({
@@ -34,6 +39,7 @@ export class PolygonDataPageComponent implements OnInit {
   ticker = signal('');
   dayAggregates = signal<IPolygonDayAggregate[]>([]);
   minuteAggregates = signal<IPolygonMinuteAggregate[]>([]);
+  secondAggregates = signal<IPolygonSecondAggregate[]>([]);
   ticks = signal<IPolygonTick[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
@@ -41,9 +47,11 @@ export class PolygonDataPageComponent implements OnInit {
 
   readonly dayColumns = ['trade_date', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly minuteColumns = ['minute_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
+  readonly secondColumns = ['second_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly tickColumns = ['tick_ts', 'ticker', 'event_type', 'bid', 'ask', 'last', 'volume'];
   readonly filteredDayAggregates = computed(() => this.dayAggregates());
   readonly filteredMinuteAggregates = computed(() => this.minuteAggregates());
+  readonly filteredSecondAggregates = computed(() => this.secondAggregates());
   readonly filteredTicks = computed(() => this.ticks());
 
   ngOnInit(): void {
@@ -57,6 +65,7 @@ export class PolygonDataPageComponent implements OnInit {
       next: data => {
         this.dayAggregates.set(data.dayAggregates);
         this.minuteAggregates.set(data.minuteAggregates);
+        this.secondAggregates.set(data.secondAggregates);
         this.ticks.set(data.ticks);
         this.ticksWarning.set(data.ticksWarning);
         this.loading.set(false);

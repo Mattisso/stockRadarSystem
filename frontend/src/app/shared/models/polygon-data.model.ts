@@ -27,6 +27,19 @@ export interface IPolygonMinuteAggregate {
   created_at: string;
 }
 
+export interface IPolygonSecondAggregate {
+  id: number;
+  ticker: string;
+  second_ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  vwap: number | null;
+  transactions: number | null;
+}
+
 export interface IPolygonTick {
   id: number;
   ticker: string;
