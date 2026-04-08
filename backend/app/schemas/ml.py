@@ -288,6 +288,26 @@ class PolygonTickResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PolygonDayAggregatePageResponse(BaseModel):
+    items: list[PolygonDayAggregateResponse]
+    next_cursor: str | None = None
+
+
+class PolygonMinuteAggregatePageResponse(BaseModel):
+    items: list[PolygonMinuteAggregateResponse]
+    next_cursor: str | None = None
+
+
+class PolygonSecondAggregatePageResponse(BaseModel):
+    items: list[PolygonSecondAggregateResponse]
+    next_cursor: str | None = None
+
+
+class PolygonTickPageResponse(BaseModel):
+    items: list[PolygonTickResponse]
+    next_cursor: str | None = None
+
+
 class L2SubscriptionStatusResponse(BaseModel):
     ticker: str
     confirmed: bool

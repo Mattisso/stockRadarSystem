@@ -1,10 +1,16 @@
 """Tests for API routes."""
 
+from datetime import date, datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 from app.core.auth import create_access_token
+from app.core.database import get_db
 from app.main import app
+from app.models.polygon_tick import PolygonTick
+from app.models.universe_daily import UniverseDaily
 
 
 @pytest.fixture
@@ -229,3 +235,84 @@ def test_secret_sauce_replay(client, auth_headers):
     assert "handoffs" in body
     assert "queue" in body
     assert "promoted_tickers" in body
+
+
+def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 7),
+                        ticker="AAPL",
+                        open_price=150.0,
+                        last_price=151.0,
+                        avg_volume=1_000_000,
+                    ),
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 7),
+                        ticker="SIRI",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=2_000_000,
+                    ),
+                    PolygonTick(
+                        ticker="SIRI",
+                        event_type="trade",
+                        bid=9.50,
+                        ask=9.50,
+                        last=9.50,
+                        volume=100,
+                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 100000, tzinfo=timezone.utc),
+                    ),
+                    PolygonTick(
+                        ticker="SIRI",
+                        event_type="trade",
+                        bid=9.60,
+                        ask=9.60,
+                        last=9.60,
+                        volume=200,
+                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 900000, tzinfo=timezone.utc),
+                    ),
+                    PolygonTick(
+                        ticker="AAPL",
+                        event_type="trade",
+                        bid=150.0,
+                        ask=150.0,
+                        last=150.0,
+                        volume=999,
+                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 500000, tzinfo=timezone.utc),
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/second-aggregates",
+                headers=auth_headers,
+                params={"limit": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["ticker"] == "SIRI"
+        assert body[0]["open"] == 9.5
+        assert body[0]["high"] == 9.6
+        assert body[0]["low"] == 9.5
+        assert body[0]["close"] == 9.6
+        assert body[0]["volume"] == 300
+        assert body[0]["transactions"] == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
