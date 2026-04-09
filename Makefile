@@ -79,7 +79,7 @@ push:
 	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
-.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test
+.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel
 
 helm-template:
 	helm template stock-radar $(HELM_DIR) \
@@ -102,6 +102,20 @@ helm-uninstall:
 
 helm-test:
 	helm test stock-radar --namespace $(NAMESPACE)
+
+deploy-stockradarx:
+	helm upgrade --install stock-radar $(HELM_DIR) \
+		--namespace $(NAMESPACE) \
+		--values $(HELM_DIR)/values.yaml \
+		--values $(HELM_DIR)/values.local.yaml \
+		--values $(HELM_DIR)/values.mode.stockradarx.com.yaml
+
+deploy-stockradarx-tunnel:
+	helm upgrade --install stock-radar $(HELM_DIR) \
+		--namespace $(NAMESPACE) \
+		--values $(HELM_DIR)/values.yaml \
+		--values $(HELM_DIR)/values.local.yaml \
+		--values $(HELM_DIR)/values.mode.stockradarx-tunnel.yaml
 
 # ── Terraform (database provisioning) ──────────────────────────────
 .PHONY: tf-init tf-plan tf-apply tf-destroy

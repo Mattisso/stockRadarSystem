@@ -56,6 +56,10 @@ spec:
               value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
             - name: SECRET_UNIVERSE_SOURCE
               value: {{ .Values.env.SECRET_UNIVERSE_SOURCE | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
+            - name: CORS_ALLOWED_ORIGIN_REGEX
+              value: {{ .Values.env.CORS_ALLOWED_ORIGIN_REGEX | quote }}
             - name: BROKER_TYPE
               value: {{ .Values.broker.type | quote }}
             - name: IBKR_HOST

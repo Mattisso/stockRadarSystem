@@ -1,0 +1,33 @@
+api:
+  ingress:
+    enabled: true
+    className: public
+    hosts:
+      - host: stockradarx.com
+        paths:
+          - path: /api
+            pathType: Prefix
+      - host: www.stockradarx.com
+        paths:
+          - path: /api
+            pathType: Prefix
+  env:
+    CORS_ALLOWED_ORIGINS: "https://stockradarx.com,https://www.stockradarx.com"
+    CORS_ALLOWED_ORIGIN_REGEX: ""
+
+frontend:
+  ingress:
+    enabled: true
+    className: public
+    hosts:
+      - host: stockradarx.com
+        paths:
+          - path: /
+            pathType: Prefix
+      - host: www.stockradarx.com
+        paths:
+          - path: /
+            pathType: Prefix
+  runtimeConfig:
+    apiBaseUrl: "https://stockradarx.com/api"
+    wsBaseUrl: "wss://stockradarx.com/api"
