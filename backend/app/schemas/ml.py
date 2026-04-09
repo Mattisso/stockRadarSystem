@@ -290,22 +290,34 @@ class PolygonTickResponse(BaseModel):
 
 class PolygonDayAggregatePageResponse(BaseModel):
     items: list[PolygonDayAggregateResponse]
-    next_cursor: str | None = None
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
 
 
 class PolygonMinuteAggregatePageResponse(BaseModel):
     items: list[PolygonMinuteAggregateResponse]
-    next_cursor: str | None = None
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
 
 
 class PolygonSecondAggregatePageResponse(BaseModel):
     items: list[PolygonSecondAggregateResponse]
-    next_cursor: str | None = None
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
 
 
 class PolygonTickPageResponse(BaseModel):
     items: list[PolygonTickResponse]
-    next_cursor: str | None = None
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
 
 
 class L2SubscriptionStatusResponse(BaseModel):

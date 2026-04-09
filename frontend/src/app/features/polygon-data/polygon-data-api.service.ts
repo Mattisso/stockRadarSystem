@@ -11,60 +11,53 @@ import {
 
 export interface IPagedResponse<T> {
   items: T[];
-  next_cursor: string | null;
+  total: number;
+  page: number;
+  page_size: number;
+  trade_date: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
 export class PolygonDataApiService {
   private readonly http = inject(HttpClient);
 
-  private buildBaseParams(limit: number, ticker: string): HttpParams {
+  private buildBaseParams(page: number, pageSize: number, ticker: string, tradeDate: string | null): HttpParams {
     let params = new HttpParams()
-      .set('limit', String(limit))
+      .set('page', String(page))
+      .set('page_size', String(pageSize))
       .set('universe_only', 'true');
     if (ticker) {
       params = params.set('ticker', ticker);
     }
+    if (tradeDate) {
+      params = params.set('trade_date', tradeDate);
+    }
     return params;
   }
 
-  loadDayAggregates(limit = 50, ticker = '', afterTicker: string | null = null): Observable<IPagedResponse<IPolygonDayAggregate>> {
-    let params = this.buildBaseParams(limit, ticker);
-    if (afterTicker) {
-      params = params.set('after_ticker', afterTicker);
-    }
+  loadDayAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonDayAggregate>> {
+    const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
     return this.http.get<IPagedResponse<IPolygonDayAggregate>>('/api/polygon/day-aggregates', { params });
   }
 
-  loadMinuteAggregates(limit = 50, ticker = '', beforeMinuteTs: string | null = null): Observable<IPagedResponse<IPolygonMinuteAggregate>> {
-    let params = this.buildBaseParams(limit, ticker);
-    if (beforeMinuteTs) {
-      params = params.set('before_minute_ts', beforeMinuteTs);
-    }
+  loadMinuteAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonMinuteAggregate>> {
+    const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
     return this.http.get<IPagedResponse<IPolygonMinuteAggregate>>('/api/polygon/minute-aggregates', { params });
   }
 
-  loadSecondAggregates(limit = 50, ticker = '', beforeSecondTs: string | null = null): Observable<IPagedResponse<IPolygonSecondAggregate>> {
-    let params = this.buildBaseParams(limit, ticker);
-    if (beforeSecondTs) {
-      params = params.set('before_second_ts', beforeSecondTs);
-    }
+  loadSecondAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonSecondAggregate>> {
+    const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
     return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(
       timeout(10000),
-      catchError(() => of({ items: [], next_cursor: null })),
+      catchError(() => of({ items: [], total: 0, page, page_size: pageSize, trade_date: tradeDate })),
     );
   }
 
-  loadTicks(limit = 50, ticker = '', cursor: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
-    let params = this.buildBaseParams(limit, ticker);
-    if (cursor) {
-      const [beforeTickTs, beforeId] = cursor.split('|');
-      params = params.set('before_tick_ts', beforeTickTs);
-      params = params.set('before_id', beforeId);
-    }
+  loadTicks(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
+    const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
     return this.http.get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params }).pipe(
       timeout(10000),
-      catchError(() => of({ items: [], next_cursor: null })),
+      catchError(() => of({ items: [], total: 0, page, page_size: pageSize, trade_date: tradeDate })),
     );
   }
 }

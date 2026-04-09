@@ -554,14 +554,15 @@ def get_secret_sauce_funnel(
 
 @router.get("/polygon/day-aggregates", response_model=PolygonDayAggregatePageResponse)
 def get_polygon_day_aggregates(
-    limit: int = 50,
-    trade_date: str | None = None,
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
     ticker: str | None = None,
-    after_ticker: str | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonDayAggregate)
+    selected_trade_date: date | None = trade_date
     if trade_date is None:
         latest_trade_date = (
             db.query(PolygonDayAggregate.trade_date)
@@ -570,88 +571,126 @@ def get_polygon_day_aggregates(
             .scalar()
         )
         if latest_trade_date is None:
-            return PolygonDayAggregatePageResponse(items=[], next_cursor=None)
+            return PolygonDayAggregatePageResponse(items=[], total=0, page=page, page_size=page_size, trade_date=None)
+        selected_trade_date = latest_trade_date
         query = query.filter(PolygonDayAggregate.trade_date == latest_trade_date)
     else:
         query = query.filter(PolygonDayAggregate.trade_date == trade_date)
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
-            return PolygonDayAggregatePageResponse(items=[], next_cursor=None)
+            return PolygonDayAggregatePageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
         query = query.filter(PolygonDayAggregate.ticker.in_(universe_tickers))
     if ticker:
         query = query.filter(PolygonDayAggregate.ticker == ticker.upper())
-    if after_ticker:
-        query = query.filter(PolygonDayAggregate.ticker > after_ticker.upper())
+    total = query.count()
     rows = (
         query.order_by(PolygonDayAggregate.trade_date.desc(), PolygonDayAggregate.ticker.asc())
-        .limit(limit + 1)
+        .offset(page * page_size)
+        .limit(page_size)
         .all()
     )
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = items[-1].ticker if has_more and items else None
     return PolygonDayAggregatePageResponse(
-        items=[PolygonDayAggregateResponse.model_validate(row) for row in items],
-        next_cursor=next_cursor,
+        items=[PolygonDayAggregateResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
     )
 
 
 @router.get("/polygon/minute-aggregates", response_model=PolygonMinuteAggregatePageResponse)
 def get_polygon_minute_aggregates(
-    limit: int = 50,
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
     ticker: str | None = None,
-    before_minute_ts: datetime | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonMinuteAggregate)
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        latest_minute_ts = db.query(func.max(PolygonMinuteAggregate.minute_ts)).scalar()
+        if latest_minute_ts is not None:
+            selected_trade_date = latest_minute_ts.date()
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
-            return PolygonMinuteAggregatePageResponse(items=[], next_cursor=None)
+            return PolygonMinuteAggregatePageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
         query = query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
+    if selected_trade_date:
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
+        end_dt = start_dt + timedelta(days=1)
+        query = query.filter(
+            PolygonMinuteAggregate.minute_ts >= start_dt,
+            PolygonMinuteAggregate.minute_ts < end_dt,
+        )
     if ticker:
         query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
-    if before_minute_ts:
-        query = query.filter(PolygonMinuteAggregate.minute_ts < before_minute_ts)
+    total = query.count()
     rows = (
         query.order_by(PolygonMinuteAggregate.minute_ts.desc(), PolygonMinuteAggregate.id.desc())
-        .limit(limit + 1)
+        .offset(page * page_size)
+        .limit(page_size)
         .all()
     )
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = items[-1].minute_ts.isoformat() if has_more and items else None
     return PolygonMinuteAggregatePageResponse(
-        items=[PolygonMinuteAggregateResponse.model_validate(row) for row in items],
-        next_cursor=next_cursor,
+        items=[PolygonMinuteAggregateResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
     )
 
 
 @router.get("/polygon/second-aggregates", response_model=PolygonSecondAggregatePageResponse)
 def get_polygon_second_aggregates(
-    limit: int = 50,
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
     ticker: str | None = None,
     event_type: str | None = "trade",
-    before_second_ts: datetime | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
+        if latest_tick_ts is not None:
+            selected_trade_date = latest_tick_ts.date()
     universe_tickers = _latest_universe_tickers(
         db,
         max_price=settings.secret_universe_max_price if universe_only else None,
     )
     if universe_only and not universe_tickers:
-        return PolygonSecondAggregatePageResponse(items=[], next_cursor=None)
+        return PolygonSecondAggregatePageResponse(
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            trade_date=selected_trade_date,
+        )
 
     params: dict[str, object] = {
-        "limit": limit + 1,
-        "raw_limit": max(3000, min(limit * 200, 20000)),
+        "limit": page_size,
+        "offset": page * page_size,
         "ticker": ticker.upper() if ticker else None,
         "event_type": event_type.lower() if event_type else None,
         "max_price": settings.secret_universe_max_price,
-        "before_second_ts": before_second_ts,
+        "trade_date": selected_trade_date,
     }
     universe_cte = """
         latest_universe AS (
@@ -681,10 +720,9 @@ def get_polygon_second_aggregates(
             FROM stock_radar.polygon_ticks
             WHERE (:ticker IS NULL OR ticker = :ticker)
               AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:before_second_ts IS NULL OR tick_ts < :before_second_ts)
+              AND (:trade_date IS NULL OR DATE(tick_ts AT TIME ZONE 'UTC') = :trade_date)
               {universe_filter}
             ORDER BY tick_ts DESC, id DESC
-            LIMIT :raw_limit
         ),
         base AS (
             SELECT *
@@ -733,64 +771,94 @@ def get_polygon_second_aggregates(
         JOIN open_rows USING (second_ts, ticker)
         JOIN close_rows USING (second_ts, ticker)
         ORDER BY agg.second_ts DESC, agg.ticker ASC
+        OFFSET :offset
         LIMIT :limit
+        """
+    )
+    count_sql = text(
+        f"""
+        WITH
+        {universe_cte}
+        recent_ticks AS (
+            SELECT
+                date_trunc('second', tick_ts) AS second_ts,
+                ticker
+            FROM stock_radar.polygon_ticks
+            WHERE (:ticker IS NULL OR ticker = :ticker)
+              AND (:event_type IS NULL OR event_type = :event_type)
+              AND (:trade_date IS NULL OR DATE(tick_ts AT TIME ZONE 'UTC') = :trade_date)
+              {universe_filter}
+        )
+        SELECT COUNT(*)
+        FROM (
+            SELECT second_ts, ticker
+            FROM recent_ticks
+            GROUP BY second_ts, ticker
+        ) grouped
         """
     )
     rows = [
         PolygonSecondAggregateResponse.model_validate(dict(row._mapping))
         for row in db.execute(sql, params).fetchall()
     ]
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = items[-1].second_ts.isoformat() if has_more and items else None
-    return PolygonSecondAggregatePageResponse(items=items, next_cursor=next_cursor)
+    total = int(db.execute(count_sql, params).scalar() or 0)
+    return PolygonSecondAggregatePageResponse(
+        items=rows,
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
+    )
 
 
 @router.get("/polygon/ticks", response_model=PolygonTickPageResponse)
 def get_polygon_ticks(
-    limit: int = 50,
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
     ticker: str | None = None,
     event_type: str | None = None,
-    before_tick_ts: datetime | None = None,
-    before_id: int | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonTick)
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
+        if latest_tick_ts is not None:
+            selected_trade_date = latest_tick_ts.date()
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
-            return PolygonTickPageResponse(items=[], next_cursor=None)
+            return PolygonTickPageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
         query = query.filter(PolygonTick.ticker.in_(universe_tickers))
+    if selected_trade_date:
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = start_dt + timedelta(days=1)
+        query = query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
     if ticker:
         query = query.filter(PolygonTick.ticker == ticker.upper())
     if event_type:
         query = query.filter(PolygonTick.event_type == event_type.lower())
-    if before_tick_ts:
-        if before_id is not None:
-            query = query.filter(
-                or_(
-                    PolygonTick.tick_ts < before_tick_ts,
-                    and_(PolygonTick.tick_ts == before_tick_ts, PolygonTick.id < before_id),
-                )
-            )
-        else:
-            query = query.filter(PolygonTick.tick_ts < before_tick_ts)
+    total = query.count()
     rows = (
         query.order_by(PolygonTick.tick_ts.desc(), PolygonTick.id.desc())
-        .limit(limit + 1)
+        .offset(page * page_size)
+        .limit(page_size)
         .all()
     )
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = (
-        f"{items[-1].tick_ts.isoformat()}|{items[-1].id}"
-        if has_more and items
-        else None
-    )
     return PolygonTickPageResponse(
-        items=[PolygonTickResponse.model_validate(row) for row in items],
-        next_cursor=next_cursor,
+        items=[PolygonTickResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
     )
 
 

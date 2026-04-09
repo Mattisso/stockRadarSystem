@@ -319,9 +319,7 @@ async def lifespan(app: FastAPI):
                 tickers = SecretIngredientsService(db).latest_daily_universe_tickers()
                 if not tickers:
                     return
-                trade_date = aggregate_service.latest_day_aggregate_date()
-                if trade_date is None:
-                    trade_date, _ = await resolve_polygon_trade_date_and_records(polygon_client)
+                trade_date, _ = await resolve_polygon_trade_date_and_records(polygon_client)
                 allowed_tickers = set(tickers)
                 inserted = 0
                 for ticker in tickers:
