@@ -11,6 +11,7 @@ LOCAL_FRONTEND_FORWARD_PORT = "14201"
 LOCAL_PROMETHEUS_FORWARD_PORT = "19090"
 LOCAL_GRAFANA_FORWARD_PORT = "13000"
 LOCAL_REDIS_FORWARD_PORT = "16379"
+EXTRA_HELM_VALUES = os.getenv("TILT_HELM_VALUES_EXTRA", "").strip()
 
 # ── Global ignores ──────────────────────────────────────────────────
 WATCH_IGNORES = [
@@ -90,7 +91,7 @@ docker_build(
 )
 
 # ── Helm deploy ─────────────────────────────────────────────────────
-helm_cmd = " ".join([
+helm_cmd_parts = [
     "helm template stock-radar ./helm/stock-radar",
     "--namespace " + NAMESPACE,
     "--skip-tests",
@@ -100,7 +101,15 @@ helm_cmd = " ".join([
     "--set api.image.tag=tilt",
     "--set frontend.image.repository=" + REGISTRY + "/stock-radar-frontend",
     "--set frontend.image.tag=tilt",
-])
+]
+
+if EXTRA_HELM_VALUES:
+    for values_file in EXTRA_HELM_VALUES.split(":"):
+        values_file = values_file.strip()
+        if values_file:
+            helm_cmd_parts.append("--values " + values_file)
+
+helm_cmd = " ".join(helm_cmd_parts)
 
 k8s_yaml(local(helm_cmd, quiet=True))
 

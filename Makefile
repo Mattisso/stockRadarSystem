@@ -12,7 +12,7 @@ CF_FRONTEND_LOG := /tmp/cf_fe.$(CURRENT_USER).log
 CF_GRAFANA_LOG := /tmp/cf_grafana.$(CURRENT_USER).log
 
 # ── Tilt (local K8s dev) ────────────────────────────────────────────
-.PHONY: up down logs stop restart refresh trigger-api trigger-frontend
+.PHONY: up up-stockradarx-tunnel down logs stop restart refresh trigger-api trigger-frontend
 
 up:
 	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
@@ -35,6 +35,28 @@ up:
 		echo ""; \
 	fi
 	tilt up --host=0.0.0.0
+
+up-stockradarx-tunnel:
+	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	kubectl create secret generic postgres-secret \
+		--from-literal=PGUSER=postgres \
+		--from-literal=PGPASSWORD=postgres \
+		--namespace=$(NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@if ! kubectl get secret api-secret -n $(NAMESPACE) > /dev/null 2>&1; then \
+		API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
+		kubectl create secret generic api-secret \
+			--from-literal=API_SECRET_KEY="$$API_KEY" \
+			--namespace=$(NAMESPACE); \
+		echo ""; \
+		echo "╔══════════════════════════════════════════════════════════════╗"; \
+		echo "║  API key generated. Retrieve it with:                      ║"; \
+		echo "║  kubectl get secret api-secret -n $(NAMESPACE)             ║"; \
+		echo "║    -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d        ║"; \
+		echo "╚══════════════════════════════════════════════════════════════╝"; \
+		echo ""; \
+	fi
+	TILT_HELM_VALUES_EXTRA=$(HELM_DIR)/values.mode.stockradarx-tunnel.yaml tilt up --host=0.0.0.0
 
 down:
 	tilt down
