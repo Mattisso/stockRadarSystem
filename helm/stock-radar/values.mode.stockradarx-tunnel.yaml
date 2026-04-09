@@ -1,3 +1,10 @@
+serviceaccount:
+  enabled: true
+  clusterWide: false
+
+preflightChecks:
+  enabled: false
+
 api:
   ingress:
     enabled: true

@@ -27,3 +27,6 @@ apiSecretName: api-secret
 
 test:
   enabled: true
+
+preflightChecks:
+  enabled: true

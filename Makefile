@@ -1,6 +1,9 @@
 NAMESPACE := stock-radar
+PUBLIC_NAMESPACE := stock-radar-public
 REGISTRY := localhost:32000
 HELM_DIR := helm/stock-radar
+HELM_RELEASE := stock-radar
+PUBLIC_HELM_RELEASE := stock-radar-public
 CURRENT_USER ?= $(shell id -un)
 export KUBECONFIG ?= $(HOME)/.kube/merged-config
 PF_API_LOG := /tmp/stock-radar-port-forward-api.$(CURRENT_USER).log
@@ -101,7 +104,7 @@ push:
 	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
-.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel
+.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall
 
 helm-template:
 	helm template stock-radar $(HELM_DIR) \
@@ -123,7 +126,7 @@ helm-uninstall:
 	helm uninstall stock-radar --namespace $(NAMESPACE)
 
 helm-test:
-	helm test stock-radar --namespace $(NAMESPACE)
+	helm test $(HELM_RELEASE) --namespace $(NAMESPACE)
 
 deploy-stockradarx:
 	helm upgrade --install stock-radar $(HELM_DIR) \
@@ -133,11 +136,38 @@ deploy-stockradarx:
 		--values $(HELM_DIR)/values.mode.stockradarx.com.yaml
 
 deploy-stockradarx-tunnel:
-	helm upgrade --install stock-radar $(HELM_DIR) \
+	helm upgrade --install $(HELM_RELEASE) $(HELM_DIR) \
 		--namespace $(NAMESPACE) \
 		--values $(HELM_DIR)/values.yaml \
 		--values $(HELM_DIR)/values.local.yaml \
 		--values $(HELM_DIR)/values.mode.stockradarx-tunnel.yaml
+
+public-bootstrap:
+	kubectl create namespace $(PUBLIC_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@for secret in postgres-secret api-secret polygon-secret; do \
+		echo "Syncing $$secret from $(NAMESPACE) to $(PUBLIC_NAMESPACE)..."; \
+		kubectl get secret $$secret -n $(NAMESPACE) -o json | jq '.metadata.namespace = "$(PUBLIC_NAMESPACE)" | del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields,.metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",.metadata.ownerReferences)' | kubectl apply -f -; \
+	done
+
+public-status:
+	@echo "=== Public Namespace ==="
+	kubectl get all -n $(PUBLIC_NAMESPACE)
+	@echo ""
+	@echo "=== Public Ingress ==="
+	kubectl get ingress -n $(PUBLIC_NAMESPACE)
+
+build-public-images: build push
+
+deploy-stockradarx-public:
+	helm upgrade --install $(PUBLIC_HELM_RELEASE) $(HELM_DIR) \
+		--namespace $(PUBLIC_NAMESPACE) \
+		--create-namespace \
+		--values $(HELM_DIR)/values.yaml \
+		--values $(HELM_DIR)/values.public.yaml \
+		--values $(HELM_DIR)/values.mode.stockradarx-tunnel.yaml
+
+public-uninstall:
+	helm uninstall $(PUBLIC_HELM_RELEASE) --namespace $(PUBLIC_NAMESPACE)
 
 # ── Terraform (database provisioning) ──────────────────────────────
 .PHONY: tf-init tf-plan tf-apply tf-destroy
@@ -411,7 +441,7 @@ tunnel-stop:
 	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
-.PHONY: rotate-api-key show-api-key show-access-token
+.PHONY: rotate-api-key show-api-key show-api-key-public show-access-token show-access-token-public
 
 rotate-api-key:
 	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
@@ -425,8 +455,14 @@ rotate-api-key:
 show-api-key:
 	@kubectl get secret api-secret -n $(NAMESPACE) -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d; echo
 
+show-api-key-public:
+	@kubectl get secret api-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d; echo
+
 show-access-token:
 	@kubectl exec -n $(NAMESPACE) deploy/stock-radar-api -- python3 -c "from app.core.auth import create_access_token; print(create_access_token())"
+
+show-access-token-public:
+	@kubectl exec -n $(PUBLIC_NAMESPACE) deploy/stock-radar-api -- python3 -c "from app.core.auth import create_access_token; print(create_access_token())"
 
 # ── VPS Deployment ─────────────────────────────────────────────────
 .PHONY: deploy-vps deploy-engine

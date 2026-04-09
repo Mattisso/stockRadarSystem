@@ -1,0 +1,35 @@
+api:
+  image:
+    repository: localhost:32000/stock-radar-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  env:
+    PGHOST: stock-radar-postgres
+    PGPORT: "5434"
+    PGDATABASE: stock_radar
+    REDIS_URL: "redis://stock-radar-redis:6379/0"
+    TRADING_MODE: paper
+    BUY_USE_BRACKETS: "true"
+    DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
+  broker:
+    type: "ibkr"
+    ibkrHost: "192.168.1.77"
+    ibkrPort: "4002"
+    ibkrClientId: "77"
+    ibkrTimeout: "30"
+    ibkrMaxReconnectAttempts: "10"
+  polygon:
+    enabled: true
+    mode: "websocket"
+    restPollInterval: "30.0"
+    persistTicks: "true"
+    persistBatchSize: "250"
+    dayAggregateIngestionEnabled: "true"
+    minuteAggregateIngestionEnabled: "true"
+    minuteAggregateRefreshMinutes: "15"
+
+frontend:
+  image:
+    repository: localhost:32000/stock-radar-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
