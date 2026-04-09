@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
-import { catchError, timeout } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { timeout } from 'rxjs/operators';
 import {
   IPolygonDayAggregate,
   IPolygonMinuteAggregate,
@@ -47,17 +47,11 @@ export class PolygonDataApiService {
 
   loadSecondAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonSecondAggregate>> {
     const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
-    return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(
-      timeout(10000),
-      catchError(() => of({ items: [], total: 0, page, page_size: pageSize, trade_date: tradeDate })),
-    );
+    return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(timeout(15000));
   }
 
   loadTicks(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
     const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
-    return this.http.get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params }).pipe(
-      timeout(10000),
-      catchError(() => of({ items: [], total: 0, page, page_size: pageSize, trade_date: tradeDate })),
-    );
+    return this.http.get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params }).pipe(timeout(15000));
   }
 }

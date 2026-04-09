@@ -1,6 +1,32 @@
-.page-header,
-.filter-row {
+.page-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
   margin-bottom: 1rem;
+}
+
+.page-header h2 {
+  margin-bottom: 0.25rem;
+}
+
+.page-header p {
+  color: #5f6368;
+  margin: 0;
+  max-width: 48rem;
+}
+
+.dataset-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dataset-nav a.active-link {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #174ea6;
 }
 
 .filter-row {
@@ -8,15 +34,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-bottom: 1rem;
 }
 
 .filter-row mat-form-field {
   min-width: 14rem;
-}
-
-.ops-grid {
-  display: grid;
-  gap: 1rem;
 }
 
 .data-table {
@@ -24,7 +46,7 @@
 }
 
 .table-shell {
-  max-height: 420px;
+  max-height: 520px;
   overflow: auto;
 }
 
@@ -36,6 +58,19 @@ mat-card-subtitle {
   font-weight: 600;
 }
 
+.error-banner,
+.info-banner {
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+}
+
 .error-banner {
+  background: #fce8e6;
   color: #b3261e;
+}
+
+.info-banner {
+  background: #e8f0fe;
+  color: #174ea6;
 }

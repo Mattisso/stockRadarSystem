@@ -671,6 +671,11 @@ def get_polygon_second_aggregates(
         latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
         if latest_tick_ts is not None:
             selected_trade_date = latest_tick_ts.date()
+    start_dt: datetime | None = None
+    end_dt: datetime | None = None
+    if selected_trade_date is not None:
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = start_dt + timedelta(days=1)
     universe_tickers = _latest_universe_tickers(
         db,
         max_price=settings.secret_universe_max_price if universe_only else None,
@@ -683,6 +688,20 @@ def get_polygon_second_aggregates(
             page_size=page_size,
             trade_date=selected_trade_date,
         )
+    recent_window_start: datetime | None = None
+    if ticker is None:
+        latest_tick_query = db.query(func.max(PolygonTick.tick_ts))
+        if universe_only:
+            latest_tick_query = latest_tick_query.filter(PolygonTick.ticker.in_(universe_tickers))
+        if event_type:
+            latest_tick_query = latest_tick_query.filter(PolygonTick.event_type == event_type.lower())
+        if start_dt and end_dt:
+            latest_tick_query = latest_tick_query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
+        latest_visible_tick_ts = latest_tick_query.scalar()
+        if latest_visible_tick_ts is not None:
+            recent_window_start = latest_visible_tick_ts - timedelta(
+                minutes=settings.polygon_second_aggregate_recent_window_minutes
+            )
 
     params: dict[str, object] = {
         "limit": page_size,
@@ -690,7 +709,9 @@ def get_polygon_second_aggregates(
         "ticker": ticker.upper() if ticker else None,
         "event_type": event_type.lower() if event_type else None,
         "max_price": settings.secret_universe_max_price,
-        "trade_date": selected_trade_date,
+        "start_dt": start_dt,
+        "end_dt": end_dt,
+        "recent_window_start": recent_window_start,
     }
     universe_cte = """
         latest_universe AS (
@@ -720,7 +741,9 @@ def get_polygon_second_aggregates(
             FROM stock_radar.polygon_ticks
             WHERE (:ticker IS NULL OR ticker = :ticker)
               AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:trade_date IS NULL OR DATE(tick_ts AT TIME ZONE 'UTC') = :trade_date)
+              AND (:start_dt IS NULL OR tick_ts >= :start_dt)
+              AND (:end_dt IS NULL OR tick_ts < :end_dt)
+              AND (:recent_window_start IS NULL OR tick_ts >= :recent_window_start)
               {universe_filter}
             ORDER BY tick_ts DESC, id DESC
         ),
@@ -786,7 +809,9 @@ def get_polygon_second_aggregates(
             FROM stock_radar.polygon_ticks
             WHERE (:ticker IS NULL OR ticker = :ticker)
               AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:trade_date IS NULL OR DATE(tick_ts AT TIME ZONE 'UTC') = :trade_date)
+              AND (:start_dt IS NULL OR tick_ts >= :start_dt)
+              AND (:end_dt IS NULL OR tick_ts < :end_dt)
+              AND (:recent_window_start IS NULL OR tick_ts >= :recent_window_start)
               {universe_filter}
         )
         SELECT COUNT(*)

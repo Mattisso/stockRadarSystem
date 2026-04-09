@@ -1,12 +1,14 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { ActivatedRoute, RouterLink, RouterLinkActive } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { MatTableModule } from '@angular/material/table';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
 import {
   IPolygonDayAggregate,
@@ -16,20 +18,24 @@ import {
 } from '../../../shared/models';
 import { PolygonDataApiService } from '../polygon-data-api.service';
 
+type PolygonDatasetKey = 'day' | 'minute' | 'second' | 'ticks';
+
 @Component({
   selector: 'app-polygon-data-page',
   standalone: true,
   imports: [
-    LoadingComponent,
     DatePipe,
     DecimalPipe,
     FormsModule,
+    LoadingComponent,
+    MatButtonModule,
     MatCardModule,
-    MatTableModule,
     MatFormFieldModule,
     MatInputModule,
-    MatButtonModule,
     MatPaginatorModule,
+    MatTableModule,
+    RouterLink,
+    RouterLinkActive,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './polygon-data-page.component.html',
@@ -37,176 +43,154 @@ import { PolygonDataApiService } from '../polygon-data-api.service';
 })
 export class PolygonDataPageComponent implements OnInit {
   private readonly api = inject(PolygonDataApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
 
-  ticker = signal('');
-  tradeDate = signal('');
-  dayAggregates = signal<IPolygonDayAggregate[]>([]);
-  minuteAggregates = signal<IPolygonMinuteAggregate[]>([]);
-  secondAggregates = signal<IPolygonSecondAggregate[]>([]);
-  ticks = signal<IPolygonTick[]>([]);
-  loading = signal(false);
-  error = signal<string | null>(null);
-  secondAggregatesWarning = signal<string | null>(null);
-  ticksWarning = signal<string | null>(null);
-  dayTotal = signal(0);
-  minuteTotal = signal(0);
-  secondTotal = signal(0);
-  tickTotal = signal(0);
-  dayPageIndex = signal(0);
-  minutePageIndex = signal(0);
-  secondPageIndex = signal(0);
-  tickPageIndex = signal(0);
-  dayPageSize = signal(25);
-  minutePageSize = signal(25);
-  secondPageSize = signal(25);
-  tickPageSize = signal(25);
-  dayTradeDate = signal<string | null>(null);
-  minuteTradeDate = signal<string | null>(null);
-  secondTradeDate = signal<string | null>(null);
-  tickTradeDate = signal<string | null>(null);
+  readonly dataset = signal<PolygonDatasetKey>('day');
+  readonly ticker = signal('');
+  readonly tradeDate = signal('');
+  readonly pageIndex = signal(0);
+  readonly pageSize = signal(25);
+  readonly total = signal(0);
+  readonly resolvedTradeDate = signal<string | null>(null);
+  readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly dayAggregates = signal<IPolygonDayAggregate[]>([]);
+  readonly minuteAggregates = signal<IPolygonMinuteAggregate[]>([]);
+  readonly secondAggregates = signal<IPolygonSecondAggregate[]>([]);
+  readonly ticks = signal<IPolygonTick[]>([]);
 
+  readonly pageSizeOptions = [10, 25, 50, 100];
   readonly dayColumns = ['trade_date', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly minuteColumns = ['minute_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly secondColumns = ['second_ts', 'ticker', 'open', 'high', 'low', 'close', 'volume'];
   readonly tickColumns = ['tick_ts', 'ticker', 'event_type', 'bid', 'ask', 'last', 'volume'];
-  readonly pageSizeOptions = [10, 25, 50, 100];
   readonly requestTicker = computed(() => this.ticker().trim().toUpperCase());
   readonly requestTradeDate = computed(() => this.tradeDate().trim() || null);
+  readonly title = computed(() => {
+    switch (this.dataset()) {
+      case 'minute':
+        return 'Polygon Minute Aggregates';
+      case 'second':
+        return 'Polygon Second Aggregates';
+      case 'ticks':
+        return 'Polygon Live Ticks';
+      default:
+        return 'Polygon Day Aggregates';
+    }
+  });
+  readonly description = computed(() => {
+    switch (this.dataset()) {
+      case 'minute':
+        return 'Minute bars for the current under-$10 universe. One page at a time, server-side paged.';
+      case 'second':
+        return 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.';
+      case 'ticks':
+        return 'Raw persisted live Polygon ticks for the current under-$10 universe.';
+      default:
+        return 'Daily Polygon bars for the active under-$10 universe.';
+    }
+  });
+  readonly infoMessage = computed(() => {
+    if (this.dataset() === 'second' && !this.requestTicker()) {
+      return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
+    }
+    return null;
+  });
 
   ngOnInit(): void {
-    this.reload();
+    this.route.data.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(data => {
+      const routeDataset = data['dataset'];
+      this.dataset.set(this.isDataset(routeDataset) ? routeDataset : 'day');
+      this.reload();
+    });
   }
 
   reload(): void {
+    this.pageIndex.set(0);
+    this.fetchPage(0, this.pageSize());
+  }
+
+  onPage(event: PageEvent): void {
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
+    this.fetchPage(event.pageIndex, event.pageSize);
+  }
+
+  private fetchPage(page: number, pageSize: number): void {
     this.loading.set(true);
     this.error.set(null);
-    this.secondAggregatesWarning.set(null);
-    this.ticksWarning.set(null);
-    this.dayPageIndex.set(0);
-    this.minutePageIndex.set(0);
-    this.secondPageIndex.set(0);
-    this.tickPageIndex.set(0);
+    this.clearData();
+    const ticker = this.requestTicker();
+    const tradeDate = this.requestTradeDate();
 
-    let pending = 4;
-    const finish = () => {
-      pending -= 1;
-      if (pending <= 0) {
-        this.loading.set(false);
-      }
-    };
-    const requestTicker = this.requestTicker();
-    const requestTradeDate = this.requestTradeDate();
-
-    this.api.loadDayAggregates(0, this.dayPageSize(), requestTicker, requestTradeDate).subscribe({
-      next: page => {
-        this.dayAggregates.set(page.items);
-        this.dayTotal.set(page.total);
-        this.dayTradeDate.set(page.trade_date);
-        finish();
-      },
-      error: error => {
-        this.error.set(error.message ?? 'Failed to load Polygon day aggregates');
-        finish();
-      },
-    });
-
-    this.api.loadMinuteAggregates(0, this.minutePageSize(), requestTicker, requestTradeDate).subscribe({
-      next: page => {
-        this.minuteAggregates.set(page.items);
-        this.minuteTotal.set(page.total);
-        this.minuteTradeDate.set(page.trade_date);
-        finish();
-      },
-      error: error => {
-        this.error.set(error.message ?? 'Failed to load Polygon minute aggregates');
-        finish();
-      },
-    });
-
-    this.api.loadSecondAggregates(0, this.secondPageSize(), requestTicker, requestTradeDate).subscribe({
-      next: page => {
-        this.secondAggregates.set(page.items);
-        this.secondTotal.set(page.total);
-        this.secondTradeDate.set(page.trade_date);
-        this.secondAggregatesWarning.set(
-          !page.items.length ? 'Second aggregates are temporarily unavailable or too slow to load.' : null,
-        );
-        finish();
-      },
-      error: error => {
-        this.error.set(error.message ?? 'Failed to load Polygon second aggregates');
-        finish();
-      },
-    });
-
-    this.api.loadTicks(0, this.tickPageSize(), requestTicker, requestTradeDate).subscribe({
-      next: page => {
-        this.ticks.set(page.items);
-        this.tickTotal.set(page.total);
-        this.tickTradeDate.set(page.trade_date);
-        this.ticksWarning.set(
-          !page.items.length ? 'Live ticks are temporarily unavailable or too slow to load.' : null,
-        );
-        finish();
-      },
-      error: error => {
-        this.error.set(error.message ?? 'Failed to load Polygon ticks');
-        finish();
-      },
-    });
+    switch (this.dataset()) {
+      case 'minute':
+        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate).subscribe({
+          next: response => this.applyResponse('minute', response.items, response.total, response.trade_date),
+          error: () => this.handleError('Failed to load Polygon minute aggregates.'),
+        });
+        break;
+      case 'second':
+        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate).subscribe({
+          next: response => this.applyResponse('second', response.items, response.total, response.trade_date),
+          error: () => this.handleError('Polygon second aggregates are timing out. Narrow the query with a ticker or try again shortly.'),
+        });
+        break;
+      case 'ticks':
+        this.api.loadTicks(page, pageSize, ticker, tradeDate).subscribe({
+          next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date),
+          error: () => this.handleError('Failed to load Polygon live ticks.'),
+        });
+        break;
+      default:
+        this.api.loadDayAggregates(page, pageSize, ticker, tradeDate).subscribe({
+          next: response => this.applyResponse('day', response.items, response.total, response.trade_date),
+          error: () => this.handleError('Failed to load Polygon day aggregates.'),
+        });
+        break;
+    }
   }
 
-  onDayPage(event: PageEvent): void {
-    this.dayPageIndex.set(event.pageIndex);
-    this.dayPageSize.set(event.pageSize);
-    this.api.loadDayAggregates(event.pageIndex, event.pageSize, this.requestTicker(), this.requestTradeDate()).subscribe({
-      next: page => {
-        this.dayAggregates.set(page.items);
-        this.dayTotal.set(page.total);
-        this.dayTradeDate.set(page.trade_date);
-      },
-    });
+  private applyResponse(
+    dataset: PolygonDatasetKey,
+    items: IPolygonDayAggregate[] | IPolygonMinuteAggregate[] | IPolygonSecondAggregate[] | IPolygonTick[],
+    total: number,
+    tradeDate: string | null,
+  ): void {
+    this.total.set(total);
+    this.resolvedTradeDate.set(tradeDate);
+    switch (dataset) {
+      case 'minute':
+        this.minuteAggregates.set(items as IPolygonMinuteAggregate[]);
+        break;
+      case 'second':
+        this.secondAggregates.set(items as IPolygonSecondAggregate[]);
+        break;
+      case 'ticks':
+        this.ticks.set(items as IPolygonTick[]);
+        break;
+      default:
+        this.dayAggregates.set(items as IPolygonDayAggregate[]);
+        break;
+    }
+    this.loading.set(false);
   }
 
-  onMinutePage(event: PageEvent): void {
-    this.minutePageIndex.set(event.pageIndex);
-    this.minutePageSize.set(event.pageSize);
-    this.api.loadMinuteAggregates(event.pageIndex, event.pageSize, this.requestTicker(), this.requestTradeDate()).subscribe({
-      next: page => {
-        this.minuteAggregates.set(page.items);
-        this.minuteTotal.set(page.total);
-        this.minuteTradeDate.set(page.trade_date);
-      },
-    });
+  private handleError(message: string): void {
+    this.error.set(message);
+    this.total.set(0);
+    this.loading.set(false);
   }
 
-  onSecondPage(event: PageEvent): void {
-    this.secondPageIndex.set(event.pageIndex);
-    this.secondPageSize.set(event.pageSize);
-    this.api.loadSecondAggregates(event.pageIndex, event.pageSize, this.requestTicker(), this.requestTradeDate()).subscribe({
-      next: page => {
-        this.secondAggregates.set(page.items);
-        this.secondTotal.set(page.total);
-        this.secondTradeDate.set(page.trade_date);
-        this.secondAggregatesWarning.set(
-          !page.items.length ? 'Second aggregates are temporarily unavailable or too slow to load.' : null,
-        );
-      },
-    });
+  private clearData(): void {
+    this.dayAggregates.set([]);
+    this.minuteAggregates.set([]);
+    this.secondAggregates.set([]);
+    this.ticks.set([]);
   }
 
-  onTickPage(event: PageEvent): void {
-    this.tickPageIndex.set(event.pageIndex);
-    this.tickPageSize.set(event.pageSize);
-    this.api.loadTicks(event.pageIndex, event.pageSize, this.requestTicker(), this.requestTradeDate()).subscribe({
-      next: page => {
-        this.ticks.set(page.items);
-        this.tickTotal.set(page.total);
-        this.tickTradeDate.set(page.trade_date);
-        this.ticksWarning.set(
-          !page.items.length ? 'Live ticks are temporarily unavailable or too slow to load.' : null,
-        );
-      },
-    });
+  private isDataset(value: unknown): value is PolygonDatasetKey {
+    return value === 'day' || value === 'minute' || value === 'second' || value === 'ticks';
   }
 }

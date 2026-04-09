@@ -285,6 +285,15 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
                         tick_ts=datetime(2026, 4, 7, 13, 30, 0, 900000, tzinfo=timezone.utc),
                     ),
                     PolygonTick(
+                        ticker="SIRI",
+                        event_type="trade",
+                        bid=9.20,
+                        ask=9.20,
+                        last=9.20,
+                        volume=50,
+                        tick_ts=datetime(2026, 4, 7, 13, 10, 0, 0, tzinfo=timezone.utc),
+                    ),
+                    PolygonTick(
                         ticker="AAPL",
                         event_type="trade",
                         bid=150.0,
@@ -301,18 +310,20 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
             response = client.get(
                 "/api/polygon/second-aggregates",
                 headers=auth_headers,
-                params={"limit": 10},
+                params={"page": 0, "page_size": 10},
             )
 
         assert response.status_code == 200
         body = response.json()
-        assert len(body) == 1
-        assert body[0]["ticker"] == "SIRI"
-        assert body[0]["open"] == 9.5
-        assert body[0]["high"] == 9.6
-        assert body[0]["low"] == 9.5
-        assert body[0]["close"] == 9.6
-        assert body[0]["volume"] == 300
-        assert body[0]["transactions"] == 2
+        assert body["trade_date"] == "2026-04-07"
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["open"] == 9.5
+        assert body["items"][0]["high"] == 9.6
+        assert body["items"][0]["low"] == 9.5
+        assert body["items"][0]["close"] == 9.6
+        assert body["items"][0]["volume"] == 300
+        assert body["items"][0]["transactions"] == 2
     finally:
         app.dependency_overrides.pop(get_db, None)

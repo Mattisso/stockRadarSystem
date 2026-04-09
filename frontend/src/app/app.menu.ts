@@ -3,7 +3,7 @@ import { MenuItem } from './core/navigation.service';
 export const APP_MENU: MenuItem[] = [
   { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
   { label: 'Universe', icon: 'public', route: '/universe', section: 'Market' },
-  { label: 'Polygon Data', icon: 'show_chart', route: '/polygon-data' },
+  { label: 'Polygon Data', icon: 'show_chart', route: '/polygon-data/day' },
   { label: 'Signals', icon: 'bolt', route: '/signals' },
   { label: 'State Monitor', icon: 'device_hub', route: '/state-monitor' },
   { label: 'Secret Sauce', icon: 'science', route: '/secret-sauce' },
