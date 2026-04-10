@@ -91,11 +91,11 @@ build-dev:
 
 build-prod:
 	docker build -t $(REGISTRY)/stock-radar-api:latest \
-		-f backend/Dockerfile_prod .
+		-f backend/Dockerfile_prod backend
 
 docker-build-frontend:
 	docker build -t $(REGISTRY)/stock-radar-frontend:latest \
-		-f frontend/Dockerfile_prod .
+		-f frontend/Dockerfile_prod frontend
 
 build: build-prod docker-build-frontend
 

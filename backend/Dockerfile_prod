@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Runtime ─────────────────────────────────────────────────────────
@@ -24,11 +24,11 @@ RUN groupadd -g 1000 appuser && useradd -u 1000 -g appuser -m appuser
 
 COPY --from=builder /install /usr/local
 
-COPY backend/app ./app
-COPY backend/alembic ./alembic
-COPY backend/alembic.ini .
-COPY backend/pyproject.toml .
-COPY backend/docker-entrypoint_prod.sh /usr/local/bin/
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini .
+COPY pyproject.toml .
+COPY docker-entrypoint_prod.sh /usr/local/bin/
 
 RUN chmod +x /usr/local/bin/docker-entrypoint_prod.sh && \
     chown -R appuser:appuser /app
