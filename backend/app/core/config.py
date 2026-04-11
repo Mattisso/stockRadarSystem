@@ -128,6 +128,9 @@ class Settings(BaseSettings):
     polygon_minute_aggregate_ingestion_enabled: bool = False
     polygon_minute_aggregate_refresh_minutes: int = 15
     polygon_second_aggregate_recent_window_minutes: int = 15
+    polygon_symbol_state_rolling_window_seconds: int = 60
+    polygon_second_stream_stale_after_seconds: int = 15
+    polygon_minute_stream_stale_after_minutes: int = 2
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55

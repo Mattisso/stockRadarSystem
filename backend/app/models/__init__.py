@@ -10,6 +10,7 @@ from app.models.polygon_tick import PolygonTick
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.symbol_state_live import SymbolStateLive
 
 __all__ = [
     "Symbol",
@@ -24,4 +25,5 @@ __all__ = [
     "PolygonDayAggregate",
     "PolygonMinuteAggregate",
     "PolygonSecondAggregate",
+    "SymbolStateLive",
 ]

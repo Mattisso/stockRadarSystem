@@ -7,6 +7,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.broker.interface import Quote
+from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
@@ -120,6 +121,7 @@ class PolygonAggregateService:
         allowed_tickers: set[str] | None = None,
     ) -> int:
         rows_added = 0
+        state_records: list[PolygonMinuteAggregateRecord] = []
         for record in records:
             if allowed_tickers is not None and record.ticker not in allowed_tickers:
                 continue
@@ -140,7 +142,24 @@ class PolygonAggregateService:
             existing.volume = max(0, record.volume)
             existing.vwap = record.vwap
             existing.transactions = record.transactions
+            state_records.append(
+                PolygonMinuteAggregateRecord(
+                    ticker=record.ticker,
+                    minute_ts=minute_ts,
+                    open=record.open,
+                    high=record.high,
+                    low=record.low,
+                    close=record.close,
+                    volume=max(0, record.volume),
+                    vwap=record.vwap,
+                    transactions=record.transactions,
+                )
+            )
         self.db.flush()
+        if state_records:
+            state_service = SymbolStateLiveService(self.db)
+            for state_record in state_records:
+                state_service.update_from_minute_aggregate(state_record)
         return rows_added
 
     def upsert_second_aggregates(
@@ -150,6 +169,7 @@ class PolygonAggregateService:
         allowed_tickers: set[str] | None = None,
     ) -> int:
         rows_added = 0
+        state_records: list[PolygonSecondAggregateRecord] = []
         for record in records:
             if allowed_tickers is not None and record.ticker not in allowed_tickers:
                 continue
@@ -170,6 +190,19 @@ class PolygonAggregateService:
                 existing.vwap = record.vwap
                 existing.transactions = record.transactions
                 rows_added += 1
+                state_records.append(
+                    PolygonSecondAggregateRecord(
+                        ticker=record.ticker,
+                        second_ts=second_ts,
+                        open=record.open,
+                        high=record.high,
+                        low=record.low,
+                        close=record.close,
+                        volume=max(0, record.volume),
+                        vwap=record.vwap,
+                        transactions=record.transactions,
+                    )
+                )
                 continue
 
             existing.high = max(existing.high, record.high)
@@ -186,7 +219,24 @@ class PolygonAggregateService:
                 existing.vwap = (previous_notional + incoming_notional) / total_volume
             elif record.vwap is not None:
                 existing.vwap = record.vwap
+            state_records.append(
+                PolygonSecondAggregateRecord(
+                    ticker=record.ticker,
+                    second_ts=second_ts,
+                    open=existing.open,
+                    high=existing.high,
+                    low=existing.low,
+                    close=existing.close,
+                    volume=existing.volume,
+                    vwap=existing.vwap,
+                    transactions=existing.transactions,
+                )
+            )
         self.db.flush()
+        if state_records:
+            state_service = SymbolStateLiveService(self.db)
+            for state_record in state_records:
+                state_service.update_from_second_aggregate(state_record)
         return rows_added
 
     def latest_day_aggregate_date(self) -> date | None:
