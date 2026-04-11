@@ -37,6 +37,31 @@ class AggregateDecisionEngine:
         if trigger_count <= 0:
             return None
 
+        if self._is_active_position(state) and state.is_second_stream_stale:
+            return AggregateDecision(
+                ticker=ticker.upper(),
+                decision_ts=event_ts,
+                decision_type="sell",
+                reason_code="active_position_second_stream_stale",
+                payload=self._payload(state, trigger_count),
+            )
+        if self._is_active_position(state) and state.is_minute_stream_stale:
+            return AggregateDecision(
+                ticker=ticker.upper(),
+                decision_ts=event_ts,
+                decision_type="sell",
+                reason_code="active_position_minute_stream_stale",
+                payload=self._payload(state, trigger_count),
+            )
+        if self._is_active_position(state) and self._should_sell_on_breakdown(state):
+            return AggregateDecision(
+                ticker=ticker.upper(),
+                decision_ts=event_ts,
+                decision_type="sell",
+                reason_code="active_position_breakdown",
+                payload=self._payload(state, trigger_count),
+            )
+
         if state.is_second_stream_stale:
             return AggregateDecision(
                 ticker=ticker.upper(),
@@ -70,6 +95,23 @@ class AggregateDecisionEngine:
                 payload=self._payload(state, trigger_count),
             )
 
+        if self._should_buy(state):
+            if state.candidate_status in {"buy", "manage"}:
+                return AggregateDecision(
+                    ticker=ticker.upper(),
+                    decision_ts=event_ts,
+                    decision_type="manage",
+                    reason_code="active_position_manage",
+                    payload=self._payload(state, trigger_count),
+                )
+            return AggregateDecision(
+                ticker=ticker.upper(),
+                decision_ts=event_ts,
+                decision_type="buy",
+                reason_code="validated_buy_setup",
+                payload=self._payload(state, trigger_count),
+            )
+
         return AggregateDecision(
             ticker=ticker.upper(),
             decision_ts=event_ts,
@@ -97,7 +139,16 @@ class AggregateDecisionEngine:
                 is_minute_stream_stale=state.is_minute_stream_stale,
             )
         )
-        state.candidate_status = "validated" if decision.decision_type == "candidate" else "rejected"
+        if decision.decision_type == "candidate":
+            state.candidate_status = "validated"
+        elif decision.decision_type == "buy":
+            state.candidate_status = "buy"
+        elif decision.decision_type == "manage":
+            state.candidate_status = "manage"
+        elif decision.decision_type == "sell":
+            state.candidate_status = "sold"
+        else:
+            state.candidate_status = "rejected"
         self.db.flush()
         return 1
 
@@ -109,3 +160,39 @@ class AggregateDecisionEngine:
             "validation_score": state.validation_score,
             "validation_pass_count": state.validation_pass_count,
         }
+
+    @staticmethod
+    def _should_buy(state: SymbolStateLive) -> bool:
+        if (state.validation_score or 0.0) < settings.aggregate_buy_min_validation_score:
+            return False
+        if (state.validation_pass_count or 0) < settings.aggregate_buy_min_validation_pass_count:
+            return False
+        if (state.candidate_score or 0.0) < settings.aggregate_buy_min_candidate_score:
+            return False
+
+        current_high = state.current_minute_high
+        rolling_high = state.rolling_second_high
+        rolling_low = state.rolling_second_low
+        if current_high is None or rolling_high is None or rolling_low is None:
+            return False
+        if rolling_high <= 0:
+            return False
+
+        near_high_floor = rolling_high * (1.0 - settings.aggregate_buy_near_high_buffer_pct)
+        if current_high < near_high_floor:
+            return False
+        if rolling_low > current_high:
+            return False
+        return True
+
+    @staticmethod
+    def _is_active_position(state: SymbolStateLive) -> bool:
+        return state.candidate_status in {"buy", "manage"}
+
+    @staticmethod
+    def _should_sell_on_breakdown(state: SymbolStateLive) -> bool:
+        current_high = state.current_minute_high
+        rolling_low = state.rolling_second_low
+        if current_high is None or rolling_low is None or current_high <= 0:
+            return False
+        return rolling_low <= current_high * (1.0 - settings.aggregate_validation_sharp_drop_pct)
