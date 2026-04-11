@@ -30,6 +30,7 @@ from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
+from app.models.polygon_tick_live import PolygonTickLive
 from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.symbol_state_live import SymbolStateLive
@@ -728,7 +729,7 @@ def get_polygon_ticks(
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
-    query = db.query(PolygonTick)
+    query = db.query(PolygonTickLive)
     selected_trade_date = trade_date
     normalized_ticker = ticker.upper() if ticker else None
     if not normalized_ticker:
@@ -740,7 +741,7 @@ def get_polygon_ticks(
             trade_date=selected_trade_date,
         )
     if selected_trade_date is None:
-        latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
+        latest_tick_ts = db.query(func.max(PolygonTickLive.tick_ts)).scalar()
         if latest_tick_ts is not None:
             selected_trade_date = latest_tick_ts.date()
     if universe_only:
@@ -753,17 +754,17 @@ def get_polygon_ticks(
                 page_size=page_size,
                 trade_date=selected_trade_date,
             )
-        query = query.filter(PolygonTick.ticker.in_(universe_tickers))
+        query = query.filter(PolygonTickLive.ticker.in_(universe_tickers))
     if selected_trade_date:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
-        query = query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
-    query = query.filter(PolygonTick.ticker == normalized_ticker)
+        query = query.filter(PolygonTickLive.tick_ts >= start_dt, PolygonTickLive.tick_ts < end_dt)
+    query = query.filter(PolygonTickLive.ticker == normalized_ticker)
     if event_type:
-        query = query.filter(PolygonTick.event_type == event_type.lower())
+        query = query.filter(PolygonTickLive.event_type == event_type.lower())
     total = query.count()
     rows = (
-        query.order_by(PolygonTick.tick_ts.desc(), PolygonTick.id.desc())
+        query.order_by(PolygonTickLive.tick_ts.desc(), PolygonTickLive.id.desc())
         .offset(page * page_size)
         .limit(page_size)
         .all()

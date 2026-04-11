@@ -25,6 +25,7 @@ export class TradesPageComponent implements OnInit {
   tickerFilter = signal('');
   sideFilter = signal<'all' | TradeSide>('all');
   statusFilter = signal<'all' | TradeStatus>('all');
+  viewMode = signal<'closed_only' | 'open_and_closed' | 'all'>('closed_only');
   dateFromFilter = signal('');
   dateToFilter = signal('');
 
@@ -34,6 +35,11 @@ export class TradesPageComponent implements OnInit {
 
   readonly sideOptions: Array<'all' | TradeSide> = ['all', 'buy', 'sell'];
   readonly statusOptions: Array<'all' | TradeStatus> = ['all', 'pending', 'filled', 'partial', 'cancelled', 'closed'];
+  readonly viewModeOptions: Array<{ value: 'closed_only' | 'open_and_closed' | 'all'; label: string }> = [
+    { value: 'closed_only', label: 'Closed only' },
+    { value: 'open_and_closed', label: 'Open + Closed' },
+    { value: 'all', label: 'All' },
+  ];
 
   ngOnInit(): void {
     this.store.dispatch(TradesActions.loadTrades());
@@ -51,6 +57,10 @@ export class TradesPageComponent implements OnInit {
     this.statusFilter.set(value);
   }
 
+  updateViewMode(value: 'closed_only' | 'open_and_closed' | 'all'): void {
+    this.viewMode.set(value);
+  }
+
   updateDateFromFilter(value: string): void {
     this.dateFromFilter.set(value);
   }
@@ -63,6 +73,7 @@ export class TradesPageComponent implements OnInit {
     this.tickerFilter.set('');
     this.sideFilter.set('all');
     this.statusFilter.set('all');
+    this.viewMode.set('closed_only');
     this.dateFromFilter.set('');
     this.dateToFilter.set('');
   }
@@ -74,6 +85,10 @@ export class TradesPageComponent implements OnInit {
     }
 
     if (this.sideFilter() !== 'all' && trade.side !== this.sideFilter()) {
+      return false;
+    }
+
+    if (!this.matchesViewMode(trade.status)) {
       return false;
     }
 
@@ -99,5 +114,16 @@ export class TradesPageComponent implements OnInit {
     }
 
     return true;
+  }
+
+  private matchesViewMode(status: TradeStatus): boolean {
+    switch (this.viewMode()) {
+      case 'closed_only':
+        return status === 'closed';
+      case 'open_and_closed':
+        return status === 'filled' || status === 'closed';
+      default:
+        return true;
+    }
   }
 }

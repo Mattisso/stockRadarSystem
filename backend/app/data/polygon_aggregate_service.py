@@ -14,6 +14,7 @@ from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredien
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.symbol import Symbol
 
 
@@ -176,62 +177,21 @@ class PolygonAggregateService:
             if allowed_tickers is not None and record.ticker not in allowed_tickers:
                 continue
             second_ts = self._normalize_second_ts(record.second_ts)
-            existing = (
-                self.db.query(PolygonSecondAggregate)
-                .filter_by(ticker=record.ticker, second_ts=second_ts)
-                .first()
-            )
-            if existing is None:
-                existing = PolygonSecondAggregate(ticker=record.ticker, second_ts=second_ts)
-                self.db.add(existing)
-                existing.open = record.open
-                existing.high = record.high
-                existing.low = record.low
-                existing.close = record.close
-                existing.volume = max(0, record.volume)
-                existing.vwap = record.vwap
-                existing.transactions = record.transactions
+            historical_row, inserted = self._upsert_second_row(PolygonSecondAggregate, record, second_ts)
+            live_row, _ = self._upsert_second_row(PolygonSecondAggregateLive, record, second_ts)
+            if inserted:
                 rows_added += 1
-                state_records.append(
-                    PolygonSecondAggregateRecord(
-                        ticker=record.ticker,
-                        second_ts=second_ts,
-                        open=record.open,
-                        high=record.high,
-                        low=record.low,
-                        close=record.close,
-                        volume=max(0, record.volume),
-                        vwap=record.vwap,
-                        transactions=record.transactions,
-                    )
-                )
-                continue
-
-            existing.high = max(existing.high, record.high)
-            existing.low = min(existing.low, record.low)
-            existing.close = record.close
-            previous_volume = max(0, existing.volume)
-            incoming_volume = max(0, record.volume)
-            total_volume = previous_volume + incoming_volume
-            existing.volume = total_volume
-            existing.transactions = (existing.transactions or 0) + (record.transactions or 0)
-            if total_volume > 0:
-                previous_notional = (existing.vwap or existing.close) * previous_volume
-                incoming_notional = (record.vwap or record.close) * incoming_volume
-                existing.vwap = (previous_notional + incoming_notional) / total_volume
-            elif record.vwap is not None:
-                existing.vwap = record.vwap
             state_records.append(
                 PolygonSecondAggregateRecord(
                     ticker=record.ticker,
                     second_ts=second_ts,
-                    open=existing.open,
-                    high=existing.high,
-                    low=existing.low,
-                    close=existing.close,
-                    volume=existing.volume,
-                    vwap=existing.vwap,
-                    transactions=existing.transactions,
+                    open=live_row.open,
+                    high=live_row.high,
+                    low=live_row.low,
+                    close=live_row.close,
+                    volume=live_row.volume,
+                    vwap=live_row.vwap,
+                    transactions=live_row.transactions,
                 )
             )
         self.db.flush()
@@ -251,6 +211,40 @@ class PolygonAggregateService:
                 )
                 decision_engine.persist(decision, state)
         return rows_added
+
+    def _upsert_second_row(self, model, record: PolygonSecondAggregateRecord, second_ts: datetime):
+        existing = (
+            self.db.query(model)
+            .filter_by(ticker=record.ticker, second_ts=second_ts)
+            .first()
+        )
+        if existing is None:
+            existing = model(ticker=record.ticker, second_ts=second_ts)
+            self.db.add(existing)
+            existing.open = record.open
+            existing.high = record.high
+            existing.low = record.low
+            existing.close = record.close
+            existing.volume = max(0, record.volume)
+            existing.vwap = record.vwap
+            existing.transactions = record.transactions
+            return existing, True
+
+        existing.high = max(existing.high, record.high)
+        existing.low = min(existing.low, record.low)
+        existing.close = record.close
+        previous_volume = max(0, existing.volume)
+        incoming_volume = max(0, record.volume)
+        total_volume = previous_volume + incoming_volume
+        existing.volume = total_volume
+        existing.transactions = (existing.transactions or 0) + (record.transactions or 0)
+        if total_volume > 0:
+            previous_notional = (existing.vwap or existing.close) * previous_volume
+            incoming_notional = (record.vwap or record.close) * incoming_volume
+            existing.vwap = (previous_notional + incoming_notional) / total_volume
+        elif record.vwap is not None:
+            existing.vwap = record.vwap
+        return existing, False
 
     def latest_day_aggregate_date(self) -> date | None:
         row = self.db.query(PolygonDayAggregate.trade_date).order_by(PolygonDayAggregate.trade_date.desc()).first()

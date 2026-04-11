@@ -4,6 +4,17 @@
   <div class="error-banner">{{ error() }}</div>
 } @else {
   <h2>Trade History</h2>
+  <div class="view-mode-bar">
+    @for (option of viewModeOptions; track option.value) {
+      <button
+        type="button"
+        class="view-mode-button"
+        [class.active]="viewMode() === option.value"
+        (click)="updateViewMode(option.value)">
+        {{ option.label }}
+      </button>
+    }
+  </div>
   <div class="filters">
     <label class="filter-field">
       <span>Ticker</span>
