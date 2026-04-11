@@ -7,6 +7,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.broker.interface import Quote
+from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
@@ -235,8 +236,11 @@ class PolygonAggregateService:
         self.db.flush()
         if state_records:
             state_service = SymbolStateLiveService(self.db)
+            trigger_engine = AggregateTriggerEngine(self.db)
             for state_record in state_records:
-                state_service.update_from_second_aggregate(state_record)
+                state = state_service.update_from_second_aggregate(state_record)
+                triggers = trigger_engine.evaluate_second_bar(state_record, state)
+                trigger_engine.persist(triggers, state)
         return rows_added
 
     def latest_day_aggregate_date(self) -> date | None:

@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     polygon_symbol_state_rolling_window_seconds: int = 60
     polygon_second_stream_stale_after_seconds: int = 15
     polygon_minute_stream_stale_after_minutes: int = 2
+    aggregate_trigger_breakout_buffer_pct: float = 0.0005
+    aggregate_trigger_second_volume_spike_multiplier: float = 3.0
+    aggregate_trigger_second_volume_spike_min_volume: int = 300
+    aggregate_trigger_consecutive_green_seconds: int = 3
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55
