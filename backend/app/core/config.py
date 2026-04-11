@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     polygon_symbol_state_rolling_window_seconds: int = 60
     polygon_second_stream_stale_after_seconds: int = 15
     polygon_minute_stream_stale_after_minutes: int = 2
+    polygon_live_cleanup_interval_minutes: int = 5
+    polygon_live_ticks_retention_hours: int = 8
+    polygon_live_second_aggregates_retention_hours: int = 8
     aggregate_trigger_breakout_buffer_pct: float = 0.0005
     aggregate_trigger_second_volume_spike_multiplier: float = 3.0
     aggregate_trigger_second_volume_spike_min_volume: int = 300

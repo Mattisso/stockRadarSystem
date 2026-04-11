@@ -32,6 +32,7 @@ from app.core.metrics import (
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.data.polygon_aggregate_service import PolygonAggregateService
+from app.data.polygon_live_retention_service import PolygonLiveRetentionService
 from app.engine.signal_detector import SignalDetector
 from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
@@ -579,6 +580,31 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="ml_retrain").observe(time.monotonic() - start)
 
+    async def polygon_live_retention_job():
+        start = time.monotonic()
+        try:
+            db = SessionLocal()
+            try:
+                result = PolygonLiveRetentionService(db).purge(
+                    tick_retention_hours=settings.polygon_live_ticks_retention_hours,
+                    second_retention_hours=settings.polygon_live_second_aggregates_retention_hours,
+                )
+                db.commit()
+                log.info(
+                    "scheduler.polygon_live_retention_completed",
+                    deleted_tick_rows=result.deleted_tick_rows,
+                    deleted_second_rows=result.deleted_second_rows,
+                    tick_cutoff_ts=result.tick_cutoff_ts.isoformat(),
+                    second_cutoff_ts=result.second_cutoff_ts.isoformat(),
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="polygon_live_retention").inc()
+            log.exception("scheduler.polygon_live_retention_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="polygon_live_retention").observe(time.monotonic() - start)
+
     scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
     if settings.secret_universe_enabled:
         scheduler.add_job(
@@ -597,6 +623,13 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_minute_aggregates_refresh",
         )
+    scheduler.add_job(
+        polygon_live_retention_job,
+        "interval",
+        minutes=settings.polygon_live_cleanup_interval_minutes,
+        max_instances=1,
+        id="polygon_live_retention",
+    )
     scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
     scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
     scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
