@@ -55,6 +55,10 @@ export class PolygonDataPageComponent implements OnInit {
   readonly resolvedTradeDate = signal<string | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly tickCursor = signal<string | null>(null);
+  readonly nextTickCursor = signal<string | null>(null);
+  readonly tickCursorHistory = signal<(string | null)[]>([]);
+  readonly tickHasMore = signal(false);
   readonly dayAggregates = signal<IPolygonDayAggregate[]>([]);
   readonly minuteAggregates = signal<IPolygonMinuteAggregate[]>([]);
   readonly secondAggregates = signal<IPolygonSecondAggregate[]>([]);
@@ -111,6 +115,10 @@ export class PolygonDataPageComponent implements OnInit {
 
   reload(): void {
     this.pageIndex.set(0);
+    this.tickCursor.set(null);
+    this.nextTickCursor.set(null);
+    this.tickCursorHistory.set([]);
+    this.tickHasMore.set(false);
     this.fetchPage(0, this.pageSize());
   }
 
@@ -145,11 +153,13 @@ export class PolygonDataPageComponent implements OnInit {
           this.total.set(0);
           this.resolvedTradeDate.set(tradeDate);
           this.ticks.set([]);
+          this.nextTickCursor.set(null);
+          this.tickHasMore.set(false);
           this.loading.set(false);
           return;
         }
-        this.api.loadTicks(page, pageSize, ticker, tradeDate).subscribe({
-          next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date),
+        this.api.loadTicks(page, pageSize, ticker, tradeDate, this.tickCursor()).subscribe({
+          next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date, response.next_cursor, response.has_more),
           error: () => this.handleError('Failed to load Polygon live ticks.'),
         });
         break;
@@ -165,10 +175,12 @@ export class PolygonDataPageComponent implements OnInit {
   private applyResponse(
     dataset: PolygonDatasetKey,
     items: IPolygonDayAggregate[] | IPolygonMinuteAggregate[] | IPolygonSecondAggregate[] | IPolygonTick[],
-    total: number,
+    total: number | null,
     tradeDate: string | null,
+    nextCursor?: string | null,
+    hasMore?: boolean,
   ): void {
-    this.total.set(total);
+    this.total.set(total ?? 0);
     this.resolvedTradeDate.set(tradeDate);
     switch (dataset) {
       case 'minute':
@@ -179,6 +191,8 @@ export class PolygonDataPageComponent implements OnInit {
         break;
       case 'ticks':
         this.ticks.set(items as IPolygonTick[]);
+        this.nextTickCursor.set(nextCursor ?? null);
+        this.tickHasMore.set(hasMore ?? false);
         break;
       default:
         this.dayAggregates.set(items as IPolygonDayAggregate[]);
@@ -198,6 +212,31 @@ export class PolygonDataPageComponent implements OnInit {
     this.minuteAggregates.set([]);
     this.secondAggregates.set([]);
     this.ticks.set([]);
+  }
+
+  onTickNext(): void {
+    const nextCursor = this.nextTickCursor();
+    if (!nextCursor || !this.tickHasMore()) {
+      return;
+    }
+    this.tickCursorHistory.set([...this.tickCursorHistory(), this.tickCursor()]);
+    this.tickCursor.set(nextCursor);
+    const nextPage = this.pageIndex() + 1;
+    this.pageIndex.set(nextPage);
+    this.fetchPage(nextPage, this.pageSize());
+  }
+
+  onTickPrevious(): void {
+    const history = this.tickCursorHistory();
+    if (!history.length) {
+      return;
+    }
+    const previousCursor = history[history.length - 1] ?? null;
+    this.tickCursorHistory.set(history.slice(0, -1));
+    this.tickCursor.set(previousCursor);
+    const previousPage = Math.max(0, this.pageIndex() - 1);
+    this.pageIndex.set(previousPage);
+    this.fetchPage(previousPage, this.pageSize());
   }
 
   private isDataset(value: unknown): value is PolygonDatasetKey {

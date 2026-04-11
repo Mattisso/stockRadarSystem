@@ -316,10 +316,12 @@ class PolygonSecondAggregatePageResponse(BaseModel):
 
 class PolygonTickPageResponse(BaseModel):
     items: list[PolygonTickResponse]
-    total: int
-    page: int
+    total: int | None = None
+    page: int | None = None
     page_size: int
     trade_date: date | None = None
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class SymbolStateLiveResponse(BaseModel):

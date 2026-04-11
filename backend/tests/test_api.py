@@ -654,10 +654,13 @@ def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers
 
         assert response.status_code == 200
         body = response.json()
-        assert body["total"] == 1
+        assert body["total"] is None
+        assert body["page"] is None
         assert len(body["items"]) == 1
         assert body["items"][0]["volume"] == 2500
         assert body["items"][0]["last"] == pytest.approx(1.115)
+        assert body["has_more"] is False
+        assert body["next_cursor"] is None
     finally:
         app.dependency_overrides.pop(get_db, None)
 

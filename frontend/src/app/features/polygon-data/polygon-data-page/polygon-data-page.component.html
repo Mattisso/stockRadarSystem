@@ -109,12 +109,20 @@
           </table>
         }
       </div>
-      <mat-paginator
-        [length]="total()"
-        [pageIndex]="pageIndex()"
-        [pageSize]="pageSize()"
-        [pageSizeOptions]="pageSizeOptions"
-        (page)="onPage($event)" />
+      @if (dataset() === 'ticks') {
+        <div class="tick-pagination">
+          <button mat-stroked-button (click)="onTickPrevious()" [disabled]="pageIndex() === 0 || loading()">Previous</button>
+          <span>Page {{ pageIndex() + 1 }}</span>
+          <button mat-stroked-button (click)="onTickNext()" [disabled]="!tickHasMore() || loading()">Next</button>
+        </div>
+      } @else {
+        <mat-paginator
+          [length]="total()"
+          [pageIndex]="pageIndex()"
+          [pageSize]="pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="onPage($event)" />
+      }
     </mat-card-content>
   </mat-card>
 }

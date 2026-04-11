@@ -11,10 +11,12 @@ import {
 
 export interface IPagedResponse<T> {
   items: T[];
-  total: number;
-  page: number;
+  total: number | null;
+  page: number | null;
   page_size: number;
   trade_date: string | null;
+  next_cursor?: string | null;
+  has_more?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -50,8 +52,11 @@ export class PolygonDataApiService {
     return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(timeout(15000));
   }
 
-  loadTicks(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
-    const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
+  loadTicks(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, cursor: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
+    let params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
+    if (cursor) {
+      params = params.set('cursor', cursor);
+    }
     return this.http.get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params }).pipe(timeout(15000));
   }
 }

@@ -772,6 +772,7 @@ def get_polygon_second_aggregates_history(
 def get_polygon_ticks(
     page: int = 0,
     page_size: int = 25,
+    cursor: str | None = None,
     trade_date: date | None = None,
     ticker: str | None = None,
     event_type: str | None = None,
@@ -784,10 +785,10 @@ def get_polygon_ticks(
     if not normalized_ticker:
         return PolygonTickPageResponse(
             items=[],
-            total=0,
-            page=page,
             page_size=page_size,
             trade_date=selected_trade_date,
+            next_cursor=None,
+            has_more=False,
         )
     if selected_trade_date is None:
         latest_tick_ts = db.query(func.max(PolygonTickLive.tick_ts)).scalar()
@@ -798,10 +799,10 @@ def get_polygon_ticks(
         if not universe_tickers:
             return PolygonTickPageResponse(
                 items=[],
-                total=0,
-                page=page,
                 page_size=page_size,
                 trade_date=selected_trade_date,
+                next_cursor=None,
+                has_more=False,
             )
         query = query.filter(PolygonTickLive.ticker.in_(universe_tickers))
     if selected_trade_date:
@@ -811,19 +812,36 @@ def get_polygon_ticks(
     query = query.filter(PolygonTickLive.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTickLive.event_type == event_type.lower())
-    total = query.count()
+    if cursor:
+        try:
+            cursor_ts_raw, cursor_id_raw = cursor.rsplit("|", 1)
+            cursor_ts = datetime.fromisoformat(cursor_ts_raw)
+            cursor_id = int(cursor_id_raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tick cursor") from exc
+        query = query.filter(
+            or_(
+                PolygonTickLive.tick_ts < cursor_ts,
+                and_(PolygonTickLive.tick_ts == cursor_ts, PolygonTickLive.id < cursor_id),
+            )
+        )
     rows = (
         query.order_by(PolygonTickLive.tick_ts.desc(), PolygonTickLive.id.desc())
-        .offset(page * page_size)
-        .limit(page_size)
+        .limit(page_size + 1)
         .all()
     )
+    has_more = len(rows) > page_size
+    visible_rows = rows[:page_size]
+    next_cursor = None
+    if has_more and visible_rows:
+        last_row = visible_rows[-1]
+        next_cursor = f"{last_row.tick_ts.isoformat()}|{last_row.id}"
     return PolygonTickPageResponse(
-        items=[PolygonTickResponse.model_validate(row) for row in rows],
-        total=total,
-        page=page,
+        items=[PolygonTickResponse.model_validate(row) for row in visible_rows],
         page_size=page_size,
         trade_date=selected_trade_date,
+        next_cursor=next_cursor,
+        has_more=has_more,
     )
 
 
