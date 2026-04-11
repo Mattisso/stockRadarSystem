@@ -10,10 +10,10 @@ import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatTableModule } from '@angular/material/table';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
-import { ICandidateEvent, ISymbolStateLive } from '../../../shared/models';
+import { ICandidateEvent, IDecisionEvent, ISymbolStateLive } from '../../../shared/models';
 import { AggregateDataApiService } from '../aggregate-data-api.service';
 
-type AggregateDatasetKey = 'live-state' | 'candidate-events';
+type AggregateDatasetKey = 'live-state' | 'candidate-events' | 'decision-events';
 
 @Component({
   selector: 'app-aggregate-data-page',
@@ -54,12 +54,15 @@ export class AggregateDataPageComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly symbolStates = signal<ISymbolStateLive[]>([]);
   readonly candidateEvents = signal<ICandidateEvent[]>([]);
+  readonly decisionEvents = signal<IDecisionEvent[]>([]);
 
   readonly pageSizeOptions = [10, 25, 50, 100];
   readonly liveStateColumns = [
     'ticker',
     'candidate_status',
     'candidate_score',
+    'validation_score',
+    'validation_pass_count',
     'rolling_second_high',
     'rolling_second_volume',
     'rolling_green_count',
@@ -76,16 +79,58 @@ export class AggregateDataPageComponent implements OnInit {
     'is_second_stream_stale',
     'is_minute_stream_stale',
   ];
+  readonly decisionEventColumns = [
+    'decision_ts',
+    'ticker',
+    'decision_type',
+    'reason_code',
+    'candidate_score',
+    'validation_pass_count',
+    'is_second_stream_stale',
+    'is_minute_stream_stale',
+  ];
 
-  readonly title = computed(() => this.dataset() === 'live-state' ? 'Aggregate Live Symbol State' : 'Aggregate Candidate Events');
-  readonly description = computed(() =>
-    this.dataset() === 'live-state'
-      ? 'One row per under-$10 universe symbol showing freshness, rolling-second state, and current candidate status.'
-      : 'Aggregate-only trigger events emitted from stored second bars, paged server-side and filtered by ticker/date.',
-  );
-  readonly secondaryLabel = computed(() => this.dataset() === 'live-state' ? 'Candidate status' : 'Trigger name');
-  readonly secondaryPlaceholder = computed(() => this.dataset() === 'live-state' ? 'candidate' : 'breakout_above_recent_high');
-  readonly showTradeDateFilter = computed(() => this.dataset() === 'candidate-events');
+  readonly title = computed(() => {
+    switch (this.dataset()) {
+      case 'candidate-events':
+        return 'Aggregate Candidate Events';
+      case 'decision-events':
+        return 'Aggregate Decision Events';
+      default:
+        return 'Aggregate Live Symbol State';
+    }
+  });
+  readonly description = computed(() => {
+    switch (this.dataset()) {
+      case 'candidate-events':
+        return 'Aggregate-only trigger events emitted from stored second bars, paged server-side and filtered by ticker/date.';
+      case 'decision-events':
+        return 'Explicit aggregate-only lifecycle decisions showing which candidates were validated or rejected and why.';
+      default:
+        return 'One row per under-$10 universe symbol showing freshness, rolling-second state, candidate status, and validation state.';
+    }
+  });
+  readonly secondaryLabel = computed(() => {
+    switch (this.dataset()) {
+      case 'candidate-events':
+        return 'Trigger name';
+      case 'decision-events':
+        return 'Decision type';
+      default:
+        return 'Candidate status';
+    }
+  });
+  readonly secondaryPlaceholder = computed(() => {
+    switch (this.dataset()) {
+      case 'candidate-events':
+        return 'breakout_above_recent_high';
+      case 'decision-events':
+        return 'candidate';
+      default:
+        return 'validated';
+    }
+  });
+  readonly showTradeDateFilter = computed(() => this.dataset() !== 'live-state');
 
   ngOnInit(): void {
     this.route.data.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(data => {
@@ -113,10 +158,24 @@ export class AggregateDataPageComponent implements OnInit {
     this.error.set(null);
     this.symbolStates.set([]);
     this.candidateEvents.set([]);
+    this.decisionEvents.set([]);
 
     const ticker = this.ticker().trim().toUpperCase();
     const secondaryFilter = this.secondaryFilter().trim();
     const tradeDate = this.tradeDate().trim() || null;
+
+    if (this.dataset() === 'decision-events') {
+      this.api.loadDecisionEvents(page, pageSize, ticker, tradeDate, secondaryFilter).subscribe({
+        next: response => {
+          this.decisionEvents.set(response.items);
+          this.total.set(response.total);
+          this.resolvedTradeDate.set(response.trade_date ?? null);
+          this.loading.set(false);
+        },
+        error: () => this.handleError('Failed to load aggregate decision events.'),
+      });
+      return;
+    }
 
     if (this.dataset() === 'candidate-events') {
       this.api.loadCandidateEvents(page, pageSize, ticker, tradeDate, secondaryFilter).subscribe({
@@ -149,6 +208,6 @@ export class AggregateDataPageComponent implements OnInit {
   }
 
   private isDataset(value: unknown): value is AggregateDatasetKey {
-    return value === 'live-state' || value === 'candidate-events';
+    return value === 'live-state' || value === 'candidate-events' || value === 'decision-events';
   }
 }

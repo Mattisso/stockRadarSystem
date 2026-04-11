@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { ICandidateEvent, ISymbolStateLive } from '../../shared/models';
+import { ICandidateEvent, IDecisionEvent, ISymbolStateLive } from '../../shared/models';
 
 export interface IAggregatePagedResponse<T> {
   items: T[];
@@ -55,5 +55,28 @@ export class AggregateDataApiService {
       params = params.set('trigger_name', triggerName);
     }
     return this.http.get<IAggregatePagedResponse<ICandidateEvent>>('/api/aggregate/candidate-events', { params });
+  }
+
+  loadDecisionEvents(
+    page = 0,
+    pageSize = 25,
+    ticker = '',
+    tradeDate: string | null = null,
+    decisionType = '',
+  ): Observable<IAggregatePagedResponse<IDecisionEvent>> {
+    let params = new HttpParams()
+      .set('page', String(page))
+      .set('page_size', String(pageSize))
+      .set('universe_only', 'true');
+    if (ticker) {
+      params = params.set('ticker', ticker.toUpperCase());
+    }
+    if (tradeDate) {
+      params = params.set('trade_date', tradeDate);
+    }
+    if (decisionType) {
+      params = params.set('decision_type', decisionType.toLowerCase());
+    }
+    return this.http.get<IAggregatePagedResponse<IDecisionEvent>>('/api/aggregate/decision-events', { params });
   }
 }

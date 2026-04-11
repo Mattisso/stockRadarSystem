@@ -31,3 +31,19 @@ export interface ICandidateEvent {
   is_minute_stream_stale: boolean;
   created_at: string;
 }
+
+export interface IDecisionEvent {
+  id: number;
+  ticker: string;
+  decision_ts: string;
+  decision_type: string;
+  reason_code: string;
+  decision_payload: string | null;
+  candidate_score: number | null;
+  validation_pass_count: number | null;
+  seconds_since_last_trade_bar: number | null;
+  minutes_since_last_trade_bar: number | null;
+  is_second_stream_stale: boolean;
+  is_minute_stream_stale: boolean;
+  created_at: string;
+}

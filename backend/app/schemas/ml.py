@@ -377,6 +377,32 @@ class CandidateEventPageResponse(BaseModel):
     trade_date: date | None = None
 
 
+class DecisionEventResponse(BaseModel):
+    id: int
+    ticker: str
+    decision_ts: datetime
+    decision_type: str
+    reason_code: str
+    decision_payload: str | None = None
+    candidate_score: float | None = None
+    validation_pass_count: int | None = None
+    seconds_since_last_trade_bar: int | None = None
+    minutes_since_last_trade_bar: int | None = None
+    is_second_stream_stale: bool
+    is_minute_stream_stale: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DecisionEventPageResponse(BaseModel):
+    items: list[DecisionEventResponse]
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
+
+
 class L2SubscriptionStatusResponse(BaseModel):
     ticker: str
     confirmed: bool

@@ -10,6 +10,7 @@ from app.core.auth import create_access_token
 from app.core.database import get_db
 from app.main import app
 from app.models.candidate_event import CandidateEvent
+from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
 from app.models.symbol_state_live import SymbolStateLive
@@ -475,5 +476,90 @@ def test_candidate_events_filters_by_trade_date_and_universe(db_engine, auth_hea
         assert len(body["items"]) == 1
         assert body["items"][0]["ticker"] == "SIRI"
         assert body["items"][0]["trigger_name"] == "breakout_above_recent_high"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_decision_events_filters_by_trade_date_and_universe(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="AAPL",
+                        open_price=150.0,
+                        last_price=151.0,
+                        avg_volume=1_000_000,
+                    ),
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="SIRI",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=2_000_000,
+                    ),
+                    DecisionEvent(
+                        ticker="SIRI",
+                        decision_ts=datetime(2026, 4, 10, 13, 40, 0, tzinfo=timezone.utc),
+                        decision_type="candidate",
+                        reason_code="validated_candidate",
+                        decision_payload='{"validation_score": 0.8}',
+                        candidate_score=0.82,
+                        validation_pass_count=8,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="SIRI",
+                        decision_ts=datetime(2026, 4, 9, 13, 40, 0, tzinfo=timezone.utc),
+                        decision_type="reject",
+                        reason_code="validation_below_threshold",
+                        decision_payload='{"validation_score": 0.3}',
+                        candidate_score=0.45,
+                        validation_pass_count=3,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="AAPL",
+                        decision_ts=datetime(2026, 4, 10, 13, 40, 0, tzinfo=timezone.utc),
+                        decision_type="candidate",
+                        reason_code="validated_candidate",
+                        decision_payload='{"validation_score": 0.9}',
+                        candidate_score=0.90,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/aggregate/decision-events",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-10"
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["decision_type"] == "candidate"
+        assert body["items"][0]["reason_code"] == "validated_candidate"
     finally:
         app.dependency_overrides.pop(get_db, None)
