@@ -660,3 +660,131 @@ def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers
         assert body["items"][0]["last"] == pytest.approx(1.115)
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+def test_polygon_ticks_history_reads_retained_history_table(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add(
+                UniverseDaily(
+                    trade_date=date(2026, 4, 11),
+                    ticker="ALTS",
+                    open_price=1.12,
+                    last_price=1.10,
+                    avg_volume=1_100_000,
+                )
+            )
+            db.add(
+                PolygonTick(
+                    ticker="ALTS",
+                    event_type="trade",
+                    bid=1.09,
+                    ask=1.10,
+                    last=1.095,
+                    volume=999,
+                    tick_ts=datetime(2026, 4, 11, 13, 30, 1, tzinfo=timezone.utc),
+                )
+            )
+            db.add(
+                PolygonTickLive(
+                    ticker="ALTS",
+                    event_type="trade",
+                    bid=1.11,
+                    ask=1.12,
+                    last=1.115,
+                    volume=2500,
+                    tick_ts=datetime(2026, 4, 11, 13, 30, 2, tzinfo=timezone.utc),
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/history/ticks?ticker=ALTS",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["volume"] == 999
+        assert body["items"][0]["last"] == pytest.approx(1.095)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_polygon_second_aggregates_history_reads_retained_history_table(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add(
+                UniverseDaily(
+                    trade_date=date(2026, 4, 11),
+                    ticker="ALTS",
+                    open_price=1.12,
+                    last_price=1.10,
+                    avg_volume=1_100_000,
+                )
+            )
+            db.add(
+                PolygonSecondAggregate(
+                    ticker="ALTS",
+                    second_ts=datetime(2026, 4, 11, 13, 30, 1, tzinfo=timezone.utc),
+                    open=1.09,
+                    high=1.10,
+                    low=1.09,
+                    close=1.10,
+                    volume=999,
+                    vwap=1.095,
+                    transactions=1,
+                )
+            )
+            db.add(
+                PolygonSecondAggregateLive(
+                    ticker="ALTS",
+                    second_ts=datetime(2026, 4, 11, 13, 30, 2, tzinfo=timezone.utc),
+                    open=1.11,
+                    high=1.12,
+                    low=1.11,
+                    close=1.12,
+                    volume=2500,
+                    vwap=1.115,
+                    transactions=2,
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/history/second-aggregates?ticker=ALTS",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["volume"] == 999
+        assert body["items"][0]["close"] == pytest.approx(1.10)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
