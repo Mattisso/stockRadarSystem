@@ -135,6 +135,16 @@ class Settings(BaseSettings):
     aggregate_trigger_second_volume_spike_multiplier: float = 3.0
     aggregate_trigger_second_volume_spike_min_volume: int = 300
     aggregate_trigger_consecutive_green_seconds: int = 3
+    aggregate_validation_min_average_second_volume: int = 200
+    aggregate_validation_near_high_buffer_pct: float = 0.01
+    aggregate_validation_sharp_drop_pct: float = 0.03
+    aggregate_validation_pullback_buffer_pct: float = 0.015
+    aggregate_validation_minute_strength_buffer_pct: float = 0.01
+    aggregate_validation_range_expansion_multiplier: float = 0.9
+    aggregate_validation_range_close_position_pct: float = 0.6
+    aggregate_validation_max_extension_pct: float = 0.08
+    aggregate_decision_min_validation_score: float = 0.6
+    aggregate_decision_min_validation_pass_count: int = 6
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55

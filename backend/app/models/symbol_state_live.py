@@ -26,6 +26,8 @@ class SymbolStateLive(Base):
     current_minute_high: Mapped[float | None] = mapped_column(Float, nullable=True)
     previous_minute_high: Mapped[float | None] = mapped_column(Float, nullable=True)
     candidate_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    validation_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    validation_pass_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     candidate_status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

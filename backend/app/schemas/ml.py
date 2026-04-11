@@ -337,6 +337,8 @@ class SymbolStateLiveResponse(BaseModel):
     current_minute_high: float | None = None
     previous_minute_high: float | None = None
     candidate_score: float | None = None
+    validation_score: float | None = None
+    validation_pass_count: int
     candidate_status: str
     updated_at: datetime | None = None
 

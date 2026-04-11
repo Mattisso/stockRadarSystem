@@ -80,7 +80,7 @@ def test_symbol_state_live_updates_from_second_and_minute_aggregates(db):
     assert state.previous_minute_high == 3.15
     assert state.is_second_stream_stale is False
     assert state.is_minute_stream_stale is False
-    assert state.candidate_status == "candidate"
+    assert state.candidate_status == "validated"
     assert state.candidate_score is not None
 
 

@@ -5,6 +5,7 @@ from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonS
 from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
+from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 
 
@@ -111,6 +112,8 @@ def test_upsert_second_aggregates_persists_candidate_events_and_live_score(db):
 
     events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(events) >= 1
+    decisions = db.query(DecisionEvent).filter_by(ticker="LCID").all()
+    assert len(decisions) >= 1
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
-    assert state.candidate_status == "candidate"
+    assert state.candidate_status in {"validated", "rejected"}
     assert state.candidate_score is not None

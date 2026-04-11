@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
+from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.core.config import settings
 from app.models.candidate_event import CandidateEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
@@ -80,6 +81,47 @@ class AggregateTriggerEngine:
                     event_ts=trigger.event_ts,
                     trigger_name=trigger.trigger_name,
                     trigger_payload=json.dumps(trigger.payload, sort_keys=True),
+                    last_second_ts=state.last_second_ts,
+                    last_minute_ts=state.last_minute_ts,
+                    seconds_since_last_trade_bar=state.seconds_since_last_trade_bar,
+                    minutes_since_last_trade_bar=state.minutes_since_last_trade_bar,
+                    is_second_stream_stale=state.is_second_stream_stale,
+                    is_minute_stream_stale=state.is_minute_stream_stale,
+                )
+            )
+        state.candidate_status = "candidate"
+        state.candidate_score = max(trigger.score for trigger in triggers)
+        self.db.flush()
+        return len(triggers)
+
+    def persist_with_validation(
+        self,
+        triggers: list[AggregateCandidateTrigger],
+        state: SymbolStateLive,
+        *,
+        event_ts: datetime,
+    ) -> int:
+        validation = AggregateValidationEngine(self.db).evaluate(state.ticker, state, event_ts)
+        AggregateValidationEngine(self.db).persist(state, validation)
+        if not triggers:
+            state.candidate_status = "idle"
+            state.candidate_score = None
+            self.db.flush()
+            return 0
+
+        for trigger in triggers:
+            payload = {
+                **trigger.payload,
+                "validation_score": validation.score,
+                "validation_pass_count": validation.pass_count,
+                "validation_checks": validation.checks,
+            }
+            self.db.add(
+                CandidateEvent(
+                    ticker=trigger.ticker,
+                    event_ts=trigger.event_ts,
+                    trigger_name=trigger.trigger_name,
+                    trigger_payload=json.dumps(payload, sort_keys=True),
                     last_second_ts=state.last_second_ts,
                     last_minute_ts=state.last_minute_ts,
                     seconds_since_last_trade_bar=state.seconds_since_last_trade_bar,

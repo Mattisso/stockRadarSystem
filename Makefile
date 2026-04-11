@@ -4,6 +4,8 @@ REGISTRY := localhost:32000
 HELM_DIR := helm/stock-radar
 HELM_RELEASE := stock-radar
 PUBLIC_HELM_RELEASE := stock-radar-public
+PUBLIC_IMAGE_TAG ?= $(shell printf '%s-%s' "$$(date +%Y%m%d%H%M%S)" "$$(git rev-parse --short=12 HEAD 2>/dev/null || echo manual)")
+PUBLIC_IMAGE_TAG_FILE := .public-image-tag
 CURRENT_USER ?= $(shell id -un)
 export KUBECONFIG ?= $(HOME)/.kube/merged-config
 PF_API_LOG := /tmp/stock-radar-port-forward-api.$(CURRENT_USER).log
@@ -104,7 +106,7 @@ push:
 	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
-.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall
+.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall show-public-image-tag
 
 helm-template:
 	helm template stock-radar $(HELM_DIR) \
@@ -156,18 +158,34 @@ public-status:
 	@echo "=== Public Ingress ==="
 	kubectl get ingress -n $(PUBLIC_NAMESPACE)
 
-build-public-images: build push
+build-public-images:
+	docker build -t $(REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG) \
+		-f backend/Dockerfile_prod backend
+	docker build -t $(REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG) \
+		-f frontend/Dockerfile_prod frontend
+	docker push $(REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG)
+	docker push $(REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG)
+	@printf '%s\n' '$(PUBLIC_IMAGE_TAG)' > $(PUBLIC_IMAGE_TAG_FILE)
+	@echo "Recorded public image tag: $(PUBLIC_IMAGE_TAG)"
 
 deploy-stockradarx-public:
+	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "Missing $(PUBLIC_IMAGE_TAG_FILE). Run 'make build-public-images' first."; exit 1)
+	@TAG=$$(cat $(PUBLIC_IMAGE_TAG_FILE)); \
 	helm upgrade --install $(PUBLIC_HELM_RELEASE) $(HELM_DIR) \
 		--namespace $(PUBLIC_NAMESPACE) \
 		--create-namespace \
 		--values $(HELM_DIR)/values.yaml \
 		--values $(HELM_DIR)/values.public.yaml \
+		--set-string api.image.tag=$$TAG \
+		--set-string frontend.image.tag=$$TAG \
 		--values $(HELM_DIR)/values.mode.stockradarx-tunnel.yaml
 
 public-uninstall:
 	helm uninstall $(PUBLIC_HELM_RELEASE) --namespace $(PUBLIC_NAMESPACE)
+
+show-public-image-tag:
+	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "No recorded public image tag yet."; exit 1)
+	@cat $(PUBLIC_IMAGE_TAG_FILE)
 
 # ── Terraform (database provisioning) ──────────────────────────────
 .PHONY: tf-init tf-plan tf-apply tf-destroy
