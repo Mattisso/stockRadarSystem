@@ -12,6 +12,7 @@ from app.main import app
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick import PolygonTick
 from app.models.polygon_tick_live import PolygonTickLive
 from app.models.symbol_state_live import SymbolStateLive
@@ -293,7 +294,40 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
                         vwap=9.20,
                         transactions=1,
                     ),
+                    PolygonSecondAggregateLive(
+                        ticker="SIRI",
+                        second_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.50,
+                        close=9.60,
+                        volume=300,
+                        vwap=9.56,
+                        transactions=2,
+                    ),
+                    PolygonSecondAggregateLive(
+                        ticker="SIRI",
+                        second_ts=datetime(2026, 4, 7, 13, 10, 0, tzinfo=timezone.utc),
+                        open=9.20,
+                        high=9.20,
+                        low=9.20,
+                        close=9.20,
+                        volume=50,
+                        vwap=9.20,
+                        transactions=1,
+                    ),
                     PolygonSecondAggregate(
+                        ticker="AAPL",
+                        second_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=150.0,
+                        high=150.0,
+                        low=150.0,
+                        close=150.0,
+                        volume=999,
+                        vwap=150.0,
+                        transactions=1,
+                    ),
+                    PolygonSecondAggregateLive(
                         ticker="AAPL",
                         second_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
                         open=150.0,

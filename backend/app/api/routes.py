@@ -29,6 +29,7 @@ from app.models.decision_event import DecisionEvent
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick import PolygonTick
 from app.models.polygon_tick_live import PolygonTickLive
 from app.models.signal import Signal
@@ -680,10 +681,10 @@ def get_polygon_second_aggregates(
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
-    query = db.query(PolygonSecondAggregate)
+    query = db.query(PolygonSecondAggregateLive)
     selected_trade_date = trade_date
     if selected_trade_date is None:
-        latest_second_ts = db.query(func.max(PolygonSecondAggregate.second_ts)).scalar()
+        latest_second_ts = db.query(func.max(PolygonSecondAggregateLive.second_ts)).scalar()
         if latest_second_ts is not None:
             selected_trade_date = latest_second_ts.date()
     if universe_only:
@@ -696,16 +697,16 @@ def get_polygon_second_aggregates(
                 page_size=page_size,
                 trade_date=selected_trade_date,
             )
-        query = query.filter(PolygonSecondAggregate.ticker.in_(universe_tickers))
+        query = query.filter(PolygonSecondAggregateLive.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
-        query = query.filter(PolygonSecondAggregate.second_ts >= start_dt, PolygonSecondAggregate.second_ts < end_dt)
+        query = query.filter(PolygonSecondAggregateLive.second_ts >= start_dt, PolygonSecondAggregateLive.second_ts < end_dt)
     if ticker:
-        query = query.filter(PolygonSecondAggregate.ticker == ticker.upper())
+        query = query.filter(PolygonSecondAggregateLive.ticker == ticker.upper())
     total = query.count()
     rows = (
-        query.order_by(PolygonSecondAggregate.second_ts.desc(), PolygonSecondAggregate.ticker.asc())
+        query.order_by(PolygonSecondAggregateLive.second_ts.desc(), PolygonSecondAggregateLive.ticker.asc())
         .offset(page * page_size)
         .limit(page_size)
         .all()
