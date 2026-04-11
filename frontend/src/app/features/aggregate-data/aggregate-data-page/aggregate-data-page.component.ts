@@ -86,9 +86,40 @@ export class AggregateDataPageComponent implements OnInit {
     'reason_code',
     'candidate_score',
     'validation_pass_count',
+    'decision_payload',
     'is_second_stream_stale',
     'is_minute_stream_stale',
   ];
+  readonly summaryItems = computed(() => {
+    if (this.dataset() === 'decision-events') {
+      const rows = this.decisionEvents();
+      const candidateCount = rows.filter(row => row.decision_type === 'candidate').length;
+      const rejectCount = rows.filter(row => row.decision_type === 'reject').length;
+      return [
+        { label: 'Candidate', value: candidateCount },
+        { label: 'Reject', value: rejectCount },
+        { label: 'Rows Loaded', value: rows.length },
+      ];
+    }
+    if (this.dataset() === 'candidate-events') {
+      const rows = this.candidateEvents();
+      const staleCount = rows.filter(row => row.is_second_stream_stale || row.is_minute_stream_stale).length;
+      return [
+        { label: 'Events Loaded', value: rows.length },
+        { label: 'Stale Events', value: staleCount },
+        { label: 'Live Events', value: rows.length - staleCount },
+      ];
+    }
+    const rows = this.symbolStates();
+    const validatedCount = rows.filter(row => row.candidate_status === 'validated').length;
+    const rejectedCount = rows.filter(row => row.candidate_status === 'rejected').length;
+    const staleCount = rows.filter(row => row.is_second_stream_stale || row.is_minute_stream_stale).length;
+    return [
+      { label: 'Validated', value: validatedCount },
+      { label: 'Rejected', value: rejectedCount },
+      { label: 'Stale', value: staleCount },
+    ];
+  });
 
   readonly title = computed(() => {
     switch (this.dataset()) {
@@ -205,6 +236,16 @@ export class AggregateDataPageComponent implements OnInit {
     this.error.set(message);
     this.total.set(0);
     this.loading.set(false);
+  }
+
+  previewDecisionPayload(payload: string | null): string {
+    if (!payload) {
+      return '-';
+    }
+    if (payload.length <= 80) {
+      return payload;
+    }
+    return `${payload.slice(0, 77)}...`;
   }
 
   private isDataset(value: unknown): value is AggregateDatasetKey {

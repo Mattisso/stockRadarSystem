@@ -730,6 +730,15 @@ def get_polygon_ticks(
 ):
     query = db.query(PolygonTick)
     selected_trade_date = trade_date
+    normalized_ticker = ticker.upper() if ticker else None
+    if not normalized_ticker:
+        return PolygonTickPageResponse(
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            trade_date=selected_trade_date,
+        )
     if selected_trade_date is None:
         latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
         if latest_tick_ts is not None:
@@ -749,8 +758,7 @@ def get_polygon_ticks(
         start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
-    if ticker:
-        query = query.filter(PolygonTick.ticker == ticker.upper())
+    query = query.filter(PolygonTick.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTick.event_type == event_type.lower())
     total = query.count()

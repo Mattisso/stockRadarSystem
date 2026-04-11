@@ -145,6 +145,10 @@ class Settings(BaseSettings):
     aggregate_validation_max_extension_pct: float = 0.08
     aggregate_decision_min_validation_score: float = 0.6
     aggregate_decision_min_validation_pass_count: int = 6
+    aggregate_buy_min_validation_score: float = 0.8
+    aggregate_buy_min_validation_pass_count: int = 8
+    aggregate_buy_min_candidate_score: float = 0.66
+    aggregate_buy_near_high_buffer_pct: float = 0.005
     polygon_dev_max_symbols: int = 3
     secret_polygon_include_trade_wildcard: bool = True
     secret_candidate_min_score: float = 0.55

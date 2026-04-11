@@ -95,6 +95,9 @@ export class PolygonDataPageComponent implements OnInit {
     if (this.dataset() === 'second' && !this.requestTicker()) {
       return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
     }
+    if (this.dataset() === 'ticks' && !this.requestTicker()) {
+      return 'Raw ticks require a ticker filter. The page does not load the full tick store by default.';
+    }
     return null;
   });
 
@@ -138,6 +141,13 @@ export class PolygonDataPageComponent implements OnInit {
         });
         break;
       case 'ticks':
+        if (!ticker) {
+          this.total.set(0);
+          this.resolvedTradeDate.set(tradeDate);
+          this.ticks.set([]);
+          this.loading.set(false);
+          return;
+        }
         this.api.loadTicks(page, pageSize, ticker, tradeDate).subscribe({
           next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date),
           error: () => this.handleError('Failed to load Polygon live ticks.'),
