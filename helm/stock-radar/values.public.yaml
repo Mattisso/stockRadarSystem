@@ -2,7 +2,7 @@ api:
   image:
     repository: localhost:32000/stock-radar-api
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   env:
     PGHOST: stock-radar-postgres
     PGPORT: "5434"
@@ -32,4 +32,4 @@ frontend:
   image:
     repository: localhost:32000/stock-radar-frontend
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
