@@ -4,9 +4,11 @@ from app.data.polygon_aggregate_service import (
     PolygonAggregateService,
     PolygonDayAggregateRecord,
     PolygonMinuteAggregateRecord,
+    PolygonSecondAggregateRecord,
 )
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
 
@@ -93,3 +95,51 @@ def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
     assert len(rows) == 1
     assert rows[0].ticker == "LCID"
     assert rows[0].minute_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)
+
+
+def test_upsert_second_aggregates_merges_same_second_rows(db):
+    service = PolygonAggregateService(db)
+
+    inserted = service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 5, 100000, tzinfo=timezone.utc),
+                open=3.20,
+                high=3.25,
+                low=3.20,
+                close=3.25,
+                volume=100,
+                vwap=3.225,
+                transactions=2,
+            )
+        ]
+    )
+    assert inserted == 1
+
+    inserted = service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 5, 900000, tzinfo=timezone.utc),
+                open=3.24,
+                high=3.30,
+                low=3.24,
+                close=3.28,
+                volume=200,
+                vwap=3.27,
+                transactions=3,
+            )
+        ]
+    )
+    assert inserted == 0
+
+    row = db.query(PolygonSecondAggregate).one()
+    assert row.ticker == "LCID"
+    assert row.second_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, 5, tzinfo=timezone.utc)
+    assert row.open == 3.20
+    assert row.high == 3.30
+    assert row.low == 3.20
+    assert row.close == 3.28
+    assert row.volume == 300
+    assert row.transactions == 5

@@ -26,6 +26,7 @@ from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
 from app.models.signal import Signal
 from app.models.symbol import Symbol
@@ -666,169 +667,38 @@ def get_polygon_second_aggregates(
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
+    query = db.query(PolygonSecondAggregate)
     selected_trade_date = trade_date
     if selected_trade_date is None:
-        latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
-        if latest_tick_ts is not None:
-            selected_trade_date = latest_tick_ts.date()
-    start_dt: datetime | None = None
-    end_dt: datetime | None = None
+        latest_second_ts = db.query(func.max(PolygonSecondAggregate.second_ts)).scalar()
+        if latest_second_ts is not None:
+            selected_trade_date = latest_second_ts.date()
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return PolygonSecondAggregatePageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
+        query = query.filter(PolygonSecondAggregate.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
-    universe_tickers = _latest_universe_tickers(
-        db,
-        max_price=settings.secret_universe_max_price if universe_only else None,
+        query = query.filter(PolygonSecondAggregate.second_ts >= start_dt, PolygonSecondAggregate.second_ts < end_dt)
+    if ticker:
+        query = query.filter(PolygonSecondAggregate.ticker == ticker.upper())
+    total = query.count()
+    rows = (
+        query.order_by(PolygonSecondAggregate.second_ts.desc(), PolygonSecondAggregate.ticker.asc())
+        .offset(page * page_size)
+        .limit(page_size)
+        .all()
     )
-    if universe_only and not universe_tickers:
-        return PolygonSecondAggregatePageResponse(
-            items=[],
-            total=0,
-            page=page,
-            page_size=page_size,
-            trade_date=selected_trade_date,
-        )
-    recent_window_start: datetime | None = None
-    if ticker is None:
-        latest_tick_query = db.query(func.max(PolygonTick.tick_ts))
-        if universe_only:
-            latest_tick_query = latest_tick_query.filter(PolygonTick.ticker.in_(universe_tickers))
-        if event_type:
-            latest_tick_query = latest_tick_query.filter(PolygonTick.event_type == event_type.lower())
-        if start_dt and end_dt:
-            latest_tick_query = latest_tick_query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
-        latest_visible_tick_ts = latest_tick_query.scalar()
-        if latest_visible_tick_ts is not None:
-            recent_window_start = latest_visible_tick_ts - timedelta(
-                minutes=settings.polygon_second_aggregate_recent_window_minutes
-            )
-
-    params: dict[str, object] = {
-        "limit": page_size,
-        "offset": page * page_size,
-        "ticker": ticker.upper() if ticker else None,
-        "event_type": event_type.lower() if event_type else None,
-        "max_price": settings.secret_universe_max_price,
-        "start_dt": start_dt,
-        "end_dt": end_dt,
-        "recent_window_start": recent_window_start,
-    }
-    universe_cte = """
-        latest_universe AS (
-            SELECT MAX(trade_date) AS trade_date
-            FROM stock_radar.universe_daily
-        ),
-        universe AS (
-            SELECT ticker
-            FROM stock_radar.universe_daily
-            WHERE trade_date = (SELECT trade_date FROM latest_universe)
-              AND COALESCE(open_price, last_price, 0) <= :max_price
-        ),
-    """ if universe_only else ""
-    universe_filter = "AND ticker IN (SELECT ticker FROM universe)" if universe_only else ""
-    sql = text(
-        f"""
-        WITH
-        {universe_cte}
-        recent_ticks AS (
-            SELECT
-                date_trunc('second', tick_ts) AS second_ts,
-                ticker,
-                last,
-                volume,
-                tick_ts,
-                id
-            FROM stock_radar.polygon_ticks
-            WHERE (:ticker IS NULL OR ticker = :ticker)
-              AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:start_dt IS NULL OR tick_ts >= :start_dt)
-              AND (:end_dt IS NULL OR tick_ts < :end_dt)
-              AND (:recent_window_start IS NULL OR tick_ts >= :recent_window_start)
-              {universe_filter}
-            ORDER BY tick_ts DESC, id DESC
-        ),
-        base AS (
-            SELECT *
-            FROM recent_ticks
-        ),
-        agg AS (
-            SELECT
-                second_ts,
-                ticker,
-                MAX(last) AS high,
-                MIN(last) AS low,
-                SUM(volume) AS volume,
-                AVG(last) AS vwap,
-                COUNT(*)::int AS transactions
-            FROM base
-            GROUP BY second_ts, ticker
-        ),
-        open_rows AS (
-            SELECT DISTINCT ON (second_ts, ticker)
-                second_ts,
-                ticker,
-                last AS open
-            FROM base
-            ORDER BY second_ts, ticker, tick_ts ASC, id ASC
-        ),
-        close_rows AS (
-            SELECT DISTINCT ON (second_ts, ticker)
-                second_ts,
-                ticker,
-                last AS close
-            FROM base
-            ORDER BY second_ts, ticker, tick_ts DESC, id DESC
-        )
-        SELECT
-            ROW_NUMBER() OVER (ORDER BY agg.second_ts DESC, agg.ticker ASC)::int AS id,
-            agg.ticker,
-            agg.second_ts,
-            open_rows.open,
-            agg.high,
-            agg.low,
-            close_rows.close,
-            agg.volume::int AS volume,
-            agg.vwap,
-            agg.transactions
-        FROM agg
-        JOIN open_rows USING (second_ts, ticker)
-        JOIN close_rows USING (second_ts, ticker)
-        ORDER BY agg.second_ts DESC, agg.ticker ASC
-        OFFSET :offset
-        LIMIT :limit
-        """
-    )
-    count_sql = text(
-        f"""
-        WITH
-        {universe_cte}
-        recent_ticks AS (
-            SELECT
-                date_trunc('second', tick_ts) AS second_ts,
-                ticker
-            FROM stock_radar.polygon_ticks
-            WHERE (:ticker IS NULL OR ticker = :ticker)
-              AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:start_dt IS NULL OR tick_ts >= :start_dt)
-              AND (:end_dt IS NULL OR tick_ts < :end_dt)
-              AND (:recent_window_start IS NULL OR tick_ts >= :recent_window_start)
-              {universe_filter}
-        )
-        SELECT COUNT(*)
-        FROM (
-            SELECT second_ts, ticker
-            FROM recent_ticks
-            GROUP BY second_ts, ticker
-        ) grouped
-        """
-    )
-    rows = [
-        PolygonSecondAggregateResponse.model_validate(dict(row._mapping))
-        for row in db.execute(sql, params).fetchall()
-    ]
-    total = int(db.execute(count_sql, params).scalar() or 0)
     return PolygonSecondAggregatePageResponse(
-        items=rows,
+        items=[PolygonSecondAggregateResponse.model_validate(row) for row in rows],
         total=total,
         page=page,
         page_size=page_size,

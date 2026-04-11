@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.auth import create_access_token
 from app.core.database import get_db
 from app.main import app
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
 from app.models.universe_daily import UniverseDaily
 
@@ -266,41 +267,38 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
                         last_price=9.7,
                         avg_volume=2_000_000,
                     ),
-                    PolygonTick(
+                    PolygonSecondAggregate(
                         ticker="SIRI",
-                        event_type="trade",
-                        bid=9.50,
-                        ask=9.50,
-                        last=9.50,
-                        volume=100,
-                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 100000, tzinfo=timezone.utc),
+                        second_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.50,
+                        close=9.60,
+                        volume=300,
+                        vwap=9.56,
+                        transactions=2,
                     ),
-                    PolygonTick(
+                    PolygonSecondAggregate(
                         ticker="SIRI",
-                        event_type="trade",
-                        bid=9.60,
-                        ask=9.60,
-                        last=9.60,
-                        volume=200,
-                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 900000, tzinfo=timezone.utc),
-                    ),
-                    PolygonTick(
-                        ticker="SIRI",
-                        event_type="trade",
-                        bid=9.20,
-                        ask=9.20,
-                        last=9.20,
+                        second_ts=datetime(2026, 4, 7, 13, 10, 0, tzinfo=timezone.utc),
+                        open=9.20,
+                        high=9.20,
+                        low=9.20,
+                        close=9.20,
                         volume=50,
-                        tick_ts=datetime(2026, 4, 7, 13, 10, 0, 0, tzinfo=timezone.utc),
+                        vwap=9.20,
+                        transactions=1,
                     ),
-                    PolygonTick(
+                    PolygonSecondAggregate(
                         ticker="AAPL",
-                        event_type="trade",
-                        bid=150.0,
-                        ask=150.0,
-                        last=150.0,
+                        second_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=150.0,
+                        high=150.0,
+                        low=150.0,
+                        close=150.0,
                         volume=999,
-                        tick_ts=datetime(2026, 4, 7, 13, 30, 0, 500000, tzinfo=timezone.utc),
+                        vwap=150.0,
+                        transactions=1,
                     ),
                 ]
             )
@@ -316,9 +314,10 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
         assert response.status_code == 200
         body = response.json()
         assert body["trade_date"] == "2026-04-07"
-        assert body["total"] == 1
-        assert len(body["items"]) == 1
+        assert body["total"] == 2
+        assert len(body["items"]) == 2
         assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["second_ts"].startswith("2026-04-07T13:30:00")
         assert body["items"][0]["open"] == 9.5
         assert body["items"][0]["high"] == 9.6
         assert body["items"][0]["low"] == 9.5

@@ -273,6 +273,8 @@ class PolygonSecondAggregateResponse(BaseModel):
     vwap: float | None = None
     transactions: int | None = None
 
+    model_config = {"from_attributes": True}
+
 
 class PolygonTickResponse(BaseModel):
     id: int

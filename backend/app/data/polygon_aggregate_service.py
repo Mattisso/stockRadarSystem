@@ -2,12 +2,15 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
+from app.broker.interface import Quote
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol import Symbol
 
 
@@ -29,6 +32,19 @@ class PolygonDayAggregateRecord:
 class PolygonMinuteAggregateRecord:
     ticker: str
     minute_ts: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    vwap: float | None = None
+    transactions: int | None = None
+
+
+@dataclass(slots=True)
+class PolygonSecondAggregateRecord:
+    ticker: str
+    second_ts: datetime
     open: float
     high: float
     low: float
@@ -127,9 +143,86 @@ class PolygonAggregateService:
         self.db.flush()
         return rows_added
 
+    def upsert_second_aggregates(
+        self,
+        records: list[PolygonSecondAggregateRecord],
+        *,
+        allowed_tickers: set[str] | None = None,
+    ) -> int:
+        rows_added = 0
+        for record in records:
+            if allowed_tickers is not None and record.ticker not in allowed_tickers:
+                continue
+            second_ts = self._normalize_second_ts(record.second_ts)
+            existing = (
+                self.db.query(PolygonSecondAggregate)
+                .filter_by(ticker=record.ticker, second_ts=second_ts)
+                .first()
+            )
+            if existing is None:
+                existing = PolygonSecondAggregate(ticker=record.ticker, second_ts=second_ts)
+                self.db.add(existing)
+                existing.open = record.open
+                existing.high = record.high
+                existing.low = record.low
+                existing.close = record.close
+                existing.volume = max(0, record.volume)
+                existing.vwap = record.vwap
+                existing.transactions = record.transactions
+                rows_added += 1
+                continue
+
+            existing.high = max(existing.high, record.high)
+            existing.low = min(existing.low, record.low)
+            existing.close = record.close
+            previous_volume = max(0, existing.volume)
+            incoming_volume = max(0, record.volume)
+            total_volume = previous_volume + incoming_volume
+            existing.volume = total_volume
+            existing.transactions = (existing.transactions or 0) + (record.transactions or 0)
+            if total_volume > 0:
+                previous_notional = (existing.vwap or existing.close) * previous_volume
+                incoming_notional = (record.vwap or record.close) * incoming_volume
+                existing.vwap = (previous_notional + incoming_notional) / total_volume
+            elif record.vwap is not None:
+                existing.vwap = record.vwap
+        self.db.flush()
+        return rows_added
+
     def latest_day_aggregate_date(self) -> date | None:
         row = self.db.query(PolygonDayAggregate.trade_date).order_by(PolygonDayAggregate.trade_date.desc()).first()
         return row[0] if row is not None else None
+
+    @staticmethod
+    def second_records_from_quotes(quotes: list[Quote]) -> list[PolygonSecondAggregateRecord]:
+        grouped: dict[tuple[str, datetime], list[Quote]] = defaultdict(list)
+        for quote in quotes:
+            if quote.event_type != "trade":
+                continue
+            second_ts = PolygonAggregateService._normalize_second_ts(quote.timestamp)
+            grouped[(quote.ticker, second_ts)].append(quote)
+
+        records: list[PolygonSecondAggregateRecord] = []
+        for (ticker, second_ts), second_quotes in grouped.items():
+            ordered = sorted(second_quotes, key=lambda quote: quote.timestamp)
+            prices = [quote.last for quote in ordered]
+            total_volume = sum(max(0, quote.volume) for quote in ordered)
+            total_notional = sum((quote.last or 0.0) * max(0, quote.volume) for quote in ordered)
+            records.append(
+                PolygonSecondAggregateRecord(
+                    ticker=ticker,
+                    second_ts=second_ts,
+                    open=prices[0],
+                    high=max(prices),
+                    low=min(prices),
+                    close=prices[-1],
+                    volume=total_volume,
+                    vwap=(total_notional / total_volume) if total_volume > 0 else ordered[-1].last,
+                    transactions=len(ordered),
+                )
+            )
+        records.sort(key=lambda record: (record.second_ts, record.ticker))
+        return records
 
     def _sync_symbols_from_day_rows(self, rows: list[PolygonDayAggregate]) -> None:
         tickers = [row.ticker for row in rows]
@@ -168,3 +261,9 @@ class PolygonAggregateService:
         if value.tzinfo is None:
             return value.replace(second=0, microsecond=0)
         return value.astimezone(timezone.utc).replace(second=0, microsecond=0)
+
+    @staticmethod
+    def _normalize_second_ts(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(microsecond=0)
+        return value.astimezone(timezone.utc).replace(microsecond=0)

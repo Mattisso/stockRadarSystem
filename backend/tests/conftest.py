@@ -3,8 +3,10 @@
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
+import app.models  # noqa: F401
 
 SCHEMA = "stock_radar"
 
@@ -15,7 +17,11 @@ def db_engine():
 
     SQLite doesn't support schemas, so we translate 'stock_radar.X' → 'X'.
     """
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):

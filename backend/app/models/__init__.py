@@ -9,6 +9,7 @@ from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.polygon_tick import PolygonTick
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 
 __all__ = [
     "Symbol",
@@ -22,4 +23,5 @@ __all__ = [
     "PolygonTick",
     "PolygonDayAggregate",
     "PolygonMinuteAggregate",
+    "PolygonSecondAggregate",
 ]
