@@ -55,6 +55,11 @@ export const routes: Routes = [
           import('./features/polygon-data/polygon-data.routes').then(m => m.POLYGON_DATA_ROUTES),
       },
       {
+        path: 'aggregate-data',
+        loadChildren: () =>
+          import('./features/aggregate-data/aggregate-data.routes').then(m => m.AGGREGATE_DATA_ROUTES),
+      },
+      {
         path: 'settings',
         loadChildren: () =>
           import('./features/settings/settings.routes').then(m => m.SETTINGS_ROUTES),

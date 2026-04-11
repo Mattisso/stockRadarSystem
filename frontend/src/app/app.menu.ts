@@ -7,6 +7,8 @@ export const APP_MENU: MenuItem[] = [
   { label: 'Polygon Minute', icon: 'schedule', route: '/polygon-data/minute' },
   { label: 'Polygon Second', icon: 'timer', route: '/polygon-data/second' },
   { label: 'Polygon Ticks', icon: 'multiline_chart', route: '/polygon-data/ticks' },
+  { label: 'Aggregate Live State', icon: 'monitoring', route: '/aggregate-data/live-state', section: 'Aggregate' },
+  { label: 'Aggregate Candidates', icon: 'filter_alt', route: '/aggregate-data/candidate-events' },
   { label: 'Signals', icon: 'bolt', route: '/signals' },
   { label: 'State Monitor', icon: 'device_hub', route: '/state-monitor' },
   { label: 'Secret Sauce', icon: 'science', route: '/secret-sauce' },

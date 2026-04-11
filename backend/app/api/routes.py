@@ -24,12 +24,14 @@ from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_replay_validator import SecretReplayValidator, build_replay_quote
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
+from app.models.candidate_event import CandidateEvent
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
 from app.models.signal import Signal
 from app.models.symbol import Symbol
+from app.models.symbol_state_live import SymbolStateLive
 from app.models.trade import Trade
 from app.models.universe_daily import UniverseDaily
 from app.schemas.ml import (
@@ -57,6 +59,10 @@ from app.schemas.ml import (
     PolygonSecondAggregatePageResponse,
     PolygonTickResponse,
     PolygonTickPageResponse,
+    SymbolStateLiveResponse,
+    SymbolStateLivePageResponse,
+    CandidateEventResponse,
+    CandidateEventPageResponse,
     L2HealthResponse,
     L2SubscriptionStatusResponse,
     SecretReplayRequest,
@@ -139,6 +145,8 @@ async def contract_metadata():
             "/api/ml/backtest",
             "/api/analytics/kpis",
             "/api/analytics/signal-accuracy",
+            "/api/aggregate/symbol-state-live",
+            "/api/aggregate/candidate-events",
         ],
         websocket_channels=[
             "/api/ws",
@@ -750,6 +758,94 @@ def get_polygon_ticks(
     )
     return PolygonTickPageResponse(
         items=[PolygonTickResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
+    )
+
+
+@router.get("/aggregate/symbol-state-live", response_model=SymbolStateLivePageResponse)
+def get_symbol_state_live(
+    page: int = 0,
+    page_size: int = 25,
+    ticker: str | None = None,
+    candidate_status: str | None = None,
+    universe_only: bool = True,
+    db: Session = Depends(get_db),
+):
+    query = db.query(SymbolStateLive)
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return SymbolStateLivePageResponse(items=[], total=0, page=page, page_size=page_size)
+        query = query.filter(SymbolStateLive.ticker.in_(universe_tickers))
+    if ticker:
+        query = query.filter(SymbolStateLive.ticker == ticker.upper())
+    if candidate_status:
+        query = query.filter(SymbolStateLive.candidate_status == candidate_status.lower())
+    total = query.count()
+    rows = (
+        query.order_by(
+            SymbolStateLive.updated_at.desc().nullslast(),
+            SymbolStateLive.ticker.asc(),
+        )
+        .offset(page * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return SymbolStateLivePageResponse(
+        items=[SymbolStateLiveResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/aggregate/candidate-events", response_model=CandidateEventPageResponse)
+def get_candidate_events(
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
+    ticker: str | None = None,
+    trigger_name: str | None = None,
+    universe_only: bool = True,
+    db: Session = Depends(get_db),
+):
+    query = db.query(CandidateEvent)
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        latest_event_ts = db.query(func.max(CandidateEvent.event_ts)).scalar()
+        if latest_event_ts is not None:
+            selected_trade_date = latest_event_ts.date()
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return CandidateEventPageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
+        query = query.filter(CandidateEvent.ticker.in_(universe_tickers))
+    if selected_trade_date is not None:
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
+        end_dt = start_dt + timedelta(days=1)
+        query = query.filter(CandidateEvent.event_ts >= start_dt, CandidateEvent.event_ts < end_dt)
+    if ticker:
+        query = query.filter(CandidateEvent.ticker == ticker.upper())
+    if trigger_name:
+        query = query.filter(CandidateEvent.trigger_name == trigger_name)
+    total = query.count()
+    rows = (
+        query.order_by(CandidateEvent.event_ts.desc(), CandidateEvent.id.desc())
+        .offset(page * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return CandidateEventPageResponse(
+        items=[CandidateEventResponse.model_validate(row) for row in rows],
         total=total,
         page=page,
         page_size=page_size,

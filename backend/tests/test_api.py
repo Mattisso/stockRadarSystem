@@ -9,8 +9,10 @@ from sqlalchemy.orm import sessionmaker
 from app.core.auth import create_access_token
 from app.core.database import get_db
 from app.main import app
+from app.models.candidate_event import CandidateEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_tick import PolygonTick
+from app.models.symbol_state_live import SymbolStateLive
 from app.models.universe_daily import UniverseDaily
 
 
@@ -324,5 +326,154 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
         assert body["items"][0]["close"] == 9.6
         assert body["items"][0]["volume"] == 300
         assert body["items"][0]["transactions"] == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_symbol_state_live_filters_to_latest_under_ten_universe(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="AAPL",
+                        open_price=150.0,
+                        last_price=151.0,
+                        avg_volume=1_000_000,
+                    ),
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="SIRI",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=2_000_000,
+                    ),
+                    SymbolStateLive(
+                        ticker="SIRI",
+                        candidate_status="candidate",
+                        candidate_score=0.82,
+                        rolling_second_volume=1200,
+                        rolling_green_count=3,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                        updated_at=datetime(2026, 4, 10, 13, 35, 0),
+                    ),
+                    SymbolStateLive(
+                        ticker="AAPL",
+                        candidate_status="idle",
+                        candidate_score=None,
+                        rolling_second_volume=2500,
+                        rolling_green_count=1,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                        updated_at=datetime(2026, 4, 10, 13, 34, 0),
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/aggregate/symbol-state-live",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["candidate_status"] == "candidate"
+        assert body["items"][0]["candidate_score"] == 0.82
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_candidate_events_filters_by_trade_date_and_universe(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="AAPL",
+                        open_price=150.0,
+                        last_price=151.0,
+                        avg_volume=1_000_000,
+                    ),
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 10),
+                        ticker="SIRI",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=2_000_000,
+                    ),
+                    CandidateEvent(
+                        ticker="SIRI",
+                        event_ts=datetime(2026, 4, 10, 13, 35, 0, tzinfo=timezone.utc),
+                        trigger_name="breakout_above_recent_high",
+                        trigger_payload='{"recent_high": 9.6}',
+                        last_second_ts=datetime(2026, 4, 10, 13, 35, 0, tzinfo=timezone.utc),
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    CandidateEvent(
+                        ticker="SIRI",
+                        event_ts=datetime(2026, 4, 9, 13, 35, 0, tzinfo=timezone.utc),
+                        trigger_name="second_volume_spike",
+                        trigger_payload='{"second_volume": 2000}',
+                        last_second_ts=datetime(2026, 4, 9, 13, 35, 0, tzinfo=timezone.utc),
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    CandidateEvent(
+                        ticker="AAPL",
+                        event_ts=datetime(2026, 4, 10, 13, 35, 0, tzinfo=timezone.utc),
+                        trigger_name="breakout_above_recent_high",
+                        trigger_payload='{"recent_high": 150.0}',
+                        last_second_ts=datetime(2026, 4, 10, 13, 35, 0, tzinfo=timezone.utc),
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/aggregate/candidate-events",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-10"
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["trigger_name"] == "breakout_above_recent_high"
     finally:
         app.dependency_overrides.pop(get_db, None)

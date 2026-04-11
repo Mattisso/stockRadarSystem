@@ -322,6 +322,59 @@ class PolygonTickPageResponse(BaseModel):
     trade_date: date | None = None
 
 
+class SymbolStateLiveResponse(BaseModel):
+    ticker: str
+    last_second_ts: datetime | None = None
+    last_minute_ts: datetime | None = None
+    seconds_since_last_trade_bar: int | None = None
+    minutes_since_last_trade_bar: int | None = None
+    is_second_stream_stale: bool
+    is_minute_stream_stale: bool
+    rolling_second_high: float | None = None
+    rolling_second_low: float | None = None
+    rolling_second_volume: int
+    rolling_green_count: int
+    current_minute_high: float | None = None
+    previous_minute_high: float | None = None
+    candidate_score: float | None = None
+    candidate_status: str
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class SymbolStateLivePageResponse(BaseModel):
+    items: list[SymbolStateLiveResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class CandidateEventResponse(BaseModel):
+    id: int
+    ticker: str
+    event_ts: datetime
+    trigger_name: str
+    trigger_payload: str | None = None
+    last_second_ts: datetime | None = None
+    last_minute_ts: datetime | None = None
+    seconds_since_last_trade_bar: int | None = None
+    minutes_since_last_trade_bar: int | None = None
+    is_second_stream_stale: bool
+    is_minute_stream_stale: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CandidateEventPageResponse(BaseModel):
+    items: list[CandidateEventResponse]
+    total: int
+    page: int
+    page_size: int
+    trade_date: date | None = None
+
+
 class L2SubscriptionStatusResponse(BaseModel):
     ticker: str
     confirmed: bool
