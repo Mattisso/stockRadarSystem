@@ -95,10 +95,15 @@ export class AggregateDataPageComponent implements OnInit {
       const rows = this.decisionEvents();
       const candidateCount = rows.filter(row => row.decision_type === 'candidate').length;
       const rejectCount = rows.filter(row => row.decision_type === 'reject').length;
+      const buyCount = rows.filter(row => row.decision_type === 'buy').length;
+      const manageCount = rows.filter(row => row.decision_type === 'manage').length;
+      const sellCount = rows.filter(row => row.decision_type === 'sell').length;
       return [
         { label: 'Candidate', value: candidateCount },
+        { label: 'Buy', value: buyCount },
+        { label: 'Manage', value: manageCount },
+        { label: 'Sell', value: sellCount },
         { label: 'Reject', value: rejectCount },
-        { label: 'Rows Loaded', value: rows.length },
       ];
     }
     if (this.dataset() === 'candidate-events') {
@@ -112,10 +117,16 @@ export class AggregateDataPageComponent implements OnInit {
     }
     const rows = this.symbolStates();
     const validatedCount = rows.filter(row => row.candidate_status === 'validated').length;
+    const buyCount = rows.filter(row => row.candidate_status === 'buy').length;
+    const manageCount = rows.filter(row => row.candidate_status === 'manage').length;
+    const soldCount = rows.filter(row => row.candidate_status === 'sold').length;
     const rejectedCount = rows.filter(row => row.candidate_status === 'rejected').length;
     const staleCount = rows.filter(row => row.is_second_stream_stale || row.is_minute_stream_stale).length;
     return [
       { label: 'Validated', value: validatedCount },
+      { label: 'Buy', value: buyCount },
+      { label: 'Manage', value: manageCount },
+      { label: 'Sold', value: soldCount },
       { label: 'Rejected', value: rejectedCount },
       { label: 'Stale', value: staleCount },
     ];
@@ -246,6 +257,29 @@ export class AggregateDataPageComponent implements OnInit {
       return payload;
     }
     return `${payload.slice(0, 77)}...`;
+  }
+
+  badgeClass(value: string | null | undefined, kind: 'decision' | 'status'): string {
+    const normalized = (value ?? '').toLowerCase();
+    if (!normalized) {
+      return 'badge badge-neutral';
+    }
+    if (normalized === 'buy') {
+      return 'badge badge-buy';
+    }
+    if (normalized === 'manage') {
+      return 'badge badge-manage';
+    }
+    if (normalized === 'sell' || normalized === 'sold') {
+      return 'badge badge-sell';
+    }
+    if (normalized === 'candidate' || normalized === 'validated') {
+      return 'badge badge-candidate';
+    }
+    if (normalized === 'reject' || normalized === 'rejected') {
+      return 'badge badge-reject';
+    }
+    return kind === 'decision' ? 'badge badge-neutral' : 'badge badge-neutral';
   }
 
   private isDataset(value: unknown): value is AggregateDatasetKey {
