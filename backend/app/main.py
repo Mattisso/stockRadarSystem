@@ -380,6 +380,8 @@ async def lifespan(app: FastAPI):
     async def scan_job():
         start = time.monotonic()
         try:
+            if not settings.api_enable_legacy_scan_job:
+                return
             db = SessionLocal()
             try:
                 engine = UniverseFilterEngine(broker, db)

@@ -83,6 +83,11 @@ from app.schemas.trade import TradeRead
 public_router = APIRouter()
 
 
+@public_router.get("/health/live")
+async def health_live():
+    return {"status": "ok"}
+
+
 @public_router.get("/health")
 async def health_check(request: Request):
     runtime = getattr(request.app.state, "runtime", None)
@@ -115,6 +120,7 @@ async def contract_metadata():
         auth_token_path="/api/auth/token",
         websocket_auth="query_param_token",
         public_routes=[
+            "/api/health/live",
             "/api/health",
             "/api/auth/token",
             "/api/contract",
