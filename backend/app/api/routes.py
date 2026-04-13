@@ -180,6 +180,14 @@ def _latest_universe_tickers(
     *,
     max_price: float | None = None,
 ) -> list[str]:
+    active_query = db.query(Symbol.ticker).filter(Symbol.is_active.is_(True))
+    if max_price is not None:
+        active_query = active_query.filter(func.coalesce(Symbol.last_price, 0) <= max_price)
+    active_rows = active_query.order_by(Symbol.ticker.asc()).all()
+    active_tickers = [row.ticker for row in active_rows]
+    if active_tickers:
+        return active_tickers
+
     latest_trade_date = (
         db.query(UniverseDaily.trade_date)
         .order_by(UniverseDaily.trade_date.desc())
