@@ -3,6 +3,7 @@ import { environment } from '../../environments/environment';
 export interface RuntimeConfig {
   apiBaseUrl: string;
   wsBaseUrl: string;
+  staticToken?: string;
 }
 
 declare global {
@@ -47,4 +48,5 @@ const apiBaseUrl = stripTrailingSlash(rawConfig.apiBaseUrl ?? environment.apiBas
 export const runtimeConfig: RuntimeConfig = {
   apiBaseUrl,
   wsBaseUrl: normalizeWsBaseUrl(rawConfig.wsBaseUrl, apiBaseUrl),
+  staticToken: rawConfig.staticToken,
 };

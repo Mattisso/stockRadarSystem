@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_secret_key: str = "change-me-in-production"
+    api_runtime_role: str = "all"  # "all" | "web" | "worker"
     api_enable_legacy_scan_job: bool = True
     cors_allowed_origins: str = (
         "http://127.0.0.1:14200,"

@@ -1,0 +1,121 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stock-radar-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stock-radar-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: stock-radar-system
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app: stock-radar-worker
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app: stock-radar-worker
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: {{ .Values.global.sharedServiceAccountName }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.containerPort }}
+              protocol: TCP
+          env:
+            - name: API_RUNTIME_ROLE
+              value: "worker"
+            - name: API_PORT
+              value: {{ .Values.env.API_PORT | quote }}
+            - name: PGHOST
+              value: {{ .Values.env.PGHOST | quote }}
+            - name: PGPORT
+              value: {{ .Values.env.PGPORT | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.env.PGDATABASE | quote }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: {{ .Values.env.PGUSER_SECRET_KEY }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: {{ .Values.env.PGPASSWORD_SECRET_KEY }}
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ .Values.env.PGHOST }}:{{ .Values.env.PGPORT }}/{{ .Values.env.PGDATABASE }}"
+            - name: REDIS_URL
+              value: {{ .Values.env.REDIS_URL | quote }}
+            - name: TRADING_MODE
+              value: {{ .Values.env.TRADING_MODE | quote }}
+            - name: BUY_USE_BRACKETS
+              value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
+            - name: SECRET_UNIVERSE_SOURCE
+              value: {{ .Values.env.SECRET_UNIVERSE_SOURCE | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
+            - name: CORS_ALLOWED_ORIGIN_REGEX
+              value: {{ .Values.env.CORS_ALLOWED_ORIGIN_REGEX | quote }}
+            - name: BROKER_TYPE
+              value: {{ .Values.broker.type | quote }}
+            - name: IBKR_HOST
+              value: {{ .Values.broker.ibkrHost | quote }}
+            - name: IBKR_PORT
+              value: {{ .Values.broker.ibkrPort | quote }}
+            - name: IBKR_CLIENT_ID
+              value: {{ .Values.broker.ibkrClientId | quote }}
+            - name: IBKR_TIMEOUT
+              value: {{ .Values.broker.ibkrTimeout | quote }}
+            - name: IBKR_MAX_RECONNECT_ATTEMPTS
+              value: {{ .Values.broker.ibkrMaxReconnectAttempts | quote }}
+            - name: API_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiSecretName }}
+                  key: API_SECRET_KEY
+            {{- if .Values.polygon.enabled }}
+            - name: POLYGON_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.polygon.secretName }}
+                  key: {{ .Values.polygon.apiKeySecretKey }}
+            - name: POLYGON_MODE
+              value: {{ .Values.polygon.mode | quote }}
+            - name: POLYGON_WS_URL
+              value: {{ .Values.polygon.wsUrl | quote }}
+            - name: POLYGON_REST_URL
+              value: {{ .Values.polygon.restUrl | quote }}
+            - name: POLYGON_REST_POLL_INTERVAL
+              value: {{ .Values.polygon.restPollInterval | quote }}
+            - name: POLYGON_RECONNECT_MAX_DELAY
+              value: {{ .Values.polygon.reconnectMaxDelay | quote }}
+            - name: POLYGON_SUBSCRIPTION_BATCH_SIZE
+              value: {{ .Values.polygon.subscriptionBatchSize | quote }}
+            - name: POLYGON_QUEUE_MAXSIZE
+              value: {{ .Values.polygon.queueMaxsize | quote }}
+            - name: POLYGON_PERSIST_TICKS
+              value: {{ .Values.polygon.persistTicks | quote }}
+            - name: POLYGON_PERSIST_BATCH_SIZE
+              value: {{ .Values.polygon.persistBatchSize | quote }}
+            - name: POLYGON_DAY_AGGREGATE_INGESTION_ENABLED
+              value: {{ .Values.polygon.dayAggregateIngestionEnabled | quote }}
+            - name: POLYGON_MINUTE_AGGREGATE_INGESTION_ENABLED
+              value: {{ .Values.polygon.minuteAggregateIngestionEnabled | quote }}
+            - name: POLYGON_MINUTE_AGGREGATE_REFRESH_MINUTES
+              value: {{ .Values.polygon.minuteAggregateRefreshMinutes | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+{{- end }}

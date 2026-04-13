@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs/operators';
 import { Observable } from 'rxjs';
+import { runtimeConfig } from './runtime-config';
 
 const TOKEN_KEY = 'sr_access_token';
 
@@ -17,10 +18,10 @@ export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
 
-  readonly isAuthenticated = signal(!!localStorage.getItem(TOKEN_KEY));
+  readonly isAuthenticated = signal(!!localStorage.getItem(TOKEN_KEY) || !!runtimeConfig.staticToken);
 
   get token(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY) ?? runtimeConfig.staticToken ?? null;
   }
 
   login(apiKey: string): Observable<TokenResponse> {
@@ -36,7 +37,7 @@ export class AuthService {
 
   logout(): void {
     localStorage.removeItem(TOKEN_KEY);
-    this.isAuthenticated.set(false);
+    this.isAuthenticated.set(!!runtimeConfig.staticToken);
     this.router.navigate(['/login']);
   }
 }

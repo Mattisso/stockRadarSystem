@@ -37,6 +37,10 @@ class ConnectionManager:
     def active_count(self) -> int:
         return sum(len(peers) for peers in self._connections.values())
 
+    @property
+    def uses_pubsub(self) -> bool:
+        return bool(self._redis_url)
+
     async def start(self) -> None:
         if not self._redis_url:
             return

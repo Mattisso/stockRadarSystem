@@ -5,16 +5,19 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: stock-radar-api
+    app.kubernetes.io/component: web
     app.kubernetes.io/part-of: stock-radar-system
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.webReplicaCount }}
   selector:
     matchLabels:
       app: stock-radar-api
+      app.kubernetes.io/component: web
   template:
     metadata:
       labels:
         app: stock-radar-api
+        app.kubernetes.io/component: web
     spec:
       serviceAccountName: {{ .Values.global.sharedServiceAccountName }}
       securityContext:
@@ -28,6 +31,8 @@ spec:
               containerPort: {{ .Values.service.containerPort }}
               protocol: TCP
           env:
+            - name: API_RUNTIME_ROLE
+              value: "web"
             - name: API_PORT
               value: {{ .Values.env.API_PORT | quote }}
             - name: PGHOST

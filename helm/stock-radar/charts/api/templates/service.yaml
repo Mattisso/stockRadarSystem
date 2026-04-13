@@ -18,3 +18,4 @@ spec:
       {{- end }}
   selector:
     app: stock-radar-api
+    app.kubernetes.io/component: web

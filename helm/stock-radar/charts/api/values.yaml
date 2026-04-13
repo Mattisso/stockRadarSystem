@@ -1,4 +1,8 @@
-replicaCount: 1
+webReplicaCount: 1
+
+worker:
+  enabled: true
+  replicaCount: 1
 
 image:
   repository: stock-radar-api

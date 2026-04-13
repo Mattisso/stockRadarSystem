@@ -1,4 +1,8 @@
 api:
+  webReplicaCount: 1
+  worker:
+    enabled: true
+    replicaCount: 1
   image:
     repository: localhost:32000/stock-radar-api
     tag: latest

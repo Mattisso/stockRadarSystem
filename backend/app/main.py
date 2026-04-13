@@ -58,6 +58,8 @@ NEW_YORK_TZ = ZoneInfo("America/New_York")
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     setup_logging()
+    runtime_role = settings.api_runtime_role.lower()
+    run_background = runtime_role in {"all", "worker"}
     runtime = RuntimeOrchestrator()
     app.state.runtime = runtime
 
@@ -129,8 +131,8 @@ async def lifespan(app: FastAPI):
     app.state.polygon_client = polygon_client
     runtime.mark_service(
         "polygon",
-        polygon_client is not None,
-        detail=settings.polygon_mode if polygon_client else "disabled",
+        polygon_client is not None and run_background,
+        detail=(settings.polygon_mode if run_background else "disabled_for_web_role") if polygon_client else "disabled",
     )
 
     # ── Core components ─────────────────────────────────────────────
@@ -166,9 +168,10 @@ async def lifespan(app: FastAPI):
             l1_feature_engine=l1_feature_engine,
             tick_persister=tick_persister,
         )
-        await polygon_queue_consumer.start()
-        await polygon_client.start()
-        runtime.mark_service("polygon_queue_consumer", True)
+        if run_background:
+            await polygon_queue_consumer.start()
+            await polygon_client.start()
+        runtime.mark_service("polygon_queue_consumer", run_background, detail="enabled" if run_background else "disabled_for_web_role")
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -474,7 +477,7 @@ async def lifespan(app: FastAPI):
             await trade_executor.scan_signals(deep_tickers if deep_tickers else tickers)
 
             # Broadcast signal + state_machine updates via WebSocket
-            if ws_manager.active_count:
+            if ws_manager.active_count or ws_manager.uses_pubsub:
                 try:
                     db = SessionLocal()
                     try:
@@ -549,7 +552,7 @@ async def lifespan(app: FastAPI):
             await trade_executor.monitor_positions()
 
             # Broadcast trade + portfolio updates via WebSocket
-            if ws_manager.active_count:
+            if ws_manager.active_count or ws_manager.uses_pubsub:
                 try:
                     db = SessionLocal()
                     try:
@@ -607,55 +610,65 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="polygon_live_retention").observe(time.monotonic() - start)
 
-    scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
-    if settings.secret_universe_enabled:
+    if run_background:
+        scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
+        if settings.secret_universe_enabled:
+            scheduler.add_job(
+                refresh_secret_universe_job,
+                "cron",
+                hour=settings.secret_universe_rebuild_hour,
+                minute=settings.secret_universe_rebuild_minute,
+                max_instances=1,
+                id="secret_universe_refresh",
+            )
+        if settings.polygon_minute_aggregate_ingestion_enabled:
+            scheduler.add_job(
+                refresh_polygon_minute_aggregates_job,
+                "interval",
+                minutes=settings.polygon_minute_aggregate_refresh_minutes,
+                max_instances=1,
+                id="polygon_minute_aggregates_refresh",
+            )
         scheduler.add_job(
-            refresh_secret_universe_job,
-            "cron",
-            hour=settings.secret_universe_rebuild_hour,
-            minute=settings.secret_universe_rebuild_minute,
-            max_instances=1,
-            id="secret_universe_refresh",
-        )
-    if settings.polygon_minute_aggregate_ingestion_enabled:
-        scheduler.add_job(
-            refresh_polygon_minute_aggregates_job,
+            polygon_live_retention_job,
             "interval",
-            minutes=settings.polygon_minute_aggregate_refresh_minutes,
+            minutes=settings.polygon_live_cleanup_interval_minutes,
             max_instances=1,
-            id="polygon_minute_aggregates_refresh",
+            id="polygon_live_retention",
         )
-    scheduler.add_job(
-        polygon_live_retention_job,
-        "interval",
-        minutes=settings.polygon_live_cleanup_interval_minutes,
-        max_instances=1,
-        id="polygon_live_retention",
-    )
-    scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
-    scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
-    scheduler.add_job(retrain_job, "interval", hours=settings.ml_retrain_interval_hours, max_instances=1, id="ml_retrain")
+        scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
+        scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
+        scheduler.add_job(
+            retrain_job,
+            "interval",
+            hours=settings.ml_retrain_interval_hours,
+            max_instances=1,
+            id="ml_retrain",
+        )
 
-    scheduler.start()
-    runtime.mark_service("scheduler", True)
+        scheduler.start()
+        runtime.mark_service("scheduler", True)
 
-    broker_task = asyncio.create_task(connect_broker_background())
-    runtime.register_task("broker_connect", broker_task)
-    # Kick off the first universe refresh after startup so health probes can succeed
-    initial_refresh_task = asyncio.create_task(refresh_universe_job())
-    runtime.register_task("initial_universe_refresh", initial_refresh_task)
-    if settings.secret_universe_enabled:
-        initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
-        runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
-    if settings.polygon_minute_aggregate_ingestion_enabled:
-        initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
-        runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
+        broker_task = asyncio.create_task(connect_broker_background())
+        runtime.register_task("broker_connect", broker_task)
+        # Kick off the first universe refresh after startup so background state is hydrated immediately.
+        initial_refresh_task = asyncio.create_task(refresh_universe_job())
+        runtime.register_task("initial_universe_refresh", initial_refresh_task)
+        if settings.secret_universe_enabled:
+            initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
+            runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
+        if settings.polygon_minute_aggregate_ingestion_enabled:
+            initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
+            runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
+    else:
+        runtime.mark_service("scheduler", True, detail="disabled_for_web_role")
 
-    log.info("app.started", trading_mode=settings.trading_mode)
+    log.info("app.started", trading_mode=settings.trading_mode, runtime_role=runtime_role)
 
     yield
 
-    scheduler.shutdown(wait=False)
+    if run_background:
+        scheduler.shutdown(wait=False)
     if polygon_client:
         await polygon_client.stop()
     if polygon_queue_consumer:
