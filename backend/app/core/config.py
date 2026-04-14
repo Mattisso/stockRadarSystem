@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     universe_min_volume: int = 100_000
     secret_universe_enabled: bool = True
     secret_universe_source: str = "broker"  # "broker" | "polygon"
-    secret_universe_min_price: float = 1.0
+    secret_universe_min_price: float = 0.0
     secret_universe_max_price: float = 10.0
     secret_universe_min_volume: int = 100_000
     secret_universe_excluded_tickers: str = ""

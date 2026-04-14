@@ -25,8 +25,11 @@ import gzip
 import io
 import os
 import sys
+import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+
+import httpx
 
 
 def _env_float(name: str, default: float) -> float:
@@ -49,6 +52,13 @@ class FlatFileStats:
     skipped_rows: int = 0
 
 
+@dataclass(slots=True)
+class GroupedDailyStats:
+    total_rows: int = 0
+    filtered_rows: int = 0
+    skipped_rows: int = 0
+
+
 def build_key(trade_date: date, prefix: str) -> str:
     return f"{prefix}/{trade_date.year:04d}/{trade_date.month:02d}/{trade_date.isoformat()}.csv.gz"
 
@@ -59,6 +69,11 @@ def get_s3_client():
     except ImportError as exc:
         raise SystemExit("boto3 is required to run this script") from exc
     return boto3.client("s3")
+
+
+def get_polygon_api_key() -> str | None:
+    value = os.getenv("POLYGON_API_KEY")
+    return None if value in (None, "") else value
 
 
 def parse_stream(stream, *, max_close: float, min_close: float) -> tuple[list[dict], FlatFileStats]:
@@ -126,6 +141,93 @@ def load_latest(s3_client, *, bucket: str, prefix: str, anchor: date, lookback_d
     raise FileNotFoundError("No flat file found in lookback window")
 
 
+async def fetch_grouped_day_aggregates(
+    *,
+    trade_date: date,
+    api_key: str,
+    rest_url: str,
+) -> list[dict]:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(
+            f"{rest_url}/v2/aggs/grouped/locale/us/market/stocks/{trade_date.isoformat()}",
+            params={"adjusted": "true", "apiKey": api_key},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return list(data.get("results", []))
+
+
+def filter_grouped_day_records(
+    rows: list[dict],
+    *,
+    max_close: float,
+    min_close: float,
+) -> tuple[list[dict], GroupedDailyStats]:
+    stats = GroupedDailyStats()
+    records: list[dict] = []
+    for row in rows:
+        stats.total_rows += 1
+        ticker = row.get("T")
+        open_value = _parse_float(row.get("o"))
+        high_value = _parse_float(row.get("h"))
+        low_value = _parse_float(row.get("l"))
+        close_value = _parse_float(row.get("c"))
+        volume_value = _parse_int(row.get("v"))
+        if not ticker or open_value is None or high_value is None or low_value is None or close_value is None or volume_value is None:
+            stats.skipped_rows += 1
+            continue
+        if close_value >= max_close or close_value < min_close:
+            continue
+        records.append(
+            {
+                "ticker": str(ticker).upper(),
+                "open": open_value,
+                "high": high_value,
+                "low": low_value,
+                "close": close_value,
+                "volume": volume_value,
+            }
+        )
+        stats.filtered_rows += 1
+    return records, stats
+
+
+async def load_latest_grouped_day(
+    *,
+    anchor: date,
+    lookback_days: int,
+    api_key: str,
+    rest_url: str,
+    max_close: float,
+    min_close: float,
+) -> tuple[date, list[dict], GroupedDailyStats]:
+    last_error = None
+    for offset in range(lookback_days + 1):
+        trade_date = anchor - timedelta(days=offset)
+        if trade_date.weekday() >= 5:
+            continue
+        try:
+            rows = await fetch_grouped_day_aggregates(
+                trade_date=trade_date,
+                api_key=api_key,
+                rest_url=rest_url,
+            )
+            if not rows:
+                continue
+            records, stats = filter_grouped_day_records(
+                rows,
+                max_close=max_close,
+                min_close=min_close,
+            )
+            return trade_date, records, stats
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No grouped daily aggregates found in lookback window")
+
+
 def _first(row: dict[str, str], *keys: str) -> str | None:
     for key in keys:
         if key in row and row[key] not in (None, ""):
@@ -168,8 +270,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lookback-days", type=int, default=7, help="Lookback window for --latest")
     parser.add_argument("--bucket", default=_env_str("POLYGON_FLATFILES_BUCKET", "flatfiles"))
     parser.add_argument("--prefix", default=_env_str("POLYGON_DAY_AGGREGATE_PREFIX", "us_stocks_sip/day_aggs_v1"))
+    parser.add_argument("--rest-url", default=_env_str("POLYGON_REST_URL", "https://api.polygon.io"))
     parser.add_argument("--max-close", type=float, default=_env_float("UNIVERSE_MAX_PRICE", 10.0))
-    parser.add_argument("--min-close", type=float, default=_env_float("UNIVERSE_MIN_PRICE", 1.0))
+    parser.add_argument("--min-close", type=float, default=_env_float("UNIVERSE_MIN_PRICE", 0.0))
     parser.add_argument("--show-tickers", action="store_true", help="Print the filtered ticker list")
     args = parser.parse_args()
     if not args.date and not args.latest:
@@ -179,8 +282,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    s3_client = get_s3_client()
+    source = "flatfile_s3"
     try:
+        s3_client = get_s3_client()
         if args.latest:
             trade_date, key, records, stats = load_latest(
                 s3_client,
@@ -202,13 +306,51 @@ def main() -> int:
                 min_close=args.min_close,
             )
     except Exception as exc:  # noqa: BLE001
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
+        api_key = get_polygon_api_key()
+        if api_key is None:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            print(
+                "HINT: set AWS credentials for flat-file access or POLYGON_API_KEY for grouped daily REST fallback",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            source = "grouped_day_rest_fallback"
+            if args.latest:
+                trade_date, records, stats = asyncio.run(
+                    load_latest_grouped_day(
+                        anchor=datetime.now(timezone.utc).date(),
+                        lookback_days=args.lookback_days,
+                        api_key=api_key,
+                        rest_url=args.rest_url,
+                        max_close=args.max_close,
+                        min_close=args.min_close,
+                    )
+                )
+            else:
+                trade_date = date.fromisoformat(args.date)
+                rows = asyncio.run(
+                    fetch_grouped_day_aggregates(
+                        trade_date=trade_date,
+                        api_key=api_key,
+                        rest_url=args.rest_url,
+                    )
+                )
+                records, stats = filter_grouped_day_records(
+                    rows,
+                    max_close=args.max_close,
+                    min_close=args.min_close,
+                )
+            key = "grouped_day_rest"
+        except Exception as fallback_exc:  # noqa: BLE001
+            print(f"ERROR: {fallback_exc}", file=sys.stderr)
+            return 1
 
+    print(f"source={source}")
     print(f"trade_date={trade_date.isoformat()}")
     print(f"s3_key={key}")
     print(f"total_rows={stats.total_rows}")
-    print(f"valid_rows={stats.valid_rows}")
+    print(f"valid_rows={getattr(stats, 'valid_rows', 'n/a')}")
     print(f"filtered_rows={stats.filtered_rows}")
     print(f"skipped_rows={stats.skipped_rows}")
 

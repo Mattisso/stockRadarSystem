@@ -459,7 +459,7 @@ tunnel-stop:
 	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
-.PHONY: rotate-api-key show-api-key show-api-key-public show-access-token show-access-token-public
+.PHONY: rotate-api-key show-api-key show-api-key-public show-polygon-key show-polygon-key-public show-access-token show-access-token-public
 
 rotate-api-key:
 	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
@@ -475,6 +475,12 @@ show-api-key:
 
 show-api-key-public:
 	@kubectl get secret api-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.API_SECRET_KEY}' | base64 -d; echo
+
+show-polygon-key:
+	@kubectl get secret polygon-secret -n $(NAMESPACE) -o jsonpath='{.data.POLYGON_API_KEY}' | base64 -d; echo
+
+show-polygon-key-public:
+	@kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.POLYGON_API_KEY}' | base64 -d; echo
 
 show-access-token:
 	@kubectl exec -n $(NAMESPACE) deploy/stock-radar-api -- python3 -c "from app.core.auth import create_access_token; print(create_access_token())"

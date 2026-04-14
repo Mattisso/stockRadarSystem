@@ -290,21 +290,44 @@ async def lifespan(app: FastAPI):
                     if polygon_client is None:
                         raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
                     if settings.polygon_day_aggregate_ingestion_enabled:
-                        loader = PolygonFlatFileUniverseLoader(db)
-                        trade_date, tickers, stats = loader.load_latest_universe_from_s3(
-                            max_close=settings.secret_universe_max_price,
-                            min_close=settings.secret_universe_min_price,
-                        )
-                        db.commit()
-                        log.info(
-                            "scheduler.polygon_flatfile_universe_refreshed",
-                            trade_date=trade_date.isoformat(),
-                            raw_count=stats.total_rows,
-                            valid_count=stats.valid_rows,
-                            filtered_count=stats.filtered_rows,
-                            skipped_count=stats.skipped_rows,
-                            universe_count=len(tickers),
-                        )
+                        try:
+                            loader = PolygonFlatFileUniverseLoader(db)
+                            trade_date, tickers, stats = loader.load_latest_universe_from_s3(
+                                max_close=settings.secret_universe_max_price,
+                                min_close=settings.secret_universe_min_price,
+                            )
+                            db.commit()
+                            log.info(
+                                "scheduler.polygon_flatfile_universe_refreshed",
+                                trade_date=trade_date.isoformat(),
+                                raw_count=stats.total_rows,
+                                valid_count=stats.valid_rows,
+                                filtered_count=stats.filtered_rows,
+                                skipped_count=stats.skipped_rows,
+                                universe_count=len(tickers),
+                            )
+                            source = "polygon_flatfile"
+                        except Exception:
+                            db.rollback()
+                            aggregate_service = PolygonAggregateService(db)
+                            trade_date, day_records = await resolve_polygon_trade_date_and_records(
+                                polygon_client
+                            )
+                            inserted = aggregate_service.upsert_day_aggregates(day_records)
+                            tickers = aggregate_service.build_daily_universe(
+                                trade_date=trade_date,
+                                max_close=settings.secret_universe_max_price,
+                                min_close=settings.secret_universe_min_price,
+                            )
+                            db.commit()
+                            log.warning(
+                                "scheduler.polygon_universe_flatfile_unavailable_falling_back_to_grouped_rest",
+                                trade_date=trade_date.isoformat(),
+                                day_record_count=len(day_records),
+                                inserted_count=inserted,
+                                universe_count=len(tickers),
+                            )
+                            source = "polygon_grouped_day_rest"
                     else:
                         universe_quotes = await polygon_client.load_reference_universe(
                             max_price=settings.secret_universe_max_price,
