@@ -59,6 +59,8 @@ spec:
               value: {{ .Values.env.TRADING_MODE | quote }}
             - name: BUY_USE_BRACKETS
               value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
+            - name: SECRET_UNIVERSE_ENABLED
+              value: {{ .Values.env.SECRET_UNIVERSE_ENABLED | quote }}
             - name: SECRET_UNIVERSE_SOURCE
               value: {{ .Values.env.SECRET_UNIVERSE_SOURCE | quote }}
             - name: CORS_ALLOWED_ORIGINS

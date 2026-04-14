@@ -14,7 +14,13 @@ api:
     REDIS_URL: "redis://stock-radar-redis:6379/0"
     TRADING_MODE: paper
     BUY_USE_BRACKETS: "true"
+    SECRET_UNIVERSE_ENABLED: "true"
+    SECRET_UNIVERSE_SOURCE: "polygon"
+    CORS_ALLOWED_ORIGINS: "https://stockradarx.com,https://www.stockradarx.com"
+    CORS_ALLOWED_ORIGIN_REGEX: ""
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
+  worker:
+    brokerType: "mock"
   broker:
     type: "ibkr"
     ibkrHost: "192.168.1.77"
