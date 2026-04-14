@@ -48,6 +48,17 @@ def test_build_subscription_batches_chunks_large_universe():
     ]
 
 
+def test_build_subscription_batches_for_aggregate_channels():
+    manager = PolygonConnectionManager(api_key="key", subscription_batch_size=2)
+
+    batches = manager.build_subscription_batches(["AAPL", "TSLA", "MSFT"], channels=("AM", "A"))
+
+    assert batches == [
+        "AM.AAPL,AM.TSLA,A.AAPL,A.TSLA",
+        "AM.MSFT,A.MSFT",
+    ]
+
+
 def test_build_subscription_batches_can_include_trade_wildcard():
     manager = PolygonConnectionManager(api_key="key", subscription_batch_size=2)
 

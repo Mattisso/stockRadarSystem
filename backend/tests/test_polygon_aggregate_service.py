@@ -45,7 +45,7 @@ def test_upsert_day_aggregates_and_build_universe(db):
     assert inserted == 2
     assert db.query(PolygonDayAggregate).count() == 2
 
-    universe = service.build_daily_universe(trade_date=trade_date, max_open=10.0)
+    universe = service.build_daily_universe(trade_date=trade_date, max_close=10.0)
     db.commit()
 
     assert universe == ["LCID"]
@@ -61,6 +61,38 @@ def test_upsert_day_aggregates_and_build_universe(db):
     assert lcid_symbol.is_active is True
     old_symbol = db.query(Symbol).filter_by(ticker="OLD").one()
     assert old_symbol.is_active is False
+
+
+def test_build_daily_universe_filters_by_close_not_open(db):
+    service = PolygonAggregateService(db)
+    trade_date = date(2026, 4, 4)
+
+    service.upsert_day_aggregates(
+        [
+            PolygonDayAggregateRecord(
+                ticker="OPENLOW_CLOSEHIGH",
+                trade_date=trade_date,
+                open=3.25,
+                high=10.5,
+                low=3.0,
+                close=10.25,
+                volume=100_000,
+            ),
+            PolygonDayAggregateRecord(
+                ticker="OPENHIGH_CLOSELOW",
+                trade_date=trade_date,
+                open=11.0,
+                high=11.2,
+                low=9.5,
+                close=9.9,
+                volume=100_000,
+            ),
+        ]
+    )
+
+    universe = service.build_daily_universe(trade_date=trade_date, max_close=10.0)
+
+    assert universe == ["OPENHIGH_CLOSELOW"]
 
 
 def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):

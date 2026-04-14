@@ -33,6 +33,7 @@ from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.data.polygon_live_retention_service import PolygonLiveRetentionService
+from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.engine.signal_detector import SignalDetector
 from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
@@ -111,8 +112,10 @@ async def lifespan(app: FastAPI):
     # ── Polygon L1 (optional) ────────────────────────────────────────
     polygon_client = None
     polygon_queue_consumer = None
+    polygon_aggregate_client = None
     if settings.polygon_api_key:
         from app.data.polygon_client import PolygonClient
+        from app.data.polygon_aggregate_client import PolygonAggregateClient
 
         polygon_queue = asyncio.Queue(maxsize=settings.polygon_queue_maxsize)
         polygon_client = PolygonClient(
@@ -128,11 +131,24 @@ async def lifespan(app: FastAPI):
             dev_max_symbols=settings.polygon_dev_max_symbols,
             include_trade_wildcard=settings.secret_polygon_include_trade_wildcard,
         )
+        polygon_aggregate_client = PolygonAggregateClient(
+            api_key=settings.polygon_api_key,
+            db_session_factory=SessionLocal,
+            ws_url=settings.polygon_ws_url,
+            reconnect_max_delay=settings.polygon_reconnect_max_delay,
+            subscription_batch_size=settings.polygon_subscription_batch_size,
+        )
     app.state.polygon_client = polygon_client
+    app.state.polygon_aggregate_client = polygon_aggregate_client
     runtime.mark_service(
         "polygon",
         polygon_client is not None and run_background,
         detail=(settings.polygon_mode if run_background else "disabled_for_web_role") if polygon_client else "disabled",
+    )
+    runtime.mark_service(
+        "polygon_aggregates",
+        polygon_aggregate_client is not None and run_background,
+        detail=(settings.polygon_mode if run_background else "disabled_for_web_role") if polygon_aggregate_client else "disabled",
     )
 
     # ── Core components ─────────────────────────────────────────────
@@ -171,6 +187,8 @@ async def lifespan(app: FastAPI):
         if run_background:
             await polygon_queue_consumer.start()
             await polygon_client.start()
+            if settings.polygon_mode == "websocket" and polygon_aggregate_client is not None:
+                await polygon_aggregate_client.start()
         runtime.mark_service("polygon_queue_consumer", run_background, detail="enabled" if run_background else "disabled_for_web_role")
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
@@ -272,19 +290,19 @@ async def lifespan(app: FastAPI):
                     if polygon_client is None:
                         raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
                     if settings.polygon_day_aggregate_ingestion_enabled:
-                        aggregate_service = PolygonAggregateService(db)
-                        trade_date, day_records = await resolve_polygon_trade_date_and_records(polygon_client)
-                        inserted = aggregate_service.upsert_day_aggregates(day_records)
-                        tickers = aggregate_service.build_daily_universe(
-                            trade_date=trade_date,
-                            max_open=settings.secret_universe_max_price,
+                        loader = PolygonFlatFileUniverseLoader(db)
+                        trade_date, tickers, stats = loader.load_latest_universe_from_s3(
+                            max_close=settings.secret_universe_max_price,
+                            min_close=settings.secret_universe_min_price,
                         )
                         db.commit()
                         log.info(
-                            "scheduler.polygon_day_aggregates_refreshed",
+                            "scheduler.polygon_flatfile_universe_refreshed",
                             trade_date=trade_date.isoformat(),
-                            raw_count=len(day_records),
-                            inserted_count=inserted,
+                            raw_count=stats.total_rows,
+                            valid_count=stats.valid_rows,
+                            filtered_count=stats.filtered_rows,
+                            skipped_count=stats.skipped_rows,
                             universe_count=len(tickers),
                         )
                     else:
@@ -298,6 +316,8 @@ async def lifespan(app: FastAPI):
                     tickers = await engine.refresh_secret_ingredients_universe()
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="secret_universe")
+                if polygon_aggregate_client:
+                    polygon_aggregate_client.update_subscriptions(tickers, source="secret_universe")
                 SECRET_UNIVERSE_SIZE.set(len(tickers))
                 secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
                 log.info("scheduler.secret_universe_refreshed", count=len(tickers))
@@ -323,7 +343,9 @@ async def lifespan(app: FastAPI):
                 tickers = SecretIngredientsService(db).latest_daily_universe_tickers()
                 if not tickers:
                     return
-                trade_date, _ = await resolve_polygon_trade_date_and_records(polygon_client)
+                trade_date = aggregate_service.latest_day_aggregate_date()
+                if trade_date is None:
+                    return
                 allowed_tickers = set(tickers)
                 inserted = 0
                 for ticker in tickers:
@@ -673,6 +695,8 @@ async def lifespan(app: FastAPI):
         await polygon_client.stop()
     if polygon_queue_consumer:
         await polygon_queue_consumer.stop()
+    if polygon_aggregate_client:
+        await polygon_aggregate_client.stop()
     await cache.disconnect()
     await ws_manager.stop()
     runtime.mark_service("cache", False, detail="shutdown")

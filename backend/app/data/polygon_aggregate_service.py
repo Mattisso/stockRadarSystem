@@ -87,16 +87,24 @@ class PolygonAggregateService:
         self.db.flush()
         return rows_added
 
-    def build_daily_universe(self, *, trade_date: date, max_open: float = 10.0) -> list[str]:
+    def build_daily_universe(
+        self,
+        *,
+        trade_date: date,
+        max_close: float = 10.0,
+        min_close: float | None = None,
+    ) -> list[str]:
         rows = (
             self.db.query(PolygonDayAggregate)
             .filter(
                 PolygonDayAggregate.trade_date == trade_date,
-                PolygonDayAggregate.open < max_open,
+                PolygonDayAggregate.close < max_close,
             )
             .order_by(PolygonDayAggregate.ticker.asc())
             .all()
         )
+        if min_close is not None:
+            rows = [row for row in rows if row.close >= min_close]
         tickers = [row.ticker for row in rows]
         snapshots_by_ticker = {
             row.ticker: DailyUniverseSnapshot(
