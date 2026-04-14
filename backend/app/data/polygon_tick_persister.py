@@ -1,4 +1,8 @@
-"""Buffered persistence for raw Polygon L1 events."""
+"""Buffered persistence for raw Polygon L1 events.
+
+Raw ticks are persisted for L1 and audit use only. Aggregate second bars must
+come from the Polygon ``A`` websocket feed, not reconstructed quote batches.
+"""
 
 from collections.abc import Callable
 
@@ -6,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.broker.interface import Quote
 from app.core.logging import get_logger
-from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.models.polygon_tick import PolygonTick
 from app.models.polygon_tick_live import PolygonTickLive
 
@@ -62,22 +65,18 @@ class PolygonTickPersister:
         db = self._db_session_factory()
         rows = self._pending
         live_rows = self._pending_live
-        quotes = self._pending_quotes
         self._pending = []
         self._pending_live = []
         self._pending_quotes = []
         try:
             db.add_all(rows)
             db.add_all(live_rows)
-            second_records = PolygonAggregateService.second_records_from_quotes(quotes)
-            if second_records:
-                PolygonAggregateService(db).upsert_second_aggregates(second_records)
             db.commit()
             log.info(
                 "polygon.tick_batch_persisted",
                 count=len(rows),
                 live_count=len(live_rows),
-                second_aggregate_count=len(second_records),
+                second_aggregate_count=0,
             )
         except Exception:
             db.rollback()
