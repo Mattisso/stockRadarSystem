@@ -5,6 +5,7 @@ from app.data.polygon_aggregate_service import (
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
+from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.symbol_state_live import SymbolStateLive
 
@@ -126,3 +127,27 @@ def test_symbol_state_live_refreshes_stale_flags(db):
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     assert state.minutes_since_last_trade_bar == 3
     assert state.is_minute_stream_stale is True
+
+
+def test_aggregate_and_state_timestamps_share_same_utc_naive_convention(db):
+    aggregate_service = PolygonAggregateService(db)
+    aggregate_service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 10, 13, 30, 3, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.20,
+                low=2.99,
+                close=3.20,
+                volume=120,
+                transactions=1,
+            )
+        ]
+    )
+
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    second_row = db.query(PolygonSecondAggregate).filter_by(ticker="LCID").one()
+
+    assert second_row.second_ts == datetime(2026, 4, 10, 13, 30, 3)
+    assert state.last_second_ts == datetime(2026, 4, 10, 13, 30, 3)

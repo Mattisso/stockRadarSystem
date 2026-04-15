@@ -325,10 +325,10 @@ class PolygonAggregateService:
     def _normalize_minute_ts(value: datetime) -> datetime:
         if value.tzinfo is None:
             return value.replace(second=0, microsecond=0)
-        return value.astimezone(timezone.utc).replace(second=0, microsecond=0)
+        return value.astimezone(timezone.utc).replace(second=0, microsecond=0, tzinfo=None)
 
     @staticmethod
     def _normalize_second_ts(value: datetime) -> datetime:
         if value.tzinfo is None:
             return value.replace(microsecond=0)
-        return value.astimezone(timezone.utc).replace(microsecond=0)
+        return value.astimezone(timezone.utc).replace(microsecond=0, tzinfo=None)
