@@ -92,6 +92,12 @@ class SymbolStateLiveService:
         self.db.flush()
         return len(states)
 
+    def refresh_state(self, state: SymbolStateLive, *, as_of: datetime | None = None) -> SymbolStateLive:
+        target_as_of = self._normalize_reference_ts(as_of or datetime.now(timezone.utc))
+        self._recompute_staleness(state, as_of=target_as_of)
+        self.db.flush()
+        return state
+
     def _get_or_create(self, ticker: str) -> SymbolStateLive:
         state = self.db.query(SymbolStateLive).filter_by(ticker=ticker).first()
         if state is None:

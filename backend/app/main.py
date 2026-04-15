@@ -32,8 +32,10 @@ from app.core.metrics import (
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.data.polygon_aggregate_service import PolygonAggregateService
+from app.data.aggregate_history_export_service import AggregateHistoryExportService
 from app.data.polygon_live_retention_service import PolygonLiveRetentionService
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
+from app.engine.aggregate_runtime_service import AggregateRuntimeService
 from app.engine.signal_detector import SignalDetector
 from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
@@ -255,10 +257,14 @@ async def lifespan(app: FastAPI):
 
     # ── Scheduler ───────────────────────────────────────────────────
     scheduler = AsyncIOScheduler()
+    use_polygon_secret_universe = settings.secret_universe_enabled and settings.secret_universe_source == "polygon"
 
     async def refresh_universe_job():
         start = time.monotonic()
         try:
+            if use_polygon_secret_universe:
+                log.info("scheduler.universe_refresh_skipped", reason="polygon_secret_universe_enabled")
+                return
             if not await ensure_broker_connected():
                 return
             db = SessionLocal()
@@ -655,8 +661,64 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="polygon_live_retention").observe(time.monotonic() - start)
 
+    async def aggregate_rolling_refresh_job():
+        start = time.monotonic()
+        try:
+            db = SessionLocal()
+            try:
+                result = AggregateRuntimeService(db).refresh_validation_and_decisions(
+                    as_of=datetime.now(timezone.utc),
+                )
+                db.commit()
+                log.info(
+                    "scheduler.aggregate_rolling_refresh_completed",
+                    refreshed_state_count=result.refreshed_state_count,
+                    refreshed_validation_count=result.refreshed_validation_count,
+                    persisted_decision_count=result.persisted_decision_count,
+                    as_of=result.as_of.isoformat(),
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="aggregate_rolling_refresh").inc()
+            log.exception("scheduler.aggregate_rolling_refresh_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="aggregate_rolling_refresh").observe(time.monotonic() - start)
+
+    async def aggregate_history_export_job():
+        start = time.monotonic()
+        try:
+            if not settings.aggregate_history_export_enabled:
+                return
+            db = SessionLocal()
+            try:
+                result = AggregateHistoryExportService(db).export_jsonl(
+                    output_dir=settings.aggregate_history_export_dir,
+                    min_age_minutes=settings.aggregate_history_export_min_age_minutes,
+                    now=datetime.now(timezone.utc),
+                )
+                log.info(
+                    "scheduler.aggregate_history_export_completed",
+                    export_dir=str(result.export_dir),
+                    cutoff_ts=result.cutoff_ts.isoformat(),
+                    cutoff_date=result.cutoff_date.isoformat(),
+                    universe_rows=result.universe_rows,
+                    minute_rows=result.minute_rows,
+                    second_rows=result.second_rows,
+                    candidate_rows=result.candidate_rows,
+                    decision_rows=result.decision_rows,
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="aggregate_history_export").inc()
+            log.exception("scheduler.aggregate_history_export_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="aggregate_history_export").observe(time.monotonic() - start)
+
     if run_background:
-        scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
+        if not use_polygon_secret_universe:
+            scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
         if settings.secret_universe_enabled:
             scheduler.add_job(
                 refresh_secret_universe_job,
@@ -681,6 +743,20 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_live_retention",
         )
+        scheduler.add_job(
+            aggregate_rolling_refresh_job,
+            "interval",
+            seconds=settings.aggregate_rolling_refresh_seconds,
+            max_instances=1,
+            id="aggregate_rolling_refresh",
+        )
+        scheduler.add_job(
+            aggregate_history_export_job,
+            "interval",
+            minutes=settings.aggregate_history_export_interval_minutes,
+            max_instances=1,
+            id="aggregate_history_export",
+        )
         scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
         scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
         scheduler.add_job(
@@ -697,14 +773,20 @@ async def lifespan(app: FastAPI):
         broker_task = asyncio.create_task(connect_broker_background())
         runtime.register_task("broker_connect", broker_task)
         # Kick off the first universe refresh after startup so background state is hydrated immediately.
-        initial_refresh_task = asyncio.create_task(refresh_universe_job())
-        runtime.register_task("initial_universe_refresh", initial_refresh_task)
+        if not use_polygon_secret_universe:
+            initial_refresh_task = asyncio.create_task(refresh_universe_job())
+            runtime.register_task("initial_universe_refresh", initial_refresh_task)
         if settings.secret_universe_enabled:
             initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
             runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
         if settings.polygon_minute_aggregate_ingestion_enabled:
             initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
             runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
+        initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
+        runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
+        if settings.aggregate_history_export_enabled:
+            initial_history_export_task = asyncio.create_task(aggregate_history_export_job())
+            runtime.register_task("initial_aggregate_history_export", initial_history_export_task)
     else:
         runtime.mark_service("scheduler", True, detail="disabled_for_web_role")
 

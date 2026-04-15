@@ -1,7 +1,11 @@
 import json
 from datetime import datetime, timezone
 
-from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonSecondAggregateRecord
+from app.data.polygon_aggregate_service import (
+    PolygonAggregateService,
+    PolygonMinuteAggregateRecord,
+    PolygonSecondAggregateRecord,
+)
 from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
@@ -117,3 +121,95 @@ def test_upsert_second_aggregates_persists_candidate_events_and_live_score(db):
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     assert state.candidate_status in {"validated", "rejected"}
     assert state.candidate_score is not None
+
+
+def test_velocity_spike_emits_candidate_event(db):
+    service = PolygonAggregateService(db)
+    bars = [
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 40, 1, tzinfo=timezone.utc), 3.00, 3.01, 2.99, 3.00, 100, 3.00, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 40, 2, tzinfo=timezone.utc), 3.00, 3.01, 2.99, 3.00, 100, 3.00, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 40, 3, tzinfo=timezone.utc), 3.00, 3.01, 2.99, 3.00, 100, 3.00, 1),
+    ]
+    service.upsert_second_aggregates(bars)
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 40, 4, tzinfo=timezone.utc), 3.00, 3.05, 3.00, 3.04, 100, 3.03, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    assert "velocity_spike" in {trigger.trigger_name for trigger in triggers}
+
+
+def test_range_expansion_emits_candidate_event(db):
+    service = PolygonAggregateService(db)
+    bars = [
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 41, second, tzinfo=timezone.utc), 3.00, 3.01, 3.00, 3.005, 100, 3.005, 1)
+        for second in range(1, 11)
+    ]
+    service.upsert_second_aggregates(bars)
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 41, 11, tzinfo=timezone.utc), 3.00, 3.05, 3.00, 3.045, 100, 3.04, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    assert "range_expansion" in {trigger.trigger_name for trigger in triggers}
+
+
+def test_break_current_and_previous_minute_high_emit_candidate_events(db):
+    service = PolygonAggregateService(db)
+    service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord("LCID", datetime(2026, 4, 10, 13, 42, tzinfo=timezone.utc), 3.00, 3.04, 2.99, 3.03, 1000, 3.02, 1),
+            PolygonMinuteAggregateRecord("LCID", datetime(2026, 4, 10, 13, 43, tzinfo=timezone.utc), 3.03, 3.06, 3.02, 3.05, 1000, 3.04, 1),
+        ]
+    )
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 43, 30, tzinfo=timezone.utc), 3.06, 3.08, 3.06, 3.08, 100, 3.08, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    names = {trigger.trigger_name for trigger in triggers}
+    assert "break_current_minute_high" in names
+    assert "break_previous_minute_high" in names
+
+
+def test_recovery_spike_emits_candidate_event(db):
+    service = PolygonAggregateService(db)
+    bars = [
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 1, tzinfo=timezone.utc), 3.10, 3.12, 3.09, 3.11, 100, 3.11, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 2, tzinfo=timezone.utc), 3.11, 3.11, 3.00, 3.02, 100, 3.04, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 3, tzinfo=timezone.utc), 3.02, 3.03, 3.01, 3.02, 100, 3.02, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 4, tzinfo=timezone.utc), 3.02, 3.03, 3.01, 3.02, 100, 3.02, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 5, tzinfo=timezone.utc), 3.02, 3.03, 3.01, 3.02, 100, 3.02, 1),
+    ]
+    service.upsert_second_aggregates(bars)
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 44, 6, tzinfo=timezone.utc), 3.02, 3.05, 3.02, 3.05, 100, 3.05, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    assert "recovery_spike" in {trigger.trigger_name for trigger in triggers}
+
+
+def test_first_move_after_quiet_emits_candidate_event(db):
+    service = PolygonAggregateService(db)
+    bars = [
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, second, tzinfo=timezone.utc), 3.00, 3.003, 2.999, 3.001, 100, 3.001, 1)
+        for second in range(1, 11)
+    ]
+    service.upsert_second_aggregates(bars)
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 11, tzinfo=timezone.utc), 3.001, 3.03, 3.001, 3.03, 100, 3.02, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    assert "first_move_after_quiet" in {trigger.trigger_name for trigger in triggers}
+
+
+def test_new_high_of_day_early_emits_candidate_event(db):
+    service = PolygonAggregateService(db)
+    bars = [
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 31, 0, tzinfo=timezone.utc), 3.00, 3.01, 2.99, 3.00, 100, 3.00, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 31, 1, tzinfo=timezone.utc), 3.00, 3.02, 2.99, 3.01, 100, 3.01, 1),
+        PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 31, 2, tzinfo=timezone.utc), 3.01, 3.03, 3.00, 3.02, 100, 3.02, 1),
+    ]
+    service.upsert_second_aggregates(bars)
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 31, 3, tzinfo=timezone.utc), 3.03, 3.05, 3.03, 3.05, 100, 3.05, 1)
+    service.upsert_second_aggregates([current])
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    assert "new_high_of_day_early" in {trigger.trigger_name for trigger in triggers}
