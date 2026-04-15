@@ -70,6 +70,8 @@ spec:
               value: {{ .Values.env.CORS_ALLOWED_ORIGIN_REGEX | quote }}
             - name: BROKER_TYPE
               value: {{ default .Values.broker.type .Values.worker.brokerType | quote }}
+            - name: UVICORN_WORKERS
+              value: {{ .Values.worker.uvicornWorkers | quote }}
             - name: IBKR_HOST
               value: {{ .Values.broker.ibkrHost | quote }}
             - name: IBKR_PORT

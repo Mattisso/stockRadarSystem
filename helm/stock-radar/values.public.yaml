@@ -21,6 +21,7 @@ api:
     DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
   worker:
     brokerType: "mock"
+    uvicornWorkers: "1"
   broker:
     type: "ibkr"
     ibkrHost: "192.168.1.77"

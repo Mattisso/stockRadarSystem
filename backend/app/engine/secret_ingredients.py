@@ -1,7 +1,7 @@
 """First-sprint Secret Ingredients persistence and handoff helpers."""
 
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import json
 
 from sqlalchemy import desc
@@ -125,12 +125,13 @@ class SecretIngredientsService:
         rows: list[L1ToL2Event] = []
         for event in events:
             payload = self.build_handoff_payload(event)
-            now = datetime.now()
+            detect_ts = self._normalize_timestamp(event.timestamp)
+            now = datetime.now(timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
             row = L1ToL2Event(
                 ticker=event.ticker,
-                detect_ts=event.timestamp,
+                detect_ts=detect_ts,
                 escalate_ts=now,
-                latency_ms=max(0.0, (now - event.timestamp).total_seconds() * 1000),
+                latency_ms=max(0.0, (now - detect_ts).total_seconds() * 1000),
                 escalation_reason="secret_candidate",
                 handoff_payload=json.dumps(payload, sort_keys=True),
             )
@@ -160,3 +161,9 @@ class SecretIngredientsService:
         if event.buy_pressure >= 0.65:
             flags.append("buy_pressure")
         return ",".join(flags)
+
+    @staticmethod
+    def _normalize_timestamp(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(microsecond=0)
+        return value.astimezone(timezone.utc).replace(tzinfo=None, microsecond=0)

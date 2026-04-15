@@ -4,6 +4,7 @@ worker:
   enabled: true
   replicaCount: 1
   brokerType: ""
+  uvicornWorkers: "1"
 
 image:
   repository: stock-radar-api
