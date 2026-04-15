@@ -34,6 +34,7 @@ api:
     restPollInterval: "30.0"
     persistTicks: "true"
     persistBatchSize: "250"
+    includeTradeWildcard: "false"
     dayAggregateIngestionEnabled: "true"
     minuteAggregateIngestionEnabled: "true"
     minuteAggregateRefreshMinutes: "15"

@@ -85,6 +85,7 @@ polygon:
   queueMaxsize: "10000"
   persistTicks: "false"
   persistBatchSize: "100"
+  includeTradeWildcard: "false"
   dayAggregateIngestionEnabled: "false"
   minuteAggregateIngestionEnabled: "false"
   minuteAggregateRefreshMinutes: "15"

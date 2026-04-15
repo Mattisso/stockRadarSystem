@@ -109,6 +109,8 @@ spec:
               value: {{ .Values.polygon.persistTicks | quote }}
             - name: POLYGON_PERSIST_BATCH_SIZE
               value: {{ .Values.polygon.persistBatchSize | quote }}
+            - name: SECRET_POLYGON_INCLUDE_TRADE_WILDCARD
+              value: {{ .Values.polygon.includeTradeWildcard | quote }}
             - name: POLYGON_DAY_AGGREGATE_INGESTION_ENABLED
               value: {{ .Values.polygon.dayAggregateIngestionEnabled | quote }}
             - name: POLYGON_MINUTE_AGGREGATE_INGESTION_ENABLED
