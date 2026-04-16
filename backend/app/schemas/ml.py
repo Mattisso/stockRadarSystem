@@ -1,11 +1,23 @@
 """Pydantic schemas for ML, analytics, and Secret Sauce ops endpoints."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 
-class MLStatusResponse(BaseModel):
+class ApiResponseModel(BaseModel):
+    """Serialize naive datetimes as explicit UTC timestamps at the API boundary."""
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def serialize_datetimes(self, value):
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        return value
+
+
+class MLStatusResponse(ApiResponseModel):
     model_trained: bool
     feature_importances: dict[str, float] | None = None
     ml_enabled: bool
@@ -13,13 +25,13 @@ class MLStatusResponse(BaseModel):
     min_training_samples: int
 
 
-class RetrainResponse(BaseModel):
+class RetrainResponse(ApiResponseModel):
     status: str  # "retrained" | "insufficient_data" | "error"
     samples: int | None = None
     metrics: dict | None = None
 
 
-class BacktestRequest(BaseModel):
+class BacktestRequest(ApiResponseModel):
     start_date: datetime | None = None
     end_date: datetime | None = None
     slippage_pct: float = 0.001
@@ -29,7 +41,7 @@ class BacktestRequest(BaseModel):
     score_threshold: float = 0.65
 
 
-class BacktestResponse(BaseModel):
+class BacktestResponse(ApiResponseModel):
     total_trades: int
     winning_trades: int
     losing_trades: int
@@ -43,7 +55,7 @@ class BacktestResponse(BaseModel):
     trades: list[dict]
 
 
-class KPIResponse(BaseModel):
+class KPIResponse(ApiResponseModel):
     total_trades: int
     winning_trades: int
     losing_trades: int
@@ -57,7 +69,7 @@ class KPIResponse(BaseModel):
     days: int
 
 
-class SignalAccuracyBucketResponse(BaseModel):
+class SignalAccuracyBucketResponse(ApiResponseModel):
     range: str
     total: int
     wins: int
@@ -66,7 +78,7 @@ class SignalAccuracyBucketResponse(BaseModel):
     expectancy: float
 
 
-class ApiContractResponse(BaseModel):
+class ApiContractResponse(ApiResponseModel):
     rest_base: str
     websocket_base: str
     auth_token_path: str
@@ -76,7 +88,7 @@ class ApiContractResponse(BaseModel):
     websocket_channels: list[str]
 
 
-class SecretSauceContractResponse(BaseModel):
+class SecretSauceContractResponse(ApiResponseModel):
     consumer: str
     handoff_route: str
     handoff_fields: list[str]
@@ -84,7 +96,7 @@ class SecretSauceContractResponse(BaseModel):
     requires_l2: bool
 
 
-class SecretSauceHandoffResponse(BaseModel):
+class SecretSauceHandoffResponse(ApiResponseModel):
     ticker: str
     score: float
     detected_at: datetime
@@ -99,7 +111,7 @@ class SecretSauceHandoffResponse(BaseModel):
     l2_required: bool
 
 
-class SecretSauceQueueStatusResponse(BaseModel):
+class SecretSauceQueueStatusResponse(ApiResponseModel):
     active_count: int
     active_tickers: list[str]
     queue_depth: int
@@ -109,13 +121,13 @@ class SecretSauceQueueStatusResponse(BaseModel):
     replaceable_tickers: list[str]
 
 
-class SecretSauceStatusResponse(BaseModel):
+class SecretSauceStatusResponse(ApiResponseModel):
     runtime: dict
     queue: SecretSauceQueueStatusResponse
     polygon_session: dict | None = None
 
 
-class SecretReplayQuoteRequest(BaseModel):
+class SecretReplayQuoteRequest(ApiResponseModel):
     ticker: str
     bid: float
     ask: float
@@ -124,11 +136,11 @@ class SecretReplayQuoteRequest(BaseModel):
     timestamp: datetime
 
 
-class SecretReplayRequest(BaseModel):
+class SecretReplayRequest(ApiResponseModel):
     quotes: list[SecretReplayQuoteRequest]
 
 
-class SecretReplaySnapshotResponse(BaseModel):
+class SecretReplaySnapshotResponse(ApiResponseModel):
     ticker: str
     price_velocity_1m: float
     spread_pct: float
@@ -139,7 +151,7 @@ class SecretReplaySnapshotResponse(BaseModel):
     last_updated: datetime
 
 
-class SecretReplayCandidateResponse(BaseModel):
+class SecretReplayCandidateResponse(ApiResponseModel):
     ticker: str
     score: float
     price_velocity_1m: float
@@ -152,7 +164,7 @@ class SecretReplayCandidateResponse(BaseModel):
     timestamp: datetime
 
 
-class SecretReplayResponse(BaseModel):
+class SecretReplayResponse(ApiResponseModel):
     snapshots: list[SecretReplaySnapshotResponse]
     candidates: list[SecretReplayCandidateResponse]
     handoffs: list[SecretSauceHandoffResponse]
@@ -160,7 +172,7 @@ class SecretReplayResponse(BaseModel):
     promoted_tickers: list[str]
 
 
-class SecretUniverseDailyResponse(BaseModel):
+class SecretUniverseDailyResponse(ApiResponseModel):
     id: int
     trade_date: date
     ticker: str
@@ -174,7 +186,7 @@ class SecretUniverseDailyResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SecretL1CandidateResponse(BaseModel):
+class SecretL1CandidateResponse(ApiResponseModel):
     id: int
     ticker: str
     detected_at: datetime
@@ -189,7 +201,7 @@ class SecretL1CandidateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SecretL1ToL2EventResponse(BaseModel):
+class SecretL1ToL2EventResponse(ApiResponseModel):
     id: int
     ticker: str
     detect_ts: datetime
@@ -203,19 +215,19 @@ class SecretL1ToL2EventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SecretSauceReasonCountResponse(BaseModel):
+class SecretSauceReasonCountResponse(ApiResponseModel):
     label: str
     count: int
 
 
-class SecretSauceLatencySummaryResponse(BaseModel):
+class SecretSauceLatencySummaryResponse(ApiResponseModel):
     count: int
     avg_ms: float | None = None
     median_ms: float | None = None
     p95_ms: float | None = None
 
 
-class SecretSauceFunnelResponse(BaseModel):
+class SecretSauceFunnelResponse(ApiResponseModel):
     trade_date: date | None = None
     universe_count: int
     candidate_count: int
@@ -228,7 +240,7 @@ class SecretSauceFunnelResponse(BaseModel):
     top_escalation_reasons: list[SecretSauceReasonCountResponse]
 
 
-class PolygonDayAggregateResponse(BaseModel):
+class PolygonDayAggregateResponse(ApiResponseModel):
     id: int
     trade_date: date
     ticker: str
@@ -245,7 +257,7 @@ class PolygonDayAggregateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PolygonMinuteAggregateResponse(BaseModel):
+class PolygonMinuteAggregateResponse(ApiResponseModel):
     id: int
     ticker: str
     minute_ts: datetime
@@ -261,7 +273,7 @@ class PolygonMinuteAggregateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PolygonSecondAggregateResponse(BaseModel):
+class PolygonSecondAggregateResponse(ApiResponseModel):
     id: int
     ticker: str
     second_ts: datetime
@@ -276,7 +288,7 @@ class PolygonSecondAggregateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PolygonTickResponse(BaseModel):
+class PolygonTickResponse(ApiResponseModel):
     id: int
     ticker: str
     event_type: str
@@ -290,7 +302,7 @@ class PolygonTickResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PolygonDayAggregatePageResponse(BaseModel):
+class PolygonDayAggregatePageResponse(ApiResponseModel):
     items: list[PolygonDayAggregateResponse]
     total: int
     page: int
@@ -298,7 +310,7 @@ class PolygonDayAggregatePageResponse(BaseModel):
     trade_date: date | None = None
 
 
-class PolygonMinuteAggregatePageResponse(BaseModel):
+class PolygonMinuteAggregatePageResponse(ApiResponseModel):
     items: list[PolygonMinuteAggregateResponse]
     total: int
     page: int
@@ -306,7 +318,7 @@ class PolygonMinuteAggregatePageResponse(BaseModel):
     trade_date: date | None = None
 
 
-class PolygonSecondAggregatePageResponse(BaseModel):
+class PolygonSecondAggregatePageResponse(ApiResponseModel):
     items: list[PolygonSecondAggregateResponse]
     total: int
     page: int
@@ -314,7 +326,7 @@ class PolygonSecondAggregatePageResponse(BaseModel):
     trade_date: date | None = None
 
 
-class PolygonTickPageResponse(BaseModel):
+class PolygonTickPageResponse(ApiResponseModel):
     items: list[PolygonTickResponse]
     total: int | None = None
     page: int | None = None
@@ -324,7 +336,7 @@ class PolygonTickPageResponse(BaseModel):
     has_more: bool = False
 
 
-class SymbolStateLiveResponse(BaseModel):
+class SymbolStateLiveResponse(ApiResponseModel):
     ticker: str
     last_second_ts: datetime | None = None
     last_minute_ts: datetime | None = None
@@ -347,14 +359,14 @@ class SymbolStateLiveResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SymbolStateLivePageResponse(BaseModel):
+class SymbolStateLivePageResponse(ApiResponseModel):
     items: list[SymbolStateLiveResponse]
     total: int
     page: int
     page_size: int
 
 
-class CandidateEventResponse(BaseModel):
+class CandidateEventResponse(ApiResponseModel):
     id: int
     ticker: str
     event_ts: datetime
@@ -371,7 +383,7 @@ class CandidateEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CandidateEventPageResponse(BaseModel):
+class CandidateEventPageResponse(ApiResponseModel):
     items: list[CandidateEventResponse]
     total: int
     page: int
@@ -379,7 +391,7 @@ class CandidateEventPageResponse(BaseModel):
     trade_date: date | None = None
 
 
-class DecisionEventResponse(BaseModel):
+class DecisionEventResponse(ApiResponseModel):
     id: int
     ticker: str
     decision_ts: datetime
@@ -397,7 +409,7 @@ class DecisionEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class DecisionEventPageResponse(BaseModel):
+class DecisionEventPageResponse(ApiResponseModel):
     items: list[DecisionEventResponse]
     total: int
     page: int
@@ -405,7 +417,7 @@ class DecisionEventPageResponse(BaseModel):
     trade_date: date | None = None
 
 
-class L2SubscriptionStatusResponse(BaseModel):
+class L2SubscriptionStatusResponse(ApiResponseModel):
     ticker: str
     confirmed: bool
     has_depth: bool
@@ -414,7 +426,7 @@ class L2SubscriptionStatusResponse(BaseModel):
     last_updated_at: float | None = None
 
 
-class L2HealthResponse(BaseModel):
+class L2HealthResponse(ApiResponseModel):
     active_count: int
     books_with_depth_count: int
     subscribed_tickers: list[str]
