@@ -51,9 +51,9 @@ class PolygonConnectionManager:
             batches.append("T.*")
 
         if not symbols:
-            if batches:
-                return batches
-            return [f"{channel}.*" for channel in channels]
+            if not batches:
+                return [f"{channel}.*" for channel in channels]
+            return batches
 
         for i in range(0, len(symbols), self._subscription_batch_size):
             chunk = symbols[i : i + self._subscription_batch_size]
@@ -78,6 +78,30 @@ class PolygonConnectionManager:
             await ws.send(json.dumps({"action": "subscribe", "params": params}))
         log.info(
             "polygon.ws_subscribed",
+            symbols=len(symbols),
+            batches=len(batches),
+            channels=",".join(channels),
+            include_trades=include_trades,
+        )
+
+    async def unsubscribe(
+        self,
+        ws: Any,
+        symbols: list[str],
+        *,
+        channels: tuple[str, ...] = ("Q",),
+        include_trades: bool = False,
+    ) -> None:
+        """Unsubscribe the socket from one or more symbol batches."""
+        batches = self.build_subscription_batches(
+            symbols,
+            channels=channels,
+            include_trades=include_trades,
+        )
+        for params in batches:
+            await ws.send(json.dumps({"action": "unsubscribe", "params": params}))
+        log.info(
+            "polygon.ws_unsubscribed",
             symbols=len(symbols),
             batches=len(batches),
             channels=",".join(channels),

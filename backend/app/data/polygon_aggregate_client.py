@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from typing import Any
 from websockets.exceptions import ConnectionClosed
 
 from app.core.logging import get_logger
@@ -41,10 +42,27 @@ class PolygonAggregateClient:
         self._subscription_sources: dict[str, list[str]] = {"secret_universe": []}
         self._task: asyncio.Task | None = None
         self._running = False
+        self._ws: Any = None
+        self._ws_lock = asyncio.Lock()
 
     def update_subscriptions(self, tickers: list[str], *, source: str = "secret_universe") -> None:
         self._subscription_sources[source] = list(dict.fromkeys(tickers))
         log.info("polygon.aggregate_subscriptions_updated", count=len(self.current_symbols()), source=source)
+        if self._running:
+            asyncio.create_task(self._resubscribe())
+
+    async def _resubscribe(self) -> None:
+        """Send new subscription commands to the active WebSocket."""
+        async with self._ws_lock:
+            if self._ws:
+                try:
+                    await self._connection_manager.subscribe(
+                        self._ws,
+                        self.current_symbols(),
+                        channels=("AM", "A"),
+                    )
+                except Exception:
+                    log.exception("polygon.aggregate_resubscribe_error")
 
     def current_symbols(self) -> list[str]:
         seen: set[str] = set()
@@ -79,8 +97,10 @@ class PolygonAggregateClient:
         while self._running:
             try:
                 async with self._connection_manager.open() as ws:
-                    symbols = self.current_symbols()
-                    await self._connection_manager.subscribe(ws, symbols, channels=("AM", "A"))
+                    async with self._ws_lock:
+                        self._ws = ws
+                        symbols = self.current_symbols()
+                        await self._connection_manager.subscribe(ws, symbols, channels=("AM", "A"))
                     delay = 1.0
                     async for raw in ws:
                         if not self._running:
@@ -89,13 +109,20 @@ class PolygonAggregateClient:
             except asyncio.CancelledError:
                 break
             except ConnectionClosed as exc:
+                async with self._ws_lock:
+                    self._ws = None
                 log.warning("polygon.aggregate_ws_closed", code=exc.code, reason=exc.reason, delay=delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
             except Exception:
+                async with self._ws_lock:
+                    self._ws = None
                 log.exception("polygon.aggregate_ws_error", delay=delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
+            finally:
+                async with self._ws_lock:
+                    self._ws = None
 
     async def _handle_payload(self, payload) -> None:
         bars = self._parser.parse_messages(payload)
@@ -157,4 +184,3 @@ class PolygonAggregateClient:
             )
         finally:
             db.close()
-

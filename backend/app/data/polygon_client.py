@@ -72,6 +72,8 @@ class PolygonClient:
         self._reconnect_count = 0
         self._ws_quote_count = 0
         self._last_ws_quote_log_at = 0.0
+        self._ws: Any = None
+        self._ws_lock = asyncio.Lock()
 
     async def start(self) -> None:
         """Launch the background ingestion task."""
@@ -112,6 +114,22 @@ class PolygonClient:
             )
         else:
             log.info("polygon.subscriptions_updated", count=len(self._symbols), source=source)
+
+        if self._running and self._mode == "websocket":
+            asyncio.create_task(self._resubscribe())
+
+    async def _resubscribe(self) -> None:
+        """Send new subscription commands to the active WebSocket."""
+        async with self._ws_lock:
+            if self._ws:
+                try:
+                    await self._connection_manager.subscribe(
+                        self._ws,
+                        self.current_symbols(),
+                        include_trades=self._include_trade_wildcard,
+                    )
+                except Exception:
+                    log.exception("polygon.resubscribe_error")
 
     def current_symbols(self) -> list[str]:
         seen: set[str] = set()

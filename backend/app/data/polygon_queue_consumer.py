@@ -54,7 +54,7 @@ class BreakoutQueueConsumer:
                 quote = await self._queue.get()
                 if self._tick_persister is not None:
                     self._tick_persister.record(quote)
-                if quote.event_type == "quote":
+                if quote.event_type in {"quote", "trade"}:
                     self._breakout_engine.ingest(quote)
                 if self._l1_feature_engine is not None:
                     self._l1_feature_engine.ingest(quote)

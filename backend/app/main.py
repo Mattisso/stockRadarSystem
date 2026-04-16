@@ -140,6 +140,25 @@ async def lifespan(app: FastAPI):
             reconnect_max_delay=settings.polygon_reconnect_max_delay,
             subscription_batch_size=settings.polygon_subscription_batch_size,
         )
+
+        # Pre-hydrate subscriptions from database if symbols are already known
+        db = SessionLocal()
+        try:
+            engine = UniverseFilterEngine(broker, db)
+            active_tickers = engine.get_active_tickers()
+            if active_tickers:
+                polygon_client.update_subscriptions(active_tickers, source="watchlist")
+
+            if settings.secret_universe_enabled:
+                secret_tickers = engine.get_secret_ingredients_tickers()
+                if secret_tickers:
+                    polygon_client.update_subscriptions(secret_tickers, source="secret_universe")
+                    polygon_aggregate_client.update_subscriptions(secret_tickers, source="secret_universe")
+        except Exception:
+            log.exception("polygon.pre_hydrate_error")
+        finally:
+            db.close()
+
     app.state.polygon_client = polygon_client
     app.state.polygon_aggregate_client = polygon_aggregate_client
     runtime.mark_service(
