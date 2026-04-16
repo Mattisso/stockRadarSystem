@@ -1,7 +1,7 @@
 """add unique constraint to polygon minute aggregates
 
 Revision ID: a9b0c1d2e3f4
-Revises: f6a7b8c9d0e1
+Revises: e6f7a8b9c0d1
 Create Date: 2026-04-15 20:55:00.000000
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a9b0c1d2e3f4"
-down_revision: Union[str, None] = "f6a7b8c9d0e1"
+down_revision: Union[str, None] = "e6f7a8b9c0d1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
