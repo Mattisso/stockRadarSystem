@@ -90,7 +90,7 @@ export class PolygonDataPageComponent implements OnInit {
       case 'second':
         return 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.';
       case 'ticks':
-        return 'Raw persisted live Polygon ticks for the current under-$10 universe.';
+        return 'Raw persisted live Polygon ticks for the current under-$10 universe. Use a ticker filter for the fastest view.';
       default:
         return 'Daily Polygon bars for the active under-$10 universe.';
     }
@@ -100,7 +100,7 @@ export class PolygonDataPageComponent implements OnInit {
       return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
     }
     if (this.dataset() === 'ticks' && !this.requestTicker()) {
-      return 'Raw ticks require a ticker filter. The page does not load the full tick store by default.';
+      return 'Raw ticks default to the latest cross-universe page. Add a ticker filter for a narrower view.';
     }
     return null;
   });
@@ -149,15 +149,6 @@ export class PolygonDataPageComponent implements OnInit {
         });
         break;
       case 'ticks':
-        if (!ticker) {
-          this.total.set(0);
-          this.resolvedTradeDate.set(tradeDate);
-          this.ticks.set([]);
-          this.nextTickCursor.set(null);
-          this.tickHasMore.set(false);
-          this.loading.set(false);
-          return;
-        }
         this.api.loadTicks(page, pageSize, ticker, tradeDate, this.tickCursor()).subscribe({
           next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date, response.next_cursor, response.has_more),
           error: () => this.handleError('Failed to load Polygon live ticks.'),

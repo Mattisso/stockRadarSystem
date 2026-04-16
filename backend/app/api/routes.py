@@ -180,14 +180,6 @@ def _latest_universe_tickers(
     *,
     max_price: float | None = None,
 ) -> list[str]:
-    active_query = db.query(Symbol.ticker).filter(Symbol.is_active.is_(True))
-    if max_price is not None:
-        active_query = active_query.filter(func.coalesce(Symbol.last_price, 0) <= max_price)
-    active_rows = active_query.order_by(Symbol.ticker.asc()).all()
-    active_tickers = [row.ticker for row in active_rows]
-    if active_tickers:
-        return active_tickers
-
     latest_trade_date = (
         db.query(UniverseDaily.trade_date)
         .order_by(UniverseDaily.trade_date.desc())
@@ -201,7 +193,15 @@ def _latest_universe_tickers(
     if max_price is not None:
         query = query.filter(func.coalesce(UniverseDaily.open_price, UniverseDaily.last_price, 0) <= max_price)
     rows = query.order_by(UniverseDaily.ticker.asc()).all()
-    return [row.ticker for row in rows]
+    universe_tickers = [row.ticker for row in rows]
+    if universe_tickers:
+        return universe_tickers
+
+    active_query = db.query(Symbol.ticker).filter(Symbol.is_active.is_(True))
+    if max_price is not None:
+        active_query = active_query.filter(func.coalesce(Symbol.last_price, 0) <= max_price)
+    active_rows = active_query.order_by(Symbol.ticker.asc()).all()
+    return [row.ticker for row in active_rows]
 
 
 @router.get("/health/broker")
@@ -713,7 +713,7 @@ def get_polygon_second_aggregates(
             )
         query = query.filter(PolygonSecondAggregateLive.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonSecondAggregateLive.second_ts >= start_dt, PolygonSecondAggregateLive.second_ts < end_dt)
     if ticker:
@@ -761,7 +761,7 @@ def get_polygon_second_aggregates_history(
             )
         query = query.filter(PolygonSecondAggregate.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonSecondAggregate.second_ts >= start_dt, PolygonSecondAggregate.second_ts < end_dt)
     if ticker:
@@ -796,14 +796,6 @@ def get_polygon_ticks(
     query = db.query(PolygonTickLive)
     selected_trade_date = trade_date
     normalized_ticker = ticker.upper() if ticker else None
-    if not normalized_ticker:
-        return PolygonTickPageResponse(
-            items=[],
-            page_size=page_size,
-            trade_date=selected_trade_date,
-            next_cursor=None,
-            has_more=False,
-        )
     if selected_trade_date is None:
         latest_tick_ts = db.query(func.max(PolygonTickLive.tick_ts)).scalar()
         if latest_tick_ts is not None:
@@ -820,10 +812,11 @@ def get_polygon_ticks(
             )
         query = query.filter(PolygonTickLive.ticker.in_(universe_tickers))
     if selected_trade_date:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonTickLive.tick_ts >= start_dt, PolygonTickLive.tick_ts < end_dt)
-    query = query.filter(PolygonTickLive.ticker == normalized_ticker)
+    if normalized_ticker:
+        query = query.filter(PolygonTickLive.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTickLive.event_type == event_type.lower())
     if cursor:
@@ -872,14 +865,6 @@ def get_polygon_ticks_history(
     query = db.query(PolygonTick)
     selected_trade_date = trade_date
     normalized_ticker = ticker.upper() if ticker else None
-    if not normalized_ticker:
-        return PolygonTickPageResponse(
-            items=[],
-            total=0,
-            page=page,
-            page_size=page_size,
-            trade_date=selected_trade_date,
-        )
     if selected_trade_date is None:
         latest_tick_ts = db.query(func.max(PolygonTick.tick_ts)).scalar()
         if latest_tick_ts is not None:
@@ -896,10 +881,11 @@ def get_polygon_ticks_history(
             )
         query = query.filter(PolygonTick.ticker.in_(universe_tickers))
     if selected_trade_date:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonTick.tick_ts >= start_dt, PolygonTick.tick_ts < end_dt)
-    query = query.filter(PolygonTick.ticker == normalized_ticker)
+    if normalized_ticker:
+        query = query.filter(PolygonTick.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTick.event_type == event_type.lower())
     total = query.count()
