@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, func
+from sqlalchemy import DateTime, Float, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -10,7 +10,10 @@ class PolygonMinuteAggregate(Base):
     """Raw Polygon minute aggregate for a symbol and minute timestamp."""
 
     __tablename__ = "polygon_minute_aggregates"
-    __table_args__ = {"schema": "stock_radar"}
+    __table_args__ = (
+        UniqueConstraint("ticker", "minute_ts", name="uq_polygon_minute_aggregates_ticker_minute_ts"),
+        {"schema": "stock_radar"},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
