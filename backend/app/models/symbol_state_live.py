@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -10,7 +10,29 @@ class SymbolStateLive(Base):
     """Aggregate-only live state snapshot for one symbol."""
 
     __tablename__ = "symbol_state_live"
-    __table_args__ = {"schema": "stock_radar"}
+    __table_args__ = (
+        CheckConstraint(
+            "seconds_since_last_trade_bar IS NULL OR seconds_since_last_trade_bar >= 0",
+            name="ck_symbol_state_live_seconds_since_non_negative",
+        ),
+        CheckConstraint(
+            "minutes_since_last_trade_bar IS NULL OR minutes_since_last_trade_bar >= 0",
+            name="ck_symbol_state_live_minutes_since_non_negative",
+        ),
+        CheckConstraint(
+            "rolling_second_volume >= 0",
+            name="ck_symbol_state_live_rolling_second_volume_non_negative",
+        ),
+        CheckConstraint(
+            "rolling_green_count >= 0",
+            name="ck_symbol_state_live_rolling_green_count_non_negative",
+        ),
+        CheckConstraint(
+            "validation_pass_count >= 0",
+            name="ck_symbol_state_live_validation_pass_count_non_negative",
+        ),
+        {"schema": "stock_radar"},
+    )
 
     ticker: Mapped[str] = mapped_column(String(10), primary_key=True)
     last_second_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
@@ -33,4 +55,5 @@ class SymbolStateLive(Base):
         DateTime,
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
     )
