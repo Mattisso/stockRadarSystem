@@ -644,6 +644,17 @@ def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers
                     tick_ts=datetime(2026, 4, 11, 13, 30, 2, tzinfo=timezone.utc),
                 )
             )
+            db.add(
+                PolygonTickLive(
+                    ticker="ALTS",
+                    event_type="trade",
+                    bid=1.11,
+                    ask=1.12,
+                    last=1.115,
+                    volume=2500,
+                    tick_ts=datetime(2026, 4, 11, 13, 30, 2, tzinfo=timezone.utc),
+                )
+            )
             db.commit()
 
         with TestClient(app) as client:
@@ -654,7 +665,7 @@ def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers
 
         assert response.status_code == 200
         body = response.json()
-        assert body["total"] is None
+        assert body["total"] == 1
         assert body["page"] is None
         assert len(body["items"]) == 1
         assert body["items"][0]["volume"] == 2500
@@ -685,6 +696,17 @@ def test_polygon_ticks_history_reads_retained_history_table(db_engine, auth_head
                     open_price=1.12,
                     last_price=1.10,
                     avg_volume=1_100_000,
+                )
+            )
+            db.add(
+                PolygonTick(
+                    ticker="ALTS",
+                    event_type="trade",
+                    bid=1.09,
+                    ask=1.10,
+                    last=1.095,
+                    volume=999,
+                    tick_ts=datetime(2026, 4, 11, 13, 30, 1, tzinfo=timezone.utc),
                 )
             )
             db.add(

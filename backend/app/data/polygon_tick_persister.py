@@ -5,6 +5,7 @@ come from the Polygon ``A`` websocket feed, not reconstructed quote batches.
 """
 
 from collections.abc import Callable
+from collections import deque
 
 from sqlalchemy.orm import Session
 
@@ -30,8 +31,26 @@ class PolygonTickPersister:
         self._pending: list[PolygonTick] = []
         self._pending_live: list[PolygonTickLive] = []
         self._pending_quotes: list[Quote] = []
+        self._recent_keys: deque[tuple] = deque(maxlen=max(1000, self._batch_size * 8))
+        self._recent_key_set: set[tuple] = set()
 
     def record(self, quote: Quote) -> None:
+        key = (
+            quote.ticker,
+            quote.event_type,
+            quote.bid,
+            quote.ask,
+            quote.last,
+            max(0, quote.volume),
+            quote.timestamp,
+        )
+        if key in self._recent_key_set:
+            return
+        if len(self._recent_keys) == self._recent_keys.maxlen:
+            oldest = self._recent_keys.popleft()
+            self._recent_key_set.discard(oldest)
+        self._recent_keys.append(key)
+        self._recent_key_set.add(key)
         self._pending_quotes.append(quote)
         self._pending.append(
             PolygonTick(

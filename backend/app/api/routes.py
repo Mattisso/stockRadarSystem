@@ -205,6 +205,32 @@ def _latest_universe_tickers(
     return [row.ticker for row in active_rows]
 
 
+def _deduped_tick_query(db: Session, query, model):
+    dedupe_subquery = (
+        query.with_entities(
+            model.ticker.label("ticker"),
+            model.event_type.label("event_type"),
+            model.bid.label("bid"),
+            model.ask.label("ask"),
+            model.last.label("last"),
+            model.volume.label("volume"),
+            model.tick_ts.label("tick_ts"),
+            func.max(model.id).label("max_id"),
+        )
+        .group_by(
+            model.ticker,
+            model.event_type,
+            model.bid,
+            model.ask,
+            model.last,
+            model.volume,
+            model.tick_ts,
+        )
+        .subquery()
+    )
+    return db.query(model).join(dedupe_subquery, model.id == dedupe_subquery.c.max_id)
+
+
 @router.get("/health/broker")
 async def broker_health(broker=Depends(get_broker)):
     """Report IB Gateway / broker connection status."""
@@ -833,6 +859,8 @@ def get_polygon_ticks(
         query = query.filter(PolygonTickLive.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTickLive.event_type == event_type.lower())
+    query = _deduped_tick_query(db, query, PolygonTickLive)
+    total = query.count()
     if cursor:
         try:
             cursor_ts_raw, cursor_id_raw = cursor.rsplit("|", 1)
@@ -859,6 +887,7 @@ def get_polygon_ticks(
         next_cursor = f"{last_row.tick_ts.isoformat()}|{last_row.id}"
     return PolygonTickPageResponse(
         items=[PolygonTickResponse.model_validate(row) for row in visible_rows],
+        total=total,
         page_size=page_size,
         trade_date=selected_trade_date,
         next_cursor=next_cursor,
@@ -903,6 +932,7 @@ def get_polygon_ticks_history(
         query = query.filter(PolygonTick.ticker == normalized_ticker)
     if event_type:
         query = query.filter(PolygonTick.event_type == event_type.lower())
+    query = _deduped_tick_query(db, query, PolygonTick)
     total = query.count()
     rows = (
         query.order_by(PolygonTick.tick_ts.desc(), PolygonTick.id.desc())
