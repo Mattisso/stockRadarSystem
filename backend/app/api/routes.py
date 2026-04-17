@@ -18,6 +18,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.api.dependencies import get_broker, get_runtime, get_state_machine
+from app.api.observability import track_tables
 from app.ml.analytics import TradeAnalytics
 from app.ml.backtest import BacktestConfig, SignalBacktester
 from app.engine.secret_candidate_scorer import SecretCandidateScorer
@@ -216,6 +217,7 @@ async def broker_health(broker=Depends(get_broker)):
 
 
 @router.get("/universe", response_model=list[SymbolRead])
+@track_tables("symbols")
 def get_universe(active_only: bool = True, db: Session = Depends(get_db)):
     """Get all symbols in the universe."""
     query = db.query(Symbol)
@@ -225,12 +227,14 @@ def get_universe(active_only: bool = True, db: Session = Depends(get_db)):
 
 
 @router.get("/trades", response_model=list[TradeRead])
+@track_tables("trades")
 def get_trades(limit: int = 50, db: Session = Depends(get_db)):
     """Get recent trades."""
     return db.query(Trade).order_by(Trade.created_at.desc()).limit(limit).all()
 
 
 @router.get("/signals", response_model=list[SignalRead])
+@track_tables("signals")
 def get_signals(limit: int = 50, db: Session = Depends(get_db)):
     """Get recent signals."""
     return db.query(Signal).order_by(Signal.created_at.desc()).limit(limit).all()
@@ -380,6 +384,7 @@ async def get_secret_sauce_contract():
 
 
 @router.get("/secret-sauce/handoffs", response_model=list[SecretSauceHandoffResponse])
+@track_tables("l1_to_l2_events")
 async def get_secret_sauce_handoffs(request: Request, limit: int = 50):
     manager = getattr(request.app.state, "secret_sauce_handoffs", None)
     if manager is None:
@@ -430,6 +435,7 @@ async def get_secret_sauce_status(request: Request):
 
 
 @router.get("/secret-sauce/universe-daily", response_model=list[SecretUniverseDailyResponse])
+@track_tables("universe_daily")
 def get_secret_universe_daily(
     limit: int = 200,
     trade_date: str | None = None,
@@ -456,6 +462,7 @@ def get_secret_universe_daily(
 
 
 @router.get("/secret-sauce/l1-candidates", response_model=list[SecretL1CandidateResponse])
+@track_tables("l1_candidates")
 def get_secret_l1_candidates(limit: int = 100, db: Session = Depends(get_db)):
     return (
         db.query(L1Candidate)
@@ -466,6 +473,7 @@ def get_secret_l1_candidates(limit: int = 100, db: Session = Depends(get_db)):
 
 
 @router.get("/secret-sauce/l1-to-l2-events", response_model=list[SecretL1ToL2EventResponse])
+@track_tables("l1_to_l2_events")
 def get_secret_l1_to_l2_events(limit: int = 100, db: Session = Depends(get_db)):
     return (
         db.query(L1ToL2Event)
@@ -476,6 +484,7 @@ def get_secret_l1_to_l2_events(limit: int = 100, db: Session = Depends(get_db)):
 
 
 @router.get("/secret-sauce/funnel", response_model=SecretSauceFunnelResponse)
+@track_tables("universe_daily", "l1_candidates", "l1_to_l2_events")
 def get_secret_sauce_funnel(
     trade_date: str | None = None,
     db: Session = Depends(get_db),
@@ -582,6 +591,7 @@ def get_secret_sauce_funnel(
 
 
 @router.get("/polygon/day-aggregates", response_model=PolygonDayAggregatePageResponse)
+@track_tables("polygon_day_aggregates")
 def get_polygon_day_aggregates(
     page: int = 0,
     page_size: int = 25,
@@ -635,6 +645,7 @@ def get_polygon_day_aggregates(
 
 
 @router.get("/polygon/minute-aggregates", response_model=PolygonMinuteAggregatePageResponse)
+@track_tables("polygon_minute_aggregates")
 def get_polygon_minute_aggregates(
     page: int = 0,
     page_size: int = 25,
@@ -686,6 +697,7 @@ def get_polygon_minute_aggregates(
 
 
 @router.get("/polygon/second-aggregates", response_model=PolygonSecondAggregatePageResponse)
+@track_tables("polygon_second_aggregates_live")
 def get_polygon_second_aggregates(
     page: int = 0,
     page_size: int = 25,
@@ -735,6 +747,7 @@ def get_polygon_second_aggregates(
 
 
 @router.get("/polygon/history/second-aggregates", response_model=PolygonSecondAggregatePageResponse)
+@track_tables("polygon_second_aggregates")
 def get_polygon_second_aggregates_history(
     page: int = 0,
     page_size: int = 25,
@@ -783,6 +796,7 @@ def get_polygon_second_aggregates_history(
 
 
 @router.get("/polygon/ticks", response_model=PolygonTickPageResponse)
+@track_tables("polygon_ticks_live")
 def get_polygon_ticks(
     page: int = 0,
     page_size: int = 25,
@@ -853,6 +867,7 @@ def get_polygon_ticks(
 
 
 @router.get("/polygon/history/ticks", response_model=PolygonTickPageResponse)
+@track_tables("polygon_ticks")
 def get_polygon_ticks_history(
     page: int = 0,
     page_size: int = 25,
@@ -905,6 +920,7 @@ def get_polygon_ticks_history(
 
 
 @router.get("/aggregate/symbol-state-live", response_model=SymbolStateLivePageResponse)
+@track_tables("symbol_state_live")
 def get_symbol_state_live(
     page: int = 0,
     page_size: int = 25,
@@ -942,6 +958,7 @@ def get_symbol_state_live(
 
 
 @router.get("/aggregate/candidate-events", response_model=CandidateEventPageResponse)
+@track_tables("candidate_events")
 def get_candidate_events(
     page: int = 0,
     page_size: int = 25,
@@ -993,6 +1010,7 @@ def get_candidate_events(
 
 
 @router.get("/aggregate/decision-events", response_model=DecisionEventPageResponse)
+@track_tables("decision_events")
 def get_decision_events(
     page: int = 0,
     page_size: int = 25,
@@ -1109,6 +1127,7 @@ async def ml_retrain(request: Request):
 
 
 @router.post("/ml/backtest", response_model=BacktestResponse)
+@track_tables("signals")
 def ml_backtest(body: BacktestRequest, db: Session = Depends(get_db)):
     """Run a signal-replay backtest."""
     config = BacktestConfig(
@@ -1140,12 +1159,14 @@ def ml_backtest(body: BacktestRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/kpis", response_model=KPIResponse)
+@track_tables("trades")
 def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
     """Get trading KPIs for the last N days."""
     return TradeAnalytics(db).compute_kpis(days=days)
 
 
 @router.get("/analytics/signal-accuracy", response_model=list[SignalAccuracyBucketResponse])
+@track_tables("signals", "trades")
 def analytics_signal_accuracy(db: Session = Depends(get_db)):
     """Get win rate by signal score bucket."""
     return TradeAnalytics(db).signal_accuracy_by_bucket()

@@ -866,6 +866,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.api.observability import ApiObservabilityMiddleware
+app.add_middleware(ApiObservabilityMiddleware)
+
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 
 Instrumentator(

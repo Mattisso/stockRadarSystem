@@ -1,0 +1,39 @@
+<div class="debug-container" [class.expanded]="expanded()">
+  <div class="debug-header" (click)="toggle()">
+    <div class="header-content">
+      <mat-icon>bug_report</mat-icon>
+      <span class="title">API Debugger</span>
+      <span class="status-indicator" *ngIf="debugStorage.lastRequest() as req">
+        {{ req.method }} {{ req.responseTimeMs }}ms
+      </span>
+    </div>
+    <button mat-icon-button type="button">
+      <mat-icon>{{ expanded() ? 'expand_more' : 'expand_less' }}</mat-icon>
+    </button>
+  </div>
+
+  <div class="debug-body" *ngIf="expanded()">
+    <div class="debug-info" *ngIf="debugStorage.lastRequest() as req; else noRequest">
+      <div class="info-row">
+        <span class="label">Last URL:</span>
+        <span class="value">{{ req.url }}</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Tables:</span>
+        <div class="chips">
+          <span class="table-chip" *ngFor="let table of req.tables">{{ table }}</span>
+          <span class="none" *ngIf="req.tables.length === 0">None</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button mat-flat-button color="primary" (click)="copyCurl()">
+          <mat-icon>content_copy</mat-icon>
+          Copy cURL
+        </button>
+      </div>
+    </div>
+    <ng-template #noRequest>
+      <p class="empty-state">No API requests captured yet.</p>
+    </ng-template>
+  </div>
+</div>

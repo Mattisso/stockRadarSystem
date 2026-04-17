@@ -1,0 +1,145 @@
+.debug-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 300px;
+  background: #1e1e1e;
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  font-family: 'Roboto Mono', monospace;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  border: 1px solid #333;
+
+  &.expanded {
+    width: 450px;
+  }
+}
+
+.debug-header {
+  padding: 10px 15px;
+  background: #2d2d2d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    background: #383838;
+  }
+
+  .header-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    mat-icon {
+      color: #ff9800;
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
+    }
+
+    .title {
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .status-indicator {
+      font-size: 11px;
+      color: #4caf50;
+      background: rgba(76, 175, 80, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  }
+
+  button {
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    mat-icon {
+      font-size: 20px;
+    }
+  }
+}
+
+.debug-body {
+  padding: 15px;
+  background: #1e1e1e;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.debug-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    .value {
+      font-size: 12px;
+      word-break: break-all;
+      color: #ddd;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+
+      .table-chip {
+        background: #3f51b5;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+      }
+
+      .none {
+        font-size: 12px;
+        color: #666;
+        font-style: italic;
+      }
+    }
+  }
+
+  .actions {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+
+    button {
+      font-size: 12px;
+      height: 32px;
+      line-height: 32px;
+      
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        margin-right: 4px;
+      }
+    }
+  }
+}
+
+.empty-state {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  margin: 0;
+}
