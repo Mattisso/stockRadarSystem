@@ -5,6 +5,7 @@ worker:
   replicaCount: 1
   brokerType: ""
   uvicornWorkers: "1"
+  apiEnableLegacyScanJob: "true"
 
 image:
   repository: stock-radar-api
@@ -88,6 +89,7 @@ polygon:
   persistBatchSize: "100"
   includeTradeWildcard: "false"
   dayAggregateIngestionEnabled: "false"
+  dayAggregateRefreshMinutes: "15"
   minuteAggregateIngestionEnabled: "false"
   minuteAggregateRefreshMinutes: "15"
 

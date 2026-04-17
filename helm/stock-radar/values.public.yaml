@@ -22,6 +22,7 @@ api:
   worker:
     brokerType: "mock"
     uvicornWorkers: "1"
+    apiEnableLegacyScanJob: "false"
   broker:
     type: "ibkr"
     ibkrHost: "192.168.1.77"
@@ -37,6 +38,7 @@ api:
     persistBatchSize: "250"
     includeTradeWildcard: "false"
     dayAggregateIngestionEnabled: "true"
+    dayAggregateRefreshMinutes: "15"
     minuteAggregateIngestionEnabled: "true"
     minuteAggregateRefreshMinutes: "15"
 

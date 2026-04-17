@@ -60,6 +60,8 @@ spec:
               value: {{ .Values.env.TRADING_MODE | quote }}
             - name: BUY_USE_BRACKETS
               value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
+            - name: API_ENABLE_LEGACY_SCAN_JOB
+              value: {{ .Values.worker.apiEnableLegacyScanJob | quote }}
             - name: SECRET_UNIVERSE_ENABLED
               value: {{ .Values.env.SECRET_UNIVERSE_ENABLED | quote }}
             - name: SECRET_UNIVERSE_SOURCE
@@ -115,6 +117,8 @@ spec:
               value: {{ .Values.polygon.includeTradeWildcard | quote }}
             - name: POLYGON_DAY_AGGREGATE_INGESTION_ENABLED
               value: {{ .Values.polygon.dayAggregateIngestionEnabled | quote }}
+            - name: POLYGON_DAY_AGGREGATE_REFRESH_MINUTES
+              value: {{ .Values.polygon.dayAggregateRefreshMinutes | quote }}
             - name: POLYGON_MINUTE_AGGREGATE_INGESTION_ENABLED
               value: {{ .Values.polygon.minuteAggregateIngestionEnabled | quote }}
             - name: POLYGON_MINUTE_AGGREGATE_REFRESH_MINUTES
