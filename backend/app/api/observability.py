@@ -7,16 +7,13 @@ from typing import Any, Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.types import Message
 
 
 def track_tables(*tables: str):
     """Decorator to mark which DB tables an endpoint interacts with."""
 
     def decorator(func: Callable):
-        # We store the metadata on the function itself
-        # FastAPI's Depends and other machinery might wrap this,
-        # but we'll try to find it by unwrapping.
+        # Store metadata on the function itself
         if not hasattr(func, "_tracked_tables"):
             func._tracked_tables = []
         func._tracked_tables.extend(tables)
@@ -37,33 +34,36 @@ class ApiObservabilityMiddleware(BaseHTTPMiddleware):
         start_time = time.monotonic()
 
         # Generate cURL command
-        body = b""
+        # Note: Capture body only if it's small and it's a mutation request
+        # To avoid BaseHTTPMiddleware recursion/hang issues, we use a simpler approach
+        body_to_log = b""
         if request.method in ("POST", "PUT", "PATCH"):
-            async def receive() -> Message:
-                nonlocal body
-                message = await request.receive()
-                if message["type"] == "http.request":
-                    body += message.get("body", b"")
-                return message
-            request._receive = receive
+            # Peeking at the body in BaseHTTPMiddleware is notoriously difficult.
+            # We'll skip body for now to prioritize stability and fix the 400 errors.
+            body_to_log = b"[body capture disabled for stability]"
 
-        curl_command = self._generate_curl_sync(request, body)
+        curl_command = self._generate_curl_sync(request, body_to_log)
 
-        # Call the actual endpoint
-        response = await call_next(request)
+        try:
+            # Call the actual endpoint
+            response = await call_next(request)
+        except Exception:
+            # If the endpoint crashes, we still want to log what we can
+            raise
 
         # Calculate duration
         duration = time.monotonic() - start_time
 
         # Extract tracked tables from the endpoint
         tracked_tables = []
-        # Look for the endpoint in the scope
         endpoint = request.scope.get("endpoint")
         if endpoint:
             actual_func = endpoint
-            # Unwrap functools.wraps
-            while hasattr(actual_func, "__wrapped__"):
+            # Unwrap functools.wraps and other decorators
+            depth = 0
+            while hasattr(actual_func, "__wrapped__") and depth < 10:
                 actual_func = actual_func.__wrapped__
+                depth += 1
             
             tracked_tables = getattr(actual_func, "_tracked_tables", [])
 
@@ -78,19 +78,26 @@ class ApiObservabilityMiddleware(BaseHTTPMiddleware):
         """Construct a cURL command from the request."""
         method = request.method
         url = str(request.url)
-        headers = [f"-H '{k}: {v}'" for k, v in request.headers.items() if k.lower() not in ("content-length", "host")]
+        # Filter out sensitive or redundant headers
+        headers = [
+            f"-H '{k}: {v}'" 
+            for k, v in request.headers.items() 
+            if k.lower() not in ("content-length", "host", "authorization")
+        ]
         
         curl = f"curl -X {method} '{url}'"
         if headers:
             curl += " " + " ".join(headers)
 
-        if body:
+        if body and body != b"[body capture disabled for stability]":
             try:
                 json_body = json.loads(body)
                 curl += f" -d '{json.dumps(json_body)}'"
             except json.JSONDecodeError:
-                # Escape single quotes for shell safety
                 safe_body = body.decode('utf-8', errors='replace').replace("'", "'\\''")
                 curl += f" -d '{safe_body}'"
+        elif body == b"[body capture disabled for stability]":
+            # Just a placeholder for now
+            pass
 
         return curl

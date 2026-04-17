@@ -855,6 +855,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.api.observability import ApiObservabilityMiddleware
+app.add_middleware(ApiObservabilityMiddleware)
+
 allowed_origins = [origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()]
 
 app.add_middleware(
@@ -864,10 +867,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Curl", "X-Tables", "X-Response-Time-Ms"],
 )
-
-from app.api.observability import ApiObservabilityMiddleware
-app.add_middleware(ApiObservabilityMiddleware)
 
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 
