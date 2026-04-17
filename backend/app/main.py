@@ -57,6 +57,15 @@ log = get_logger(__name__)
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
+def should_interval_refresh_polygon_day_aggregates() -> bool:
+    return (
+        settings.secret_universe_enabled
+        and settings.secret_universe_source == "polygon"
+        and settings.polygon_day_aggregate_ingestion_enabled
+        and settings.polygon_day_aggregate_refresh_minutes > 0
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
@@ -747,6 +756,14 @@ async def lifespan(app: FastAPI):
                 max_instances=1,
                 id="secret_universe_refresh",
             )
+            if should_interval_refresh_polygon_day_aggregates():
+                scheduler.add_job(
+                    refresh_secret_universe_job,
+                    "interval",
+                    minutes=settings.polygon_day_aggregate_refresh_minutes,
+                    max_instances=1,
+                    id="secret_universe_refresh_interval",
+                )
         if settings.polygon_minute_aggregate_ingestion_enabled:
             scheduler.add_job(
                 refresh_polygon_minute_aggregates_job,

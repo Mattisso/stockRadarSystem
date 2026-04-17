@@ -129,6 +129,7 @@ class Settings(BaseSettings):
     polygon_persist_ticks: bool = False
     polygon_persist_batch_size: int = 100
     polygon_day_aggregate_ingestion_enabled: bool = False
+    polygon_day_aggregate_refresh_minutes: int = 15
     polygon_minute_aggregate_ingestion_enabled: bool = False
     polygon_minute_aggregate_refresh_minutes: int = 15
     polygon_second_aggregate_recent_window_minutes: int = 15
