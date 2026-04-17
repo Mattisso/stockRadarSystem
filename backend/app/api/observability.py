@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import json
 import time
 from typing import Any, Callable
@@ -18,11 +19,18 @@ def track_tables(*tables: str):
             func._tracked_tables = []
         func._tracked_tables.extend(tables)
 
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            return await func(*args, **kwargs)
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                return await func(*args, **kwargs)
 
-        return wrapper
+            return async_wrapper
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return sync_wrapper
 
     return decorator
 

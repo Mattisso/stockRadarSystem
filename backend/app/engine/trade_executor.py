@@ -1,5 +1,5 @@
 """Trade execution orchestrator — signals → risk → broker → DB."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -135,6 +135,15 @@ class TradeExecutor:
                     if feature.signal_type.value == "breakout"
                     else DBSignalType.FALSE_BREAKOUT
                 )
+                if self._should_skip_duplicate_signal(
+                    db=db,
+                    ticker=feature.ticker,
+                    signal_type=db_signal_type,
+                    score=feature.composite_score,
+                    stage=stage_value,
+                    reason=reason_value,
+                ):
+                    continue
                 signal_record = Signal(
                     ticker=feature.ticker,
                     signal_type=db_signal_type,
@@ -235,6 +244,40 @@ class TradeExecutor:
             log.exception("trade_executor.scan_signals_error")
         finally:
             db.close()
+
+    def _should_skip_duplicate_signal(
+        self,
+        *,
+        db: Session,
+        ticker: str,
+        signal_type: DBSignalType,
+        score: float,
+        stage: str | None,
+        reason: str | None,
+    ) -> bool:
+        cooldown_seconds = max(0, settings.signal_dedupe_window_seconds)
+        if cooldown_seconds <= 0:
+            return False
+
+        cutoff = datetime.now() - timedelta(seconds=cooldown_seconds)
+        query = db.query(Signal).filter(
+            Signal.ticker == ticker,
+            Signal.signal_type == signal_type,
+            Signal.created_at >= cutoff,
+        )
+        if stage is None:
+            query = query.filter(Signal.stage.is_(None))
+        else:
+            query = query.filter(Signal.stage == stage)
+        if reason is None:
+            query = query.filter(Signal.reason.is_(None))
+        else:
+            query = query.filter(Signal.reason == reason)
+        latest = query.order_by(Signal.created_at.desc(), Signal.id.desc()).first()
+        if latest is None:
+            return False
+
+        return abs(float(latest.score) - float(score)) <= settings.signal_dedupe_score_delta
 
     async def monitor_positions(self) -> None:
         """Check open positions for sell-agent-managed exits."""

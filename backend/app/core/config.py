@@ -114,6 +114,8 @@ class Settings(BaseSettings):
     state_l2_liquidity_imbalance_min: float = 0.6
     state_l2_order_aggression_min: float = 0.5
     state_l2_spread_compression_min: float = 0.5
+    signal_dedupe_window_seconds: int = 60
+    signal_dedupe_score_delta: float = 0.02
 
     # --- Polygon ---
     polygon_api_key: str = ""  # Empty = disabled

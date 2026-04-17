@@ -75,6 +75,78 @@ async def test_scan_signals_persists_to_db(executor, db_session_factory):
 
 
 @pytest.mark.asyncio
+async def test_scan_signals_dedupes_near_identical_signals(executor, db_session_factory, monkeypatch):
+    monkeypatch.setattr(settings, "signal_dedupe_window_seconds", 60)
+    monkeypatch.setattr(settings, "signal_dedupe_score_delta", 0.02)
+
+    feature = FeatureVector(
+        ticker="OPEG",
+        liquidity_imbalance=0.2,
+        spread_compression=0.3,
+        bid_stacking=0.1,
+        volume_acceleration=0.2,
+        order_aggression=0.2,
+        composite_score=0.01,
+        signal_type=SignalType.FALSE_BREAKOUT,
+    )
+    executor.signal_detector.compute_signal = lambda ticker: feature
+    executor.tick_buffer.has_minimum_history = lambda ticker, minimum: True
+
+    await executor.scan_signals(["OPEG"])
+    await executor.scan_signals(["OPEG"])
+
+    db = db_session_factory()
+    signals = db.query(Signal).filter_by(ticker="OPEG").all()
+    assert len(signals) == 1
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_scan_signals_persists_materially_changed_signal_within_window(
+    executor, db_session_factory, monkeypatch
+):
+    monkeypatch.setattr(settings, "signal_dedupe_window_seconds", 60)
+    monkeypatch.setattr(settings, "signal_dedupe_score_delta", 0.02)
+
+    features = iter(
+        [
+            FeatureVector(
+                ticker="OPEG",
+                liquidity_imbalance=0.2,
+                spread_compression=0.3,
+                bid_stacking=0.1,
+                volume_acceleration=0.2,
+                order_aggression=0.2,
+                composite_score=0.01,
+                signal_type=SignalType.FALSE_BREAKOUT,
+            ),
+            FeatureVector(
+                ticker="OPEG",
+                liquidity_imbalance=0.2,
+                spread_compression=0.3,
+                bid_stacking=0.1,
+                volume_acceleration=0.2,
+                order_aggression=0.2,
+                composite_score=0.08,
+                signal_type=SignalType.FALSE_BREAKOUT,
+            ),
+        ]
+    )
+    executor.signal_detector.compute_signal = lambda ticker: next(features)
+    executor.tick_buffer.has_minimum_history = lambda ticker, minimum: True
+
+    await executor.scan_signals(["OPEG"])
+    await executor.scan_signals(["OPEG"])
+
+    db = db_session_factory()
+    signals = db.query(Signal).filter_by(ticker="OPEG").order_by(Signal.id.asc()).all()
+    assert len(signals) == 2
+    assert signals[0].score == pytest.approx(0.01)
+    assert signals[1].score == pytest.approx(0.08)
+    db.close()
+
+
+@pytest.mark.asyncio
 async def test_scan_signals_skips_insufficient_history(executor, db_session_factory):
     """No signals should be persisted without enough history."""
     await executor.collect_market_data(["SIRI"])  # Only 1 snapshot
