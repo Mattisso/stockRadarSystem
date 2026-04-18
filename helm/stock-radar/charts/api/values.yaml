@@ -6,6 +6,19 @@ worker:
   brokerType: ""
   uvicornWorkers: "1"
   apiEnableLegacyScanJob: "true"
+  apiEnablePositionMonitorJob: "true"
+  polygonEnableQuoteClient: "true"
+  polygonEnableAggregateClient: "true"
+
+executionWorker:
+  enabled: false
+  replicaCount: 1
+  brokerType: ""
+  uvicornWorkers: "1"
+  apiEnableLegacyScanJob: "false"
+  apiEnablePositionMonitorJob: "true"
+  polygonEnableQuoteClient: "true"
+  polygonEnableAggregateClient: "false"
 
 image:
   repository: stock-radar-api

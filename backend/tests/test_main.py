@@ -1,4 +1,36 @@
-from app.main import should_interval_refresh_polygon_day_aggregates
+from app.main import (
+    should_enable_aggregate_client,
+    should_enable_position_monitor_job,
+    should_enable_quote_client,
+    should_interval_refresh_polygon_day_aggregates,
+)
+
+
+def test_should_enable_quote_client(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_api_key", "key")
+    monkeypatch.setattr("app.main.settings.polygon_enable_quote_client", True)
+
+    assert should_enable_quote_client() is True
+
+
+def test_should_disable_quote_client_without_flag(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_api_key", "key")
+    monkeypatch.setattr("app.main.settings.polygon_enable_quote_client", False)
+
+    assert should_enable_quote_client() is False
+
+
+def test_should_enable_aggregate_client(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_api_key", "key")
+    monkeypatch.setattr("app.main.settings.polygon_enable_aggregate_client", True)
+
+    assert should_enable_aggregate_client() is True
+
+
+def test_should_disable_position_monitor_job(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_enable_position_monitor_job", False)
+
+    assert should_enable_position_monitor_job() is False
 
 
 def test_should_interval_refresh_polygon_day_aggregates_enabled(monkeypatch):

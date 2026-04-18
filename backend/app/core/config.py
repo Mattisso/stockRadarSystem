@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     api_secret_key: str = "change-me-in-production"
     api_runtime_role: str = "all"  # "all" | "web" | "worker"
     api_enable_legacy_scan_job: bool = True
+    api_enable_position_monitor_job: bool = True
     cors_allowed_origins: str = (
         "http://127.0.0.1:14200,"
         "http://localhost:14200,"
@@ -123,6 +124,8 @@ class Settings(BaseSettings):
     polygon_rest_poll_interval: float = 1.0
     polygon_ws_url: str = "wss://socket.massive.com/stocks"
     polygon_rest_url: str = "https://api.polygon.io"
+    polygon_enable_quote_client: bool = True
+    polygon_enable_aggregate_client: bool = True
     polygon_flatfiles_bucket: str = "flatfiles"
     polygon_day_aggregate_prefix: str = "us_stocks_sip/day_aggs_v1"
     polygon_reconnect_max_delay: float = 30.0

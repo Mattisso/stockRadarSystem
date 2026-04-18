@@ -59,6 +59,10 @@ spec:
               value: {{ .Values.env.TRADING_MODE | quote }}
             - name: BUY_USE_BRACKETS
               value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
+            - name: API_ENABLE_LEGACY_SCAN_JOB
+              value: "false"
+            - name: API_ENABLE_POSITION_MONITOR_JOB
+              value: "false"
             - name: SECRET_UNIVERSE_ENABLED
               value: {{ .Values.env.SECRET_UNIVERSE_ENABLED | quote }}
             - name: SECRET_UNIVERSE_SOURCE
@@ -92,6 +96,10 @@ spec:
                   key: {{ .Values.polygon.apiKeySecretKey }}
             - name: POLYGON_MODE
               value: {{ .Values.polygon.mode | quote }}
+            - name: POLYGON_ENABLE_QUOTE_CLIENT
+              value: "false"
+            - name: POLYGON_ENABLE_AGGREGATE_CLIENT
+              value: "false"
             - name: POLYGON_WS_URL
               value: {{ .Values.polygon.wsUrl | quote }}
             - name: POLYGON_REST_URL

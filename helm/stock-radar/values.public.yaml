@@ -23,6 +23,17 @@ api:
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
+    apiEnablePositionMonitorJob: "true"
+    polygonEnableQuoteClient: "true"
+    polygonEnableAggregateClient: "true"
+  executionWorker:
+    enabled: false
+    brokerType: "mock"
+    uvicornWorkers: "1"
+    apiEnableLegacyScanJob: "false"
+    apiEnablePositionMonitorJob: "true"
+    polygonEnableQuoteClient: "true"
+    polygonEnableAggregateClient: "false"
   broker:
     type: "ibkr"
     ibkrHost: "192.168.1.77"

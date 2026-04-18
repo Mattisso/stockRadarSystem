@@ -57,11 +57,24 @@ log = get_logger(__name__)
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
+def should_enable_quote_client() -> bool:
+    return bool(settings.polygon_api_key) and settings.polygon_enable_quote_client
+
+
+def should_enable_aggregate_client() -> bool:
+    return bool(settings.polygon_api_key) and settings.polygon_enable_aggregate_client
+
+
+def should_enable_position_monitor_job() -> bool:
+    return settings.api_enable_position_monitor_job
+
+
 def should_interval_refresh_polygon_day_aggregates() -> bool:
     return (
         settings.secret_universe_enabled
         and settings.secret_universe_source == "polygon"
         and settings.polygon_day_aggregate_ingestion_enabled
+        and settings.polygon_enable_aggregate_client
         and settings.polygon_day_aggregate_refresh_minutes > 0
     )
 
@@ -124,7 +137,7 @@ async def lifespan(app: FastAPI):
     polygon_client = None
     polygon_queue_consumer = None
     polygon_aggregate_client = None
-    if settings.polygon_api_key:
+    if should_enable_quote_client() or should_enable_aggregate_client():
         from app.data.polygon_client import PolygonClient
         from app.data.polygon_aggregate_client import PolygonAggregateClient
 
@@ -142,27 +155,30 @@ async def lifespan(app: FastAPI):
             dev_max_symbols=settings.polygon_dev_max_symbols,
             include_trade_wildcard=settings.secret_polygon_include_trade_wildcard,
         )
-        polygon_aggregate_client = PolygonAggregateClient(
-            api_key=settings.polygon_api_key,
-            db_session_factory=SessionLocal,
-            ws_url=settings.polygon_ws_url,
-            reconnect_max_delay=settings.polygon_reconnect_max_delay,
-            subscription_batch_size=settings.polygon_subscription_batch_size,
-        )
+        if should_enable_aggregate_client():
+            polygon_aggregate_client = PolygonAggregateClient(
+                api_key=settings.polygon_api_key,
+                db_session_factory=SessionLocal,
+                ws_url=settings.polygon_ws_url,
+                reconnect_max_delay=settings.polygon_reconnect_max_delay,
+                subscription_batch_size=settings.polygon_subscription_batch_size,
+            )
 
         # Pre-hydrate subscriptions from database if symbols are already known
         db = SessionLocal()
         try:
             engine = UniverseFilterEngine(broker, db)
             active_tickers = engine.get_active_tickers()
-            if active_tickers:
+            if active_tickers and polygon_client is not None:
                 polygon_client.update_subscriptions(active_tickers, source="watchlist")
 
             if settings.secret_universe_enabled:
                 secret_tickers = engine.get_secret_ingredients_tickers()
                 if secret_tickers:
-                    polygon_client.update_subscriptions(secret_tickers, source="secret_universe")
-                    polygon_aggregate_client.update_subscriptions(secret_tickers, source="secret_universe")
+                    if polygon_client is not None:
+                        polygon_client.update_subscriptions(secret_tickers, source="secret_universe")
+                    if polygon_aggregate_client is not None:
+                        polygon_aggregate_client.update_subscriptions(secret_tickers, source="secret_universe")
         except Exception:
             log.exception("polygon.pre_hydrate_error")
         finally:
@@ -198,7 +214,7 @@ async def lifespan(app: FastAPI):
         configured_secret_universe_source=settings.secret_universe_source,
     )
     runtime.mark_service("breakout_engine", True)
-    if polygon_client:
+    if polygon_client and should_enable_quote_client():
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
         from app.data.polygon_tick_persister import PolygonTickPersister
 
@@ -217,9 +233,11 @@ async def lifespan(app: FastAPI):
         if run_background:
             await polygon_queue_consumer.start()
             await polygon_client.start()
-            if settings.polygon_mode == "websocket" and polygon_aggregate_client is not None:
-                await polygon_aggregate_client.start()
         runtime.mark_service("polygon_queue_consumer", run_background, detail="enabled" if run_background else "disabled_for_web_role")
+    else:
+        runtime.mark_service("polygon_queue_consumer", False, detail="disabled")
+    if run_background and settings.polygon_mode == "websocket" and polygon_aggregate_client is not None:
+        await polygon_aggregate_client.start()
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -764,7 +782,7 @@ async def lifespan(app: FastAPI):
                     max_instances=1,
                     id="secret_universe_refresh_interval",
                 )
-        if settings.polygon_minute_aggregate_ingestion_enabled:
+        if settings.polygon_enable_aggregate_client and settings.polygon_minute_aggregate_ingestion_enabled:
             scheduler.add_job(
                 refresh_polygon_minute_aggregates_job,
                 "interval",
@@ -779,22 +797,25 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_live_retention",
         )
-        scheduler.add_job(
-            aggregate_rolling_refresh_job,
-            "interval",
-            seconds=settings.aggregate_rolling_refresh_seconds,
-            max_instances=1,
-            id="aggregate_rolling_refresh",
-        )
-        scheduler.add_job(
-            aggregate_history_export_job,
-            "interval",
-            minutes=settings.aggregate_history_export_interval_minutes,
-            max_instances=1,
-            id="aggregate_history_export",
-        )
-        scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
-        scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
+        if settings.polygon_enable_aggregate_client:
+            scheduler.add_job(
+                aggregate_rolling_refresh_job,
+                "interval",
+                seconds=settings.aggregate_rolling_refresh_seconds,
+                max_instances=1,
+                id="aggregate_rolling_refresh",
+            )
+            scheduler.add_job(
+                aggregate_history_export_job,
+                "interval",
+                minutes=settings.aggregate_history_export_interval_minutes,
+                max_instances=1,
+                id="aggregate_history_export",
+            )
+        if settings.api_enable_legacy_scan_job:
+            scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
+        if should_enable_position_monitor_job():
+            scheduler.add_job(monitor_job, "interval", seconds=3, max_instances=1, id="position_monitor")
         scheduler.add_job(
             retrain_job,
             "interval",
@@ -815,12 +836,13 @@ async def lifespan(app: FastAPI):
         if settings.secret_universe_enabled:
             initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
             runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
-        if settings.polygon_minute_aggregate_ingestion_enabled:
+        if settings.polygon_enable_aggregate_client and settings.polygon_minute_aggregate_ingestion_enabled:
             initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
             runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
-        initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
-        runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
-        if settings.aggregate_history_export_enabled:
+        if settings.polygon_enable_aggregate_client:
+            initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
+            runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
+        if settings.polygon_enable_aggregate_client and settings.aggregate_history_export_enabled:
             initial_history_export_task = asyncio.create_task(aggregate_history_export_job())
             runtime.register_task("initial_aggregate_history_export", initial_history_export_task)
     else:
