@@ -105,6 +105,10 @@ polygon:
   dayAggregateRefreshMinutes: "15"
   minuteAggregateIngestionEnabled: "false"
   minuteAggregateRefreshMinutes: "15"
+  flatfilesEndpointUrl: "https://files.massive.com"
+  flatfilesRegion: "us-east-1"
+  flatfilesAccessKeySecretKey: "AWS_ACCESS_KEY_ID"
+  flatfilesSecretAccessKeySecretKey: "AWS_SECRET_ACCESS_KEY"
 
 probes:
   startup:

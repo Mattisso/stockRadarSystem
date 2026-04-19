@@ -459,7 +459,7 @@ tunnel-stop:
 	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
-.PHONY: rotate-api-key show-api-key show-api-key-public show-polygon-key show-polygon-key-public show-access-token show-access-token-public
+.PHONY: rotate-api-key show-api-key show-api-key-public show-polygon-key show-polygon-key-public show-access-token show-access-token-public apply-polygon-secret apply-polygon-secret-public check-polygon-secret check-polygon-secret-public
 
 rotate-api-key:
 	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
@@ -481,6 +481,50 @@ show-polygon-key:
 
 show-polygon-key-public:
 	@kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.POLYGON_API_KEY}' | base64 -d; echo
+
+apply-polygon-secret:
+	@test -n "$(POLYGON_API_KEY)" || (echo "POLYGON_API_KEY is required"; exit 1)
+	@test -n "$(AWS_ACCESS_KEY_ID)" || (echo "AWS_ACCESS_KEY_ID is required"; exit 1)
+	@test -n "$(AWS_SECRET_ACCESS_KEY)" || (echo "AWS_SECRET_ACCESS_KEY is required"; exit 1)
+	kubectl create secret generic polygon-secret \
+		--from-literal=POLYGON_API_KEY="$(POLYGON_API_KEY)" \
+		--from-literal=AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
+		--from-literal=AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
+		--namespace=$(NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -
+
+apply-polygon-secret-public:
+	@test -n "$(POLYGON_API_KEY)" || (echo "POLYGON_API_KEY is required"; exit 1)
+	@test -n "$(AWS_ACCESS_KEY_ID)" || (echo "AWS_ACCESS_KEY_ID is required"; exit 1)
+	@test -n "$(AWS_SECRET_ACCESS_KEY)" || (echo "AWS_SECRET_ACCESS_KEY is required"; exit 1)
+	kubectl create secret generic polygon-secret \
+		--from-literal=POLYGON_API_KEY="$(POLYGON_API_KEY)" \
+		--from-literal=AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
+		--from-literal=AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
+		--namespace=$(PUBLIC_NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -
+
+check-polygon-secret:
+	@echo "Namespace: $(NAMESPACE)"
+	@for KEY in POLYGON_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do \
+		if kubectl get secret polygon-secret -n $(NAMESPACE) -o jsonpath="{.data.$$KEY}" | grep -q .; then \
+			echo "$$KEY: present"; \
+		else \
+			echo "$$KEY: missing"; \
+			exit 1; \
+		fi; \
+	done
+
+check-polygon-secret-public:
+	@echo "Namespace: $(PUBLIC_NAMESPACE)"
+	@for KEY in POLYGON_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do \
+		if kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath="{.data.$$KEY}" | grep -q .; then \
+			echo "$$KEY: present"; \
+		else \
+			echo "$$KEY: missing"; \
+			exit 1; \
+		fi; \
+	done
 
 show-access-token:
 	@kubectl exec -n $(NAMESPACE) deploy/stock-radar-api -- python3 -c "from app.core.auth import create_access_token; print(create_access_token())"

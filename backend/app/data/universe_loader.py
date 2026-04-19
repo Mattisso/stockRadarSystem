@@ -61,6 +61,8 @@ class PolygonFlatFileUniverseLoader:
         last_error: Exception | None = None
         for offset in range(max_lookback_days + 1):
             trade_date = anchor - timedelta(days=offset)
+            if trade_date.weekday() >= 5:
+                continue
             try:
                 records, stats = self._fetch_day_records_from_s3(
                     trade_date,
@@ -68,7 +70,7 @@ class PolygonFlatFileUniverseLoader:
                     min_close=target_min_close,
                 )
             except Exception as exc:
-                if self._is_missing_object_error(exc):
+                if self._should_continue_latest_lookup(exc, trade_date=trade_date, anchor=anchor):
                     last_error = exc
                     continue
                 raise
@@ -143,7 +145,10 @@ class PolygonFlatFileUniverseLoader:
             return self.s3_client
         import boto3
 
-        self.s3_client = boto3.client("s3")
+        self.s3_client = boto3.client(
+            "s3",
+            endpoint_url=settings.polygon_flatfiles_endpoint_url,
+        )
         return self.s3_client
 
     def _parse_row(self, row: dict[str, str], trade_date: date) -> PolygonDayAggregateRecord | None:
@@ -214,3 +219,15 @@ class PolygonFlatFileUniverseLoader:
             return False
         code = str(response.get("Error", {}).get("Code", ""))
         return code in {"404", "NoSuchKey", "NotFound"}
+
+    @classmethod
+    def _should_continue_latest_lookup(cls, exc: Exception, *, trade_date: date, anchor: date) -> bool:
+        if cls._is_missing_object_error(exc):
+            return True
+        if trade_date != anchor:
+            return False
+        response = getattr(exc, "response", None)
+        if not isinstance(response, dict):
+            return False
+        code = str(response.get("Error", {}).get("Code", ""))
+        return code in {"403", "AccessDenied"}

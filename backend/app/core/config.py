@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     polygon_rest_poll_interval: float = 1.0
     polygon_ws_url: str = "wss://socket.massive.com/stocks"
     polygon_rest_url: str = "https://api.polygon.io"
+    polygon_flatfiles_endpoint_url: str = "https://files.massive.com"
     polygon_enable_quote_client: bool = True
     polygon_enable_aggregate_client: bool = True
     polygon_flatfiles_bucket: str = "flatfiles"

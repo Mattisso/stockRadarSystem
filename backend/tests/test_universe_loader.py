@@ -24,6 +24,25 @@ class FakeS3Client:
         return {"Body": io.BytesIO(payload)}
 
 
+class FakeClientError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
+
+
+class ErroringS3Client(FakeS3Client):
+    def get_object(self, *, Bucket, Key):
+        self.calls.append({"Bucket": Bucket, "Key": Key})
+        if isinstance(self.payload, dict):
+            payload = self.payload.get(Key)
+            if isinstance(payload, Exception):
+                raise payload
+            if payload is None:
+                raise KeyError(Key)
+            return {"Body": io.BytesIO(payload)}
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
 def _gzip_csv(text: str) -> bytes:
     buffer = io.BytesIO()
     with gzip.GzipFile(fileobj=buffer, mode="wb") as gz:
@@ -87,7 +106,7 @@ def test_load_latest_universe_from_s3_falls_back_to_most_recent_available_file(d
     )
     s3_client = FakeS3Client(
         {
-            "us_stocks_sip/day_aggs_v1/2026/04/2026-04-11.csv.gz": latest_payload,
+            "us_stocks_sip/day_aggs_v1/2026/04/2026-04-10.csv.gz": latest_payload,
         }
     )
     loader = PolygonFlatFileUniverseLoader(db, s3_client=s3_client)
@@ -100,7 +119,57 @@ def test_load_latest_universe_from_s3_falls_back_to_most_recent_available_file(d
     )
     db.commit()
 
-    assert trade_date == date(2026, 4, 11)
+    assert trade_date == date(2026, 4, 10)
     assert tickers == ["LCID"]
     assert stats.filtered_rows == 1
-    assert len(s3_client.calls) == 3
+    assert len(s3_client.calls) == 2
+
+
+def test_load_latest_universe_from_s3_skips_weekends_before_probing_s3(db):
+    latest_payload = _gzip_csv(
+        "ticker,volume,open,close,high,low,timestamp,vwap,transactions\n"
+        "LCID,500000,3.25,3.45,3.50,3.10,1712860200000,3.40,10\n"
+    )
+    s3_client = FakeS3Client(
+        {
+            "us_stocks_sip/day_aggs_v1/2026/04/2026-04-17.csv.gz": latest_payload,
+        }
+    )
+    loader = PolygonFlatFileUniverseLoader(db, s3_client=s3_client)
+
+    trade_date, tickers, stats = loader.load_latest_universe_from_s3(
+        as_of=date(2026, 4, 19),
+        max_lookback_days=3,
+        max_close=10.0,
+        min_close=1.0,
+    )
+
+    assert trade_date == date(2026, 4, 17)
+    assert tickers == ["LCID"]
+    assert stats.filtered_rows == 1
+    assert [call["Key"] for call in s3_client.calls] == ["us_stocks_sip/day_aggs_v1/2026/04/2026-04-17.csv.gz"]
+
+
+def test_load_latest_universe_from_s3_continues_past_anchor_access_denied(db):
+    latest_payload = _gzip_csv(
+        "ticker,volume,open,close,high,low,timestamp,vwap,transactions\n"
+        "LCID,500000,3.25,3.45,3.50,3.10,1712860200000,3.40,10\n"
+    )
+    s3_client = ErroringS3Client(
+        {
+            "us_stocks_sip/day_aggs_v1/2026/04/2026-04-21.csv.gz": FakeClientError("403"),
+            "us_stocks_sip/day_aggs_v1/2026/04/2026-04-20.csv.gz": latest_payload,
+        }
+    )
+    loader = PolygonFlatFileUniverseLoader(db, s3_client=s3_client)
+
+    trade_date, tickers, stats = loader.load_latest_universe_from_s3(
+        as_of=date(2026, 4, 21),
+        max_lookback_days=1,
+        max_close=10.0,
+        min_close=1.0,
+    )
+
+    assert trade_date == date(2026, 4, 20)
+    assert tickers == ["LCID"]
+    assert stats.filtered_rows == 1

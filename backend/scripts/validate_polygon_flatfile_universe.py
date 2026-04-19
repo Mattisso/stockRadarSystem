@@ -8,6 +8,7 @@ Usage examples:
 
 Environment variables used when flags are omitted:
 
+  POLYGON_FLATFILES_ENDPOINT_URL
   POLYGON_FLATFILES_BUCKET
   POLYGON_DAY_AGGREGATE_PREFIX
   UNIVERSE_MAX_PRICE
@@ -68,7 +69,10 @@ def get_s3_client():
         import boto3
     except ImportError as exc:
         raise SystemExit("boto3 is required to run this script") from exc
-    return boto3.client("s3")
+    return boto3.client(
+        "s3",
+        endpoint_url=_env_str("POLYGON_FLATFILES_ENDPOINT_URL", "https://files.massive.com"),
+    )
 
 
 def get_polygon_api_key() -> str | None:
@@ -121,6 +125,8 @@ def load_latest(s3_client, *, bucket: str, prefix: str, anchor: date, lookback_d
     last_error = None
     for offset in range(lookback_days + 1):
         trade_date = anchor - timedelta(days=offset)
+        if trade_date.weekday() >= 5:
+            continue
         try:
             key, records, stats = load_for_date(
                 s3_client,
@@ -132,7 +138,7 @@ def load_latest(s3_client, *, bucket: str, prefix: str, anchor: date, lookback_d
             )
             return trade_date, key, records, stats
         except Exception as exc:  # noqa: BLE001
-            if _is_missing_object_error(exc):
+            if _should_continue_latest_lookup(exc, trade_date=trade_date, anchor=anchor):
                 last_error = exc
                 continue
             raise
@@ -261,6 +267,18 @@ def _is_missing_object_error(exc: Exception) -> bool:
         return False
     code = str(response.get("Error", {}).get("Code", ""))
     return code in {"404", "NoSuchKey", "NotFound"}
+
+
+def _should_continue_latest_lookup(exc: Exception, *, trade_date: date, anchor: date) -> bool:
+    if _is_missing_object_error(exc):
+        return True
+    if trade_date != anchor:
+        return False
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return False
+    code = str(response.get("Error", {}).get("Code", ""))
+    return code in {"403", "AccessDenied"}
 
 
 def parse_args() -> argparse.Namespace:
