@@ -169,7 +169,11 @@ async def lifespan(app: FastAPI):
         try:
             engine = UniverseFilterEngine(broker, db)
             active_tickers = engine.get_active_tickers()
-            if active_tickers and polygon_client is not None:
+            if (
+                active_tickers
+                and polygon_client is not None
+                and not (settings.secret_universe_enabled and settings.secret_universe_source == "polygon")
+            ):
                 polygon_client.update_subscriptions(active_tickers, source="watchlist")
 
             if settings.secret_universe_enabled:
@@ -275,6 +279,8 @@ async def lifespan(app: FastAPI):
             live_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
             if update_subscriptions:
                 if polygon_client:
+                    if settings.secret_universe_source == "polygon":
+                        polygon_client.update_subscriptions([], source="watchlist")
                     polygon_client.update_subscriptions(live_tickers, source="secret_universe")
                 if polygon_aggregate_client:
                     polygon_aggregate_client.update_subscriptions(live_tickers, source="secret_universe")
