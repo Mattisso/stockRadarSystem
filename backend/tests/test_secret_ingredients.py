@@ -114,3 +114,45 @@ def test_record_l1_to_l2_events_persists_handoff_payload(db):
     assert row.escalation_reason == "secret_candidate"
     assert row.latency_ms is not None
     assert "promotion_reason" in row.handoff_payload
+
+
+def test_select_live_subscription_tickers_ranks_latest_universe_by_avg_volume(db):
+    db.add_all(
+        [
+            Symbol(ticker="AAA", exchange="NASDAQ", last_price=2.0, avg_volume=900_000, is_active=False),
+            Symbol(ticker="BBB", exchange="NASDAQ", last_price=3.0, avg_volume=2_500_000, is_active=False),
+            Symbol(ticker="CCC", exchange="NASDAQ", last_price=4.0, avg_volume=400_000, is_active=False),
+        ]
+    )
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    service.record_daily_universe(
+        ["AAA", "BBB", "CCC"],
+        trade_date=date(2026, 4, 20),
+        snapshots_by_ticker={
+            "AAA": DailyUniverseSnapshot(ticker="AAA", last_price=2.0, avg_volume=900_000),
+            "BBB": DailyUniverseSnapshot(ticker="BBB", last_price=3.0, avg_volume=2_500_000),
+            "CCC": DailyUniverseSnapshot(ticker="CCC", last_price=4.0, avg_volume=400_000),
+        },
+    )
+    db.commit()
+
+    assert service.select_live_subscription_tickers(max_symbols=2, min_avg_volume=500_000) == ["BBB", "AAA"]
+
+
+def test_select_live_subscription_tickers_uses_symbol_avg_volume_when_daily_snapshot_missing_it(db):
+    db.add(Symbol(ticker="AAA", exchange="NASDAQ", last_price=2.0, avg_volume=1_200_000, is_active=False))
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    service.record_daily_universe(
+        ["AAA"],
+        trade_date=date(2026, 4, 20),
+        snapshots_by_ticker={
+            "AAA": DailyUniverseSnapshot(ticker="AAA", last_price=2.0, avg_volume=None),
+        },
+    )
+    db.commit()
+
+    assert service.select_live_subscription_tickers(max_symbols=10, min_avg_volume=500_000) == ["AAA"]

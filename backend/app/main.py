@@ -173,12 +173,12 @@ async def lifespan(app: FastAPI):
                 polygon_client.update_subscriptions(active_tickers, source="watchlist")
 
             if settings.secret_universe_enabled:
-                secret_tickers = engine.get_secret_ingredients_tickers()
-                if secret_tickers:
+                live_secret_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
+                if live_secret_tickers:
                     if polygon_client is not None:
-                        polygon_client.update_subscriptions(secret_tickers, source="secret_universe")
+                        polygon_client.update_subscriptions(live_secret_tickers, source="secret_universe")
                     if polygon_aggregate_client is not None:
-                        polygon_aggregate_client.update_subscriptions(secret_tickers, source="secret_universe")
+                        polygon_aggregate_client.update_subscriptions(live_secret_tickers, source="secret_universe")
         except Exception:
             log.exception("polygon.pre_hydrate_error")
         finally:
@@ -272,23 +272,25 @@ async def lifespan(app: FastAPI):
             else:
                 tickers = await engine.refresh_secret_ingredients_universe()
 
+            live_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
             if update_subscriptions:
                 if polygon_client:
-                    polygon_client.update_subscriptions(tickers, source="secret_universe")
+                    polygon_client.update_subscriptions(live_tickers, source="secret_universe")
                 if polygon_aggregate_client:
-                    polygon_aggregate_client.update_subscriptions(tickers, source="secret_universe")
+                    polygon_aggregate_client.update_subscriptions(live_tickers, source="secret_universe")
             SECRET_UNIVERSE_SIZE.set(len(tickers))
             secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
-            return source, tickers
+            return source, tickers, live_tickers
         finally:
             db.close()
 
     if run_background and settings.secret_universe_enabled and settings.secret_universe_source == "polygon":
         try:
-            source, tickers = await refresh_secret_universe_once(update_subscriptions=True)
+            source, tickers, live_tickers = await refresh_secret_universe_once(update_subscriptions=True)
             log.info(
                 "startup.secret_universe_hydrated",
                 count=len(tickers),
+                live_count=len(live_tickers),
                 source=source,
             )
         except Exception:
@@ -415,8 +417,13 @@ async def lifespan(app: FastAPI):
         try:
             if not settings.secret_universe_enabled:
                 return
-            source, tickers = await refresh_secret_universe_once(update_subscriptions=True)
-            log.info("scheduler.secret_universe_refreshed", count=len(tickers), source=source)
+            source, tickers, live_tickers = await refresh_secret_universe_once(update_subscriptions=True)
+            log.info(
+                "scheduler.secret_universe_refreshed",
+                count=len(tickers),
+                live_count=len(live_tickers),
+                source=source,
+            )
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="secret_universe_refresh").inc()
             secret_runtime_status.mark_error("secret_universe_refresh_error")
@@ -434,7 +441,7 @@ async def lifespan(app: FastAPI):
             db = SessionLocal()
             try:
                 aggregate_service = PolygonAggregateService(db)
-                tickers = SecretIngredientsService(db).latest_daily_universe_tickers()
+                tickers = SecretIngredientsService(db).select_live_subscription_tickers()
                 if not tickers:
                     return
                 trade_date = aggregate_service.latest_day_aggregate_date()

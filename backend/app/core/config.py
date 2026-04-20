@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     secret_universe_excluded_tickers: str = ""
     secret_universe_rebuild_hour: int = 8
     secret_universe_rebuild_minute: int = 0
+    secret_polygon_live_max_symbols: int = 300
+    secret_polygon_live_min_avg_volume: int = 500_000
 
     # --- Broker ---
     broker_type: str = "mock"  # "mock" | "ibkr"
