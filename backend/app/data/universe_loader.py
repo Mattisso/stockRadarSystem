@@ -206,7 +206,13 @@ class PolygonFlatFileUniverseLoader:
             raw = int(float(value))
         except (TypeError, ValueError):
             return None
-        if raw > 10_000_000_000:
+        # Flat-file timestamps may be emitted in seconds, milliseconds,
+        # microseconds, or nanoseconds depending on source/version.
+        if raw >= 1_000_000_000_000_000_000:
+            raw = raw / 1_000_000_000
+        elif raw >= 1_000_000_000_000_000:
+            raw = raw / 1_000_000
+        elif raw >= 1_000_000_000_000:
             raw = raw / 1000
         return datetime.fromtimestamp(raw, tz=timezone.utc).replace(tzinfo=None)
 

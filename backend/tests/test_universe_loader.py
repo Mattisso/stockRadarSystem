@@ -173,3 +173,22 @@ def test_load_latest_universe_from_s3_continues_past_anchor_access_denied(db):
     assert trade_date == date(2026, 4, 20)
     assert tickers == ["LCID"]
     assert stats.filtered_rows == 1
+
+
+def test_parse_day_aggregate_stream_accepts_nanosecond_timestamps(db):
+    payload = _gzip_csv(
+        "ticker,volume,open,close,high,low,timestamp,vwap,transactions\n"
+        "LCID,500000,3.25,3.45,3.50,3.10,1744934400000000000,3.40,10\n"
+    )
+    loader = PolygonFlatFileUniverseLoader(db, s3_client=FakeS3Client(payload))
+
+    records, stats = loader.parse_day_aggregate_stream(
+        io.BytesIO(payload),
+        date(2026, 4, 18),
+        max_close=10.0,
+        min_close=1.0,
+    )
+
+    assert stats.filtered_rows == 1
+    assert records[0].source_ts is not None
+    assert records[0].source_ts.year == 2025
