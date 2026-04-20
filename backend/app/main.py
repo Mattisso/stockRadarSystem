@@ -139,7 +139,6 @@ async def lifespan(app: FastAPI):
     polygon_aggregate_client = None
     if should_enable_quote_client() or should_enable_aggregate_client():
         from app.data.polygon_client import PolygonClient
-        from app.data.polygon_aggregate_client import PolygonAggregateClient
 
         polygon_queue = asyncio.Queue(maxsize=settings.polygon_queue_maxsize)
         polygon_client = PolygonClient(
@@ -154,15 +153,10 @@ async def lifespan(app: FastAPI):
             subscription_batch_size=settings.polygon_subscription_batch_size,
             dev_max_symbols=settings.polygon_dev_max_symbols,
             include_trade_wildcard=settings.secret_polygon_include_trade_wildcard,
+            enable_quotes=should_enable_quote_client(),
+            enable_aggregates=should_enable_aggregate_client() and settings.polygon_mode == "websocket",
+            db_session_factory=SessionLocal if should_enable_aggregate_client() and settings.polygon_mode == "websocket" else None,
         )
-        if should_enable_aggregate_client():
-            polygon_aggregate_client = PolygonAggregateClient(
-                api_key=settings.polygon_api_key,
-                db_session_factory=SessionLocal,
-                ws_url=settings.polygon_ws_url,
-                reconnect_max_delay=settings.polygon_reconnect_max_delay,
-                subscription_batch_size=settings.polygon_subscription_batch_size,
-            )
 
         # Pre-hydrate subscriptions from database if symbols are already known
         db = SessionLocal()
@@ -181,15 +175,13 @@ async def lifespan(app: FastAPI):
                 if live_secret_tickers:
                     if polygon_client is not None:
                         polygon_client.update_subscriptions(live_secret_tickers, source="secret_universe")
-                    if polygon_aggregate_client is not None:
-                        polygon_aggregate_client.update_subscriptions(live_secret_tickers, source="secret_universe")
         except Exception:
             log.exception("polygon.pre_hydrate_error")
         finally:
             db.close()
 
     app.state.polygon_client = polygon_client
-    app.state.polygon_aggregate_client = polygon_aggregate_client
+    app.state.polygon_aggregate_client = None
     runtime.mark_service(
         "polygon",
         polygon_client is not None and run_background,
@@ -197,8 +189,10 @@ async def lifespan(app: FastAPI):
     )
     runtime.mark_service(
         "polygon_aggregates",
-        polygon_aggregate_client is not None and run_background,
-        detail=(settings.polygon_mode if run_background else "disabled_for_web_role") if polygon_aggregate_client else "disabled",
+        polygon_client is not None and should_enable_aggregate_client() and run_background,
+        detail=(settings.polygon_mode if run_background else "disabled_for_web_role")
+        if polygon_client and should_enable_aggregate_client()
+        else "disabled",
     )
 
     # ── Core components ─────────────────────────────────────────────
@@ -282,8 +276,6 @@ async def lifespan(app: FastAPI):
                     if settings.secret_universe_source == "polygon":
                         polygon_client.update_subscriptions([], source="watchlist")
                     polygon_client.update_subscriptions(live_tickers, source="secret_universe")
-                if polygon_aggregate_client:
-                    polygon_aggregate_client.update_subscriptions(live_tickers, source="secret_universe")
             SECRET_UNIVERSE_SIZE.set(len(tickers))
             secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
             return source, tickers, live_tickers
@@ -303,30 +295,34 @@ async def lifespan(app: FastAPI):
             secret_runtime_status.mark_error("startup_secret_universe_refresh_error")
             log.exception("startup.secret_universe_hydration_error")
 
-    if polygon_client and should_enable_quote_client():
+    if polygon_client and (should_enable_quote_client() or should_enable_aggregate_client()):
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
         from app.data.polygon_tick_persister import PolygonTickPersister
 
         tick_persister = None
-        if settings.polygon_persist_ticks:
+        if should_enable_quote_client() and settings.polygon_persist_ticks:
             tick_persister = PolygonTickPersister(
                 SessionLocal,
                 batch_size=settings.polygon_persist_batch_size,
             )
-        polygon_queue_consumer = BreakoutQueueConsumer(
-            polygon_queue,
-            breakout_engine,
-            l1_feature_engine=l1_feature_engine,
-            tick_persister=tick_persister,
-        )
+        if should_enable_quote_client():
+            polygon_queue_consumer = BreakoutQueueConsumer(
+                polygon_queue,
+                breakout_engine,
+                l1_feature_engine=l1_feature_engine,
+                tick_persister=tick_persister,
+            )
         if run_background:
-            await polygon_queue_consumer.start()
+            if polygon_queue_consumer is not None:
+                await polygon_queue_consumer.start()
             await polygon_client.start()
-        runtime.mark_service("polygon_queue_consumer", run_background, detail="enabled" if run_background else "disabled_for_web_role")
+        runtime.mark_service(
+            "polygon_queue_consumer",
+            polygon_queue_consumer is not None and run_background,
+            detail="enabled" if polygon_queue_consumer is not None and run_background else "disabled",
+        )
     else:
         runtime.mark_service("polygon_queue_consumer", False, detail="disabled")
-    if run_background and settings.polygon_mode == "websocket" and polygon_aggregate_client is not None:
-        await polygon_aggregate_client.start()
     tick_buffer = TickBuffer(maxlen=100)
     signal_detector = SignalDetector(tick_buffer, ml_scorer=ml_scorer)
     risk_manager = RiskManager(broker)
@@ -890,8 +886,6 @@ async def lifespan(app: FastAPI):
         await polygon_client.stop()
     if polygon_queue_consumer:
         await polygon_queue_consumer.stop()
-    if polygon_aggregate_client:
-        await polygon_aggregate_client.stop()
     await cache.disconnect()
     await ws_manager.stop()
     runtime.mark_service("cache", False, detail="shutdown")

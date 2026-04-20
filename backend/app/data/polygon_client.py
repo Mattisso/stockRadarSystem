@@ -1,8 +1,9 @@
-"""Polygon.io L1 data ingestion and aggregate fetch helpers."""
+"""Polygon.io L1 and aggregate ingestion helpers."""
 
 import asyncio
 from datetime import date, datetime, timezone
 from math import ceil
+from typing import Any
 
 import httpx
 from websockets.exceptions import ConnectionClosed
@@ -11,9 +12,12 @@ from app.broker.interface import Quote
 from app.core.logging import get_logger
 from app.core.metrics import POLYGON_RECONNECT_TOTAL, POLYGON_SESSION_CONNECTED
 from app.data.cache import CacheInterface
+from app.data.polygon_aggregate_parser import PolygonAggregateParser
 from app.data.polygon_aggregate_service import (
+    PolygonAggregateService,
     PolygonDayAggregateRecord,
     PolygonMinuteAggregateRecord,
+    PolygonSecondAggregateRecord,
 )
 from app.data.polygon_connection import PolygonConnectionManager
 from app.data.polygon_parser import PolygonMessageParser
@@ -45,6 +49,9 @@ class PolygonClient:
         subscription_batch_size: int = 500,
         dev_max_symbols: int = 3,
         include_trade_wildcard: bool = False,
+        enable_quotes: bool = True,
+        enable_aggregates: bool = False,
+        db_session_factory=None,
         parser: PolygonMessageParser | None = None,
         connection_manager: PolygonConnectionManager | None = None,
     ) -> None:
@@ -60,7 +67,11 @@ class PolygonClient:
         self._reconnect_max_delay = reconnect_max_delay
         self._dev_max_symbols = max(1, dev_max_symbols)
         self._include_trade_wildcard = include_trade_wildcard
+        self._enable_quotes = enable_quotes
+        self._enable_aggregates = enable_aggregates
+        self._db_session_factory = db_session_factory
         self._parser = parser or PolygonMessageParser()
+        self._aggregate_parser = PolygonAggregateParser()
         self._connection_manager = connection_manager or PolygonConnectionManager(
             api_key=api_key,
             ws_url=ws_url,
@@ -149,6 +160,7 @@ class PolygonClient:
             "reconnect_count": self._reconnect_count,
             "subscription_count": len(self.current_symbols()),
             "include_trade_wildcard": self._include_trade_wildcard,
+            "channels": list(self._subscription_channels()),
         }
 
     async def load_reference_universe(
@@ -259,7 +271,8 @@ class PolygonClient:
                     await self._connection_manager.subscribe(
                         ws,
                         self.current_symbols(),
-                        include_trades=self._include_trade_wildcard,
+                        channels=self._subscription_channels(),
+                        include_trades=self._enable_quotes and self._include_trade_wildcard,
                     )
                     delay = 1.0  # Reset backoff on success
                     async for raw in ws:
@@ -301,26 +314,30 @@ class PolygonClient:
                 delay = min(delay * 2, self._reconnect_max_delay)
 
     async def _handle_ws_payload(self, payload: str | bytes | dict | list[dict]) -> None:
-        """Parse and dispatch all quotes found in a WebSocket payload."""
-        quotes = self._parser.parse_messages(payload)
-        if not quotes:
-            return
+        """Parse and dispatch all market-data events found in a WebSocket payload."""
+        if self._enable_quotes:
+            quotes = self._parser.parse_messages(payload)
+            if quotes:
+                self._ws_quote_count += len(quotes)
+                loop = asyncio.get_running_loop()
+                now = loop.time()
+                if now - self._last_ws_quote_log_at >= 10:
+                    self._last_ws_quote_log_at = now
+                    log.info("polygon.ws_quotes_received", total=self._ws_quote_count, batch_size=len(quotes))
 
-        self._ws_quote_count += len(quotes)
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        if now - self._last_ws_quote_log_at >= 10:
-            self._last_ws_quote_log_at = now
-            log.info("polygon.ws_quotes_received", total=self._ws_quote_count, batch_size=len(quotes))
+                for quote in quotes:
+                    await self._dispatch(quote)
 
-        for quote in quotes:
-            await self._dispatch(quote)
+        if self._enable_aggregates:
+            await self._handle_aggregate_ws_payload(payload)
 
     async def _handle_ws_message(self, msg: dict) -> None:
         """Parse a Polygon WebSocket quote message."""
-        quote = self._parser.parse_message(msg)
+        quote = self._parser.parse_message(msg) if self._enable_quotes else None
         if quote is not None:
             await self._dispatch(quote)
+        if self._enable_aggregates:
+            await self._handle_aggregate_ws_payload(msg)
 
     # ── REST Mode (free tier) ────────────────────────────────────────
 
@@ -510,3 +527,75 @@ class PolygonClient:
                 self._queue.put_nowait(quote)
             except asyncio.QueueFull:
                 pass  # Drop the new quote rather than blocking the reader
+
+    def _subscription_channels(self) -> tuple[str, ...]:
+        channels: list[str] = []
+        if self._enable_quotes:
+            channels.append("Q")
+        if self._enable_aggregates:
+            channels.extend(["AM", "A"])
+        return tuple(channels)
+
+    async def _handle_aggregate_ws_payload(self, payload: str | bytes | dict | list[dict]) -> None:
+        if not self._db_session_factory:
+            return
+
+        bars = self._aggregate_parser.parse_messages(payload)
+        if not bars:
+            return
+
+        allowed_tickers = set(self.current_symbols())
+        minute_records: list[PolygonMinuteAggregateRecord] = []
+        second_records: list[PolygonSecondAggregateRecord] = []
+
+        for bar in bars:
+            if bar.ticker not in allowed_tickers:
+                continue
+            if bar.event_type == "AM":
+                minute_records.append(
+                    PolygonMinuteAggregateRecord(
+                        ticker=bar.ticker,
+                        minute_ts=bar.timestamp,
+                        open=bar.open,
+                        high=bar.high,
+                        low=bar.low,
+                        close=bar.close,
+                        volume=bar.volume,
+                        vwap=bar.vwap,
+                        transactions=bar.transactions,
+                    )
+                )
+            elif bar.event_type == "A":
+                second_records.append(
+                    PolygonSecondAggregateRecord(
+                        ticker=bar.ticker,
+                        second_ts=bar.timestamp,
+                        open=bar.open,
+                        high=bar.high,
+                        low=bar.low,
+                        close=bar.close,
+                        volume=bar.volume,
+                        vwap=bar.vwap,
+                        transactions=bar.transactions,
+                    )
+                )
+
+        if not minute_records and not second_records:
+            return
+
+        db = self._db_session_factory()
+        try:
+            aggregate_service = PolygonAggregateService(db)
+            if minute_records:
+                aggregate_service.upsert_minute_aggregates(minute_records, allowed_tickers=allowed_tickers)
+            if second_records:
+                aggregate_service.upsert_second_aggregates(second_records, allowed_tickers=allowed_tickers)
+            db.commit()
+            log.info(
+                "polygon.aggregate_batch_persisted",
+                symbols=len(allowed_tickers),
+                minute_count=len(minute_records),
+                second_count=len(second_records),
+            )
+        finally:
+            db.close()
