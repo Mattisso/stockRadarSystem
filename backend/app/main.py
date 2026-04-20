@@ -214,6 +214,87 @@ async def lifespan(app: FastAPI):
         configured_secret_universe_source=settings.secret_universe_source,
     )
     runtime.mark_service("breakout_engine", True)
+
+    async def refresh_secret_universe_once(*, update_subscriptions: bool = True) -> tuple[str, list[str]]:
+        db = SessionLocal()
+        try:
+            engine = UniverseFilterEngine(broker, db)
+            source = settings.secret_universe_source
+            if source == "polygon":
+                if polygon_client is None:
+                    raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
+                if settings.polygon_day_aggregate_ingestion_enabled:
+                    try:
+                        loader = PolygonFlatFileUniverseLoader(db)
+                        trade_date, tickers, stats = loader.load_latest_universe_from_s3(
+                            max_close=settings.secret_universe_max_price,
+                            min_close=settings.secret_universe_min_price,
+                        )
+                        db.commit()
+                        log.info(
+                            "scheduler.polygon_flatfile_universe_refreshed",
+                            trade_date=trade_date.isoformat(),
+                            raw_count=stats.total_rows,
+                            valid_count=stats.valid_rows,
+                            filtered_count=stats.filtered_rows,
+                            skipped_count=stats.skipped_rows,
+                            universe_count=len(tickers),
+                        )
+                        source = "polygon_flatfile"
+                    except Exception:
+                        db.rollback()
+                        aggregate_service = PolygonAggregateService(db)
+                        trade_date, day_records = await resolve_polygon_trade_date_and_records(
+                            polygon_client
+                        )
+                        inserted = aggregate_service.upsert_day_aggregates(day_records)
+                        tickers = aggregate_service.build_daily_universe(
+                            trade_date=trade_date,
+                            max_close=settings.secret_universe_max_price,
+                            min_close=settings.secret_universe_min_price,
+                        )
+                        db.commit()
+                        log.warning(
+                            "scheduler.polygon_universe_flatfile_unavailable_falling_back_to_grouped_rest",
+                            trade_date=trade_date.isoformat(),
+                            day_record_count=len(day_records),
+                            inserted_count=inserted,
+                            universe_count=len(tickers),
+                        )
+                        source = "polygon_grouped_day_rest"
+                else:
+                    universe_quotes = await polygon_client.load_reference_universe(
+                        max_price=settings.secret_universe_max_price,
+                        min_price=settings.secret_universe_min_price,
+                        min_volume=settings.secret_universe_min_volume,
+                    )
+                    tickers = await engine.refresh_secret_ingredients_universe(universe_quotes=universe_quotes)
+            else:
+                tickers = await engine.refresh_secret_ingredients_universe()
+
+            if update_subscriptions:
+                if polygon_client:
+                    polygon_client.update_subscriptions(tickers, source="secret_universe")
+                if polygon_aggregate_client:
+                    polygon_aggregate_client.update_subscriptions(tickers, source="secret_universe")
+            SECRET_UNIVERSE_SIZE.set(len(tickers))
+            secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
+            return source, tickers
+        finally:
+            db.close()
+
+    if run_background and settings.secret_universe_enabled and settings.secret_universe_source == "polygon":
+        try:
+            source, tickers = await refresh_secret_universe_once(update_subscriptions=True)
+            log.info(
+                "startup.secret_universe_hydrated",
+                count=len(tickers),
+                source=source,
+            )
+        except Exception:
+            secret_runtime_status.mark_error("startup_secret_universe_refresh_error")
+            log.exception("startup.secret_universe_hydration_error")
+
     if polygon_client and should_enable_quote_client():
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer
         from app.data.polygon_tick_persister import PolygonTickPersister
@@ -334,70 +415,8 @@ async def lifespan(app: FastAPI):
         try:
             if not settings.secret_universe_enabled:
                 return
-            db = SessionLocal()
-            try:
-                engine = UniverseFilterEngine(broker, db)
-                source = settings.secret_universe_source
-                if source == "polygon":
-                    if polygon_client is None:
-                        raise RuntimeError("secret_universe_source=polygon but Polygon client is not configured")
-                    if settings.polygon_day_aggregate_ingestion_enabled:
-                        try:
-                            loader = PolygonFlatFileUniverseLoader(db)
-                            trade_date, tickers, stats = loader.load_latest_universe_from_s3(
-                                max_close=settings.secret_universe_max_price,
-                                min_close=settings.secret_universe_min_price,
-                            )
-                            db.commit()
-                            log.info(
-                                "scheduler.polygon_flatfile_universe_refreshed",
-                                trade_date=trade_date.isoformat(),
-                                raw_count=stats.total_rows,
-                                valid_count=stats.valid_rows,
-                                filtered_count=stats.filtered_rows,
-                                skipped_count=stats.skipped_rows,
-                                universe_count=len(tickers),
-                            )
-                            source = "polygon_flatfile"
-                        except Exception:
-                            db.rollback()
-                            aggregate_service = PolygonAggregateService(db)
-                            trade_date, day_records = await resolve_polygon_trade_date_and_records(
-                                polygon_client
-                            )
-                            inserted = aggregate_service.upsert_day_aggregates(day_records)
-                            tickers = aggregate_service.build_daily_universe(
-                                trade_date=trade_date,
-                                max_close=settings.secret_universe_max_price,
-                                min_close=settings.secret_universe_min_price,
-                            )
-                            db.commit()
-                            log.warning(
-                                "scheduler.polygon_universe_flatfile_unavailable_falling_back_to_grouped_rest",
-                                trade_date=trade_date.isoformat(),
-                                day_record_count=len(day_records),
-                                inserted_count=inserted,
-                                universe_count=len(tickers),
-                            )
-                            source = "polygon_grouped_day_rest"
-                    else:
-                        universe_quotes = await polygon_client.load_reference_universe(
-                            max_price=settings.secret_universe_max_price,
-                            min_price=settings.secret_universe_min_price,
-                            min_volume=settings.secret_universe_min_volume,
-                        )
-                        tickers = await engine.refresh_secret_ingredients_universe(universe_quotes=universe_quotes)
-                else:
-                    tickers = await engine.refresh_secret_ingredients_universe()
-                if polygon_client:
-                    polygon_client.update_subscriptions(tickers, source="secret_universe")
-                if polygon_aggregate_client:
-                    polygon_aggregate_client.update_subscriptions(tickers, source="secret_universe")
-                SECRET_UNIVERSE_SIZE.set(len(tickers))
-                secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
-                log.info("scheduler.secret_universe_refreshed", count=len(tickers))
-            finally:
-                db.close()
+            source, tickers = await refresh_secret_universe_once(update_subscriptions=True)
+            log.info("scheduler.secret_universe_refreshed", count=len(tickers), source=source)
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="secret_universe_refresh").inc()
             secret_runtime_status.mark_error("secret_universe_refresh_error")
