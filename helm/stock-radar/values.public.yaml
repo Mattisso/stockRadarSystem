@@ -41,7 +41,7 @@ api:
     polygonEnableQuoteClient: "true"
     polygonEnableAggregateClient: "false"
   polygonIngestWorker:
-    enabled: false
+    enabled: true
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
