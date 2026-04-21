@@ -7,6 +7,9 @@ worker:
   uvicornWorkers: "1"
   apiEnableLegacyScanJob: "true"
   apiEnablePositionMonitorJob: "true"
+  apiEnableAggregateRollingRefresh: "true"
+  apiEnableDayRefresh: "true"
+  apiEnableMinuteRefresh: "true"
   polygonEnableQuoteClient: "true"
   polygonEnableAggregateClient: "true"
 
@@ -17,8 +20,24 @@ executionWorker:
   uvicornWorkers: "1"
   apiEnableLegacyScanJob: "false"
   apiEnablePositionMonitorJob: "true"
+  apiEnableAggregateRollingRefresh: "false"
+  apiEnableDayRefresh: "false"
+  apiEnableMinuteRefresh: "false"
   polygonEnableQuoteClient: "true"
   polygonEnableAggregateClient: "false"
+
+polygonIngestWorker:
+  enabled: false
+  replicaCount: 1
+  brokerType: ""
+  uvicornWorkers: "1"
+  apiEnableLegacyScanJob: "false"
+  apiEnablePositionMonitorJob: "false"
+  apiEnableAggregateRollingRefresh: "false"
+  apiEnableDayRefresh: "true"
+  apiEnableMinuteRefresh: "true"
+  polygonEnableQuoteClient: "false"
+  polygonEnableAggregateClient: "true"
 
 image:
   repository: stock-radar-api

@@ -69,12 +69,25 @@ def should_enable_position_monitor_job() -> bool:
     return settings.api_enable_position_monitor_job
 
 
+def should_enable_aggregate_rolling_refresh() -> bool:
+    return should_enable_aggregate_client() and settings.api_enable_aggregate_rolling_refresh
+
+
+def should_enable_day_refresh() -> bool:
+    return settings.api_enable_day_refresh
+
+
+def should_enable_minute_refresh() -> bool:
+    return should_enable_aggregate_client() and settings.api_enable_minute_refresh
+
+
 def should_interval_refresh_polygon_day_aggregates() -> bool:
     return (
         settings.secret_universe_enabled
         and settings.secret_universe_source == "polygon"
         and settings.polygon_day_aggregate_ingestion_enabled
         and settings.polygon_enable_aggregate_client
+        and should_enable_day_refresh()
         and settings.polygon_day_aggregate_refresh_minutes > 0
     )
 
@@ -793,7 +806,7 @@ async def lifespan(app: FastAPI):
     if run_background:
         if not use_polygon_secret_universe:
             scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
-        if settings.secret_universe_enabled:
+        if settings.secret_universe_enabled and should_enable_day_refresh():
             scheduler.add_job(
                 refresh_secret_universe_job,
                 "cron",
@@ -810,7 +823,7 @@ async def lifespan(app: FastAPI):
                     max_instances=1,
                     id="secret_universe_refresh_interval",
                 )
-        if settings.polygon_enable_aggregate_client and settings.polygon_minute_aggregate_ingestion_enabled:
+        if should_enable_minute_refresh() and settings.polygon_minute_aggregate_ingestion_enabled:
             scheduler.add_job(
                 refresh_polygon_minute_aggregates_job,
                 "interval",
@@ -825,7 +838,7 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_live_retention",
         )
-        if settings.polygon_enable_aggregate_client:
+        if should_enable_aggregate_rolling_refresh():
             scheduler.add_job(
                 aggregate_rolling_refresh_job,
                 "interval",
@@ -861,13 +874,13 @@ async def lifespan(app: FastAPI):
         if not use_polygon_secret_universe:
             initial_refresh_task = asyncio.create_task(refresh_universe_job())
             runtime.register_task("initial_universe_refresh", initial_refresh_task)
-        if settings.secret_universe_enabled:
+        if settings.secret_universe_enabled and should_enable_day_refresh():
             initial_secret_universe_task = asyncio.create_task(refresh_secret_universe_job())
             runtime.register_task("initial_secret_universe_refresh", initial_secret_universe_task)
-        if settings.polygon_enable_aggregate_client and settings.polygon_minute_aggregate_ingestion_enabled:
+        if should_enable_minute_refresh() and settings.polygon_minute_aggregate_ingestion_enabled:
             initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
             runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
-        if settings.polygon_enable_aggregate_client:
+        if should_enable_aggregate_rolling_refresh():
             initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
             runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
         if settings.polygon_enable_aggregate_client and settings.aggregate_history_export_enabled:

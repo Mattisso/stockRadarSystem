@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     api_runtime_role: str = "all"  # "all" | "web" | "worker"
     api_enable_legacy_scan_job: bool = True
     api_enable_position_monitor_job: bool = True
+    api_enable_aggregate_rolling_refresh: bool = True
+    api_enable_day_refresh: bool = True
+    api_enable_minute_refresh: bool = True
     cors_allowed_origins: str = (
         "http://127.0.0.1:14200,"
         "http://localhost:14200,"

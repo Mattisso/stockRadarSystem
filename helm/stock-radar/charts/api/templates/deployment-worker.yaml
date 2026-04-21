@@ -64,6 +64,12 @@ spec:
               value: {{ .Values.worker.apiEnableLegacyScanJob | quote }}
             - name: API_ENABLE_POSITION_MONITOR_JOB
               value: {{ .Values.worker.apiEnablePositionMonitorJob | quote }}
+            - name: API_ENABLE_AGGREGATE_ROLLING_REFRESH
+              value: {{ .Values.worker.apiEnableAggregateRollingRefresh | quote }}
+            - name: API_ENABLE_DAY_REFRESH
+              value: {{ .Values.worker.apiEnableDayRefresh | quote }}
+            - name: API_ENABLE_MINUTE_REFRESH
+              value: {{ .Values.worker.apiEnableMinuteRefresh | quote }}
             - name: SECRET_UNIVERSE_ENABLED
               value: {{ .Values.env.SECRET_UNIVERSE_ENABLED | quote }}
             - name: SECRET_UNIVERSE_SOURCE

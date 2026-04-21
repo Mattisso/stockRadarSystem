@@ -1,24 +1,24 @@
-{{- if .Values.executionWorker.enabled }}
+{{- if .Values.polygonIngestWorker.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: stock-radar-execution-worker
+  name: stock-radar-polygon-ingest-worker
   namespace: {{ .Release.Namespace }}
   labels:
-    app: stock-radar-execution-worker
-    app.kubernetes.io/component: execution-worker
+    app: stock-radar-polygon-ingest-worker
+    app.kubernetes.io/component: polygon-ingest-worker
     app.kubernetes.io/part-of: stock-radar-system
 spec:
-  replicas: {{ .Values.executionWorker.replicaCount }}
+  replicas: {{ .Values.polygonIngestWorker.replicaCount }}
   selector:
     matchLabels:
-      app: stock-radar-execution-worker
-      app.kubernetes.io/component: execution-worker
+      app: stock-radar-polygon-ingest-worker
+      app.kubernetes.io/component: polygon-ingest-worker
   template:
     metadata:
       labels:
-        app: stock-radar-execution-worker
-        app.kubernetes.io/component: execution-worker
+        app: stock-radar-polygon-ingest-worker
+        app.kubernetes.io/component: polygon-ingest-worker
     spec:
       serviceAccountName: {{ .Values.global.sharedServiceAccountName }}
       securityContext:
@@ -61,15 +61,15 @@ spec:
             - name: BUY_USE_BRACKETS
               value: {{ .Values.env.BUY_USE_BRACKETS | quote }}
             - name: API_ENABLE_LEGACY_SCAN_JOB
-              value: {{ .Values.executionWorker.apiEnableLegacyScanJob | quote }}
+              value: {{ .Values.polygonIngestWorker.apiEnableLegacyScanJob | quote }}
             - name: API_ENABLE_POSITION_MONITOR_JOB
-              value: {{ .Values.executionWorker.apiEnablePositionMonitorJob | quote }}
+              value: {{ .Values.polygonIngestWorker.apiEnablePositionMonitorJob | quote }}
             - name: API_ENABLE_AGGREGATE_ROLLING_REFRESH
-              value: {{ .Values.executionWorker.apiEnableAggregateRollingRefresh | quote }}
+              value: {{ .Values.polygonIngestWorker.apiEnableAggregateRollingRefresh | quote }}
             - name: API_ENABLE_DAY_REFRESH
-              value: {{ .Values.executionWorker.apiEnableDayRefresh | quote }}
+              value: {{ .Values.polygonIngestWorker.apiEnableDayRefresh | quote }}
             - name: API_ENABLE_MINUTE_REFRESH
-              value: {{ .Values.executionWorker.apiEnableMinuteRefresh | quote }}
+              value: {{ .Values.polygonIngestWorker.apiEnableMinuteRefresh | quote }}
             - name: SECRET_UNIVERSE_ENABLED
               value: {{ .Values.env.SECRET_UNIVERSE_ENABLED | quote }}
             - name: SECRET_UNIVERSE_SOURCE
@@ -79,9 +79,9 @@ spec:
             - name: CORS_ALLOWED_ORIGIN_REGEX
               value: {{ .Values.env.CORS_ALLOWED_ORIGIN_REGEX | quote }}
             - name: BROKER_TYPE
-              value: {{ default .Values.broker.type .Values.executionWorker.brokerType | quote }}
+              value: {{ default .Values.broker.type .Values.polygonIngestWorker.brokerType | quote }}
             - name: UVICORN_WORKERS
-              value: {{ .Values.executionWorker.uvicornWorkers | quote }}
+              value: {{ .Values.polygonIngestWorker.uvicornWorkers | quote }}
             - name: IBKR_HOST
               value: {{ .Values.broker.ibkrHost | quote }}
             - name: IBKR_PORT
@@ -106,9 +106,9 @@ spec:
             - name: POLYGON_MODE
               value: {{ .Values.polygon.mode | quote }}
             - name: POLYGON_ENABLE_QUOTE_CLIENT
-              value: {{ .Values.executionWorker.polygonEnableQuoteClient | quote }}
+              value: {{ .Values.polygonIngestWorker.polygonEnableQuoteClient | quote }}
             - name: POLYGON_ENABLE_AGGREGATE_CLIENT
-              value: {{ .Values.executionWorker.polygonEnableAggregateClient | quote }}
+              value: {{ .Values.polygonIngestWorker.polygonEnableAggregateClient | quote }}
             - name: POLYGON_WS_URL
               value: {{ .Values.polygon.wsUrl | quote }}
             - name: POLYGON_REST_URL
@@ -122,17 +122,17 @@ spec:
             - name: POLYGON_QUEUE_MAXSIZE
               value: {{ .Values.polygon.queueMaxsize | quote }}
             - name: POLYGON_PERSIST_TICKS
-              value: {{ .Values.polygon.persistTicks | quote }}
+              value: "false"
             - name: POLYGON_PERSIST_BATCH_SIZE
               value: {{ .Values.polygon.persistBatchSize | quote }}
             - name: SECRET_POLYGON_INCLUDE_TRADE_WILDCARD
               value: {{ .Values.polygon.includeTradeWildcard | quote }}
             - name: POLYGON_DAY_AGGREGATE_INGESTION_ENABLED
-              value: "false"
+              value: {{ .Values.polygon.dayAggregateIngestionEnabled | quote }}
             - name: POLYGON_DAY_AGGREGATE_REFRESH_MINUTES
               value: {{ .Values.polygon.dayAggregateRefreshMinutes | quote }}
             - name: POLYGON_MINUTE_AGGREGATE_INGESTION_ENABLED
-              value: "false"
+              value: {{ .Values.polygon.minuteAggregateIngestionEnabled | quote }}
             - name: POLYGON_MINUTE_AGGREGATE_REFRESH_MINUTES
               value: {{ .Values.polygon.minuteAggregateRefreshMinutes | quote }}
             - name: AWS_ACCESS_KEY_ID

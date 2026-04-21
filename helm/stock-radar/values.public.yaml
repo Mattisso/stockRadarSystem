@@ -24,6 +24,9 @@ api:
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
     apiEnablePositionMonitorJob: "true"
+    apiEnableAggregateRollingRefresh: "true"
+    apiEnableDayRefresh: "true"
+    apiEnableMinuteRefresh: "true"
     polygonEnableQuoteClient: "true"
     polygonEnableAggregateClient: "true"
   executionWorker:
@@ -32,8 +35,22 @@ api:
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
     apiEnablePositionMonitorJob: "true"
+    apiEnableAggregateRollingRefresh: "false"
+    apiEnableDayRefresh: "false"
+    apiEnableMinuteRefresh: "false"
     polygonEnableQuoteClient: "true"
     polygonEnableAggregateClient: "false"
+  polygonIngestWorker:
+    enabled: false
+    brokerType: "mock"
+    uvicornWorkers: "1"
+    apiEnableLegacyScanJob: "false"
+    apiEnablePositionMonitorJob: "false"
+    apiEnableAggregateRollingRefresh: "false"
+    apiEnableDayRefresh: "true"
+    apiEnableMinuteRefresh: "true"
+    polygonEnableQuoteClient: "false"
+    polygonEnableAggregateClient: "true"
   broker:
     type: "ibkr"
     ibkrHost: "192.168.1.77"

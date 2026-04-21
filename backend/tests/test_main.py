@@ -1,5 +1,8 @@
 from app.main import (
+    should_enable_aggregate_rolling_refresh,
     should_enable_aggregate_client,
+    should_enable_day_refresh,
+    should_enable_minute_refresh,
     should_enable_position_monitor_job,
     should_enable_quote_client,
     should_interval_refresh_polygon_day_aggregates,
@@ -27,10 +30,32 @@ def test_should_enable_aggregate_client(monkeypatch):
     assert should_enable_aggregate_client() is True
 
 
+def test_should_enable_aggregate_rolling_refresh(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_api_key", "key")
+    monkeypatch.setattr("app.main.settings.polygon_enable_aggregate_client", True)
+    monkeypatch.setattr("app.main.settings.api_enable_aggregate_rolling_refresh", True)
+
+    assert should_enable_aggregate_rolling_refresh() is True
+
+
 def test_should_disable_position_monitor_job(monkeypatch):
     monkeypatch.setattr("app.main.settings.api_enable_position_monitor_job", False)
 
     assert should_enable_position_monitor_job() is False
+
+
+def test_should_enable_day_refresh(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_enable_day_refresh", True)
+
+    assert should_enable_day_refresh() is True
+
+
+def test_should_enable_minute_refresh(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_api_key", "key")
+    monkeypatch.setattr("app.main.settings.polygon_enable_aggregate_client", True)
+    monkeypatch.setattr("app.main.settings.api_enable_minute_refresh", True)
+
+    assert should_enable_minute_refresh() is True
 
 
 def test_should_interval_refresh_polygon_day_aggregates_enabled(monkeypatch):
