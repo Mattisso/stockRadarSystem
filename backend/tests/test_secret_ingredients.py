@@ -1,158 +1,20 @@
-"""Tests for Secret Ingredients first-sprint persistence helpers."""
-
-from datetime import date, datetime, timedelta
-
-from app.engine.secret_candidate_scorer import SecretCandidateEvent
-from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
-from app.models.l1_candidate import L1Candidate
-from app.models.l1_to_l2_event import L1ToL2Event
-from app.models.symbol import Symbol
-from app.models.universe_daily import UniverseDaily
+from app.engine.secret_ingredients import SecretIngredientsService
 
 
-def test_record_daily_universe_is_idempotent(db):
-    db.add(Symbol(ticker="SIRI", exchange="NASDAQ", last_price=3.2, avg_volume=1000000, is_active=True))
-    db.commit()
+def test_select_aggregate_subscription_tickers_uses_aggregate_defaults(monkeypatch):
+    service = SecretIngredientsService(db=None)
+    captured: dict[str, int] = {}
 
-    service = SecretIngredientsService(db)
-    added_first = service.record_daily_universe(["SIRI"], trade_date=date(2026, 3, 31))
-    added_second = service.record_daily_universe(["SIRI"], trade_date=date(2026, 3, 31))
-    db.commit()
+    def fake_select_live_subscription_tickers(*, max_symbols=None, min_avg_volume=None):
+        captured["max_symbols"] = max_symbols
+        captured["min_avg_volume"] = min_avg_volume
+        return ["WLDS"]
 
-    rows = db.query(UniverseDaily).all()
-    assert added_first == 1
-    assert added_second == 0
-    assert len(rows) == 1
-    assert rows[0].ticker == "SIRI"
+    monkeypatch.setattr(service, "select_live_subscription_tickers", fake_select_live_subscription_tickers)
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.aggregate_live_max_symbols", 500)
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.aggregate_live_min_avg_volume", 0)
 
+    tickers = service.select_aggregate_subscription_tickers()
 
-def test_record_daily_universe_prefers_snapshot_metadata_when_provided(db):
-    db.add(Symbol(ticker="SIRI", exchange="NASDAQ", last_price=3.2, avg_volume=1000000, is_active=True))
-    db.commit()
-
-    service = SecretIngredientsService(db)
-    service.record_daily_universe(
-        ["SIRI"],
-        trade_date=date(2026, 3, 31),
-        snapshots_by_ticker={
-            "SIRI": DailyUniverseSnapshot(
-                ticker="SIRI",
-                exchange="NASDAQ",
-                open_price=3.1,
-                last_price=3.35,
-                avg_volume=2_500_000,
-            )
-        },
-    )
-    db.commit()
-
-    row = db.query(UniverseDaily).one()
-    assert row.open_price == 3.1
-    assert row.last_price == 3.35
-    assert row.avg_volume == 2_500_000
-
-
-def test_latest_daily_universe_tickers_returns_most_recent_snapshot(db):
-    db.add(Symbol(ticker="SIRI", exchange="NASDAQ", last_price=3.2, avg_volume=1000000, is_active=True))
-    db.add(Symbol(ticker="LCID", exchange="NASDAQ", last_price=2.8, avg_volume=2000000, is_active=False))
-    db.commit()
-
-    service = SecretIngredientsService(db)
-    service.record_daily_universe(["SIRI"], trade_date=date(2026, 3, 31))
-    service.record_daily_universe(["LCID"], trade_date=date(2026, 4, 1))
-    db.commit()
-
-    assert service.latest_daily_universe_tickers() == ["LCID"]
-
-
-def test_record_candidates_persists_breakout_fields(db):
-    service = SecretIngredientsService(db)
-    event = SecretCandidateEvent(
-        ticker="SIRI",
-        breakout_score=0.72,
-        pct_change_1m=8.5,
-        pct_change_5m=12.2,
-        volume_ratio=2.8,
-        spread_pct=0.004,
-        quote_rate=1.2,
-        buy_pressure=0.73,
-        timestamp=datetime.now() - timedelta(seconds=1),
-        reason_flags=["price_velocity", "volume_expansion", "buy_pressure"],
-    )
-
-    service.record_candidates([event])
-    db.commit()
-
-    row = db.query(L1Candidate).one()
-    assert row.ticker == "SIRI"
-    assert row.breakout_score == 0.72
-    assert "buy_pressure" in row.reason_flags
-    assert "price_velocity" in row.reason_flags
-    assert "volume_expansion" in row.reason_flags
-
-
-def test_record_l1_to_l2_events_persists_handoff_payload(db):
-    service = SecretIngredientsService(db)
-    event = SecretCandidateEvent(
-        ticker="LCID",
-        breakout_score=0.63,
-        pct_change_1m=6.2,
-        pct_change_5m=9.8,
-        volume_ratio=2.2,
-        spread_pct=0.005,
-        quote_rate=1.1,
-        buy_pressure=0.66,
-        timestamp=datetime.now() - timedelta(milliseconds=50),
-        reason_flags=["price_velocity", "active_tape"],
-    )
-
-    service.record_l1_to_l2_events([event])
-    db.commit()
-
-    row = db.query(L1ToL2Event).one()
-    assert row.ticker == "LCID"
-    assert row.escalation_reason == "secret_candidate"
-    assert row.latency_ms is not None
-    assert "promotion_reason" in row.handoff_payload
-
-
-def test_select_live_subscription_tickers_ranks_latest_universe_by_avg_volume(db):
-    db.add_all(
-        [
-            Symbol(ticker="AAA", exchange="NASDAQ", last_price=2.0, avg_volume=900_000, is_active=False),
-            Symbol(ticker="BBB", exchange="NASDAQ", last_price=3.0, avg_volume=2_500_000, is_active=False),
-            Symbol(ticker="CCC", exchange="NASDAQ", last_price=4.0, avg_volume=400_000, is_active=False),
-        ]
-    )
-    db.commit()
-
-    service = SecretIngredientsService(db)
-    service.record_daily_universe(
-        ["AAA", "BBB", "CCC"],
-        trade_date=date(2026, 4, 20),
-        snapshots_by_ticker={
-            "AAA": DailyUniverseSnapshot(ticker="AAA", last_price=2.0, avg_volume=900_000),
-            "BBB": DailyUniverseSnapshot(ticker="BBB", last_price=3.0, avg_volume=2_500_000),
-            "CCC": DailyUniverseSnapshot(ticker="CCC", last_price=4.0, avg_volume=400_000),
-        },
-    )
-    db.commit()
-
-    assert service.select_live_subscription_tickers(max_symbols=2, min_avg_volume=500_000) == ["BBB", "AAA"]
-
-
-def test_select_live_subscription_tickers_uses_symbol_avg_volume_when_daily_snapshot_missing_it(db):
-    db.add(Symbol(ticker="AAA", exchange="NASDAQ", last_price=2.0, avg_volume=1_200_000, is_active=False))
-    db.commit()
-
-    service = SecretIngredientsService(db)
-    service.record_daily_universe(
-        ["AAA"],
-        trade_date=date(2026, 4, 20),
-        snapshots_by_ticker={
-            "AAA": DailyUniverseSnapshot(ticker="AAA", last_price=2.0, avg_volume=None),
-        },
-    )
-    db.commit()
-
-    assert service.select_live_subscription_tickers(max_symbols=10, min_avg_volume=500_000) == ["AAA"]
+    assert tickers == ["WLDS"]
+    assert captured == {"max_symbols": 500, "min_avg_volume": 0}

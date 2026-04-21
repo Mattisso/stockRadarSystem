@@ -171,10 +171,9 @@ async def lifespan(app: FastAPI):
                 polygon_client.update_subscriptions(active_tickers, source="watchlist")
 
             if settings.secret_universe_enabled:
-                live_secret_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
-                if live_secret_tickers:
-                    if polygon_client is not None:
-                        polygon_client.update_subscriptions(live_secret_tickers, source="secret_universe")
+                aggregate_secret_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
+                if aggregate_secret_tickers and polygon_client is not None:
+                    polygon_client.update_subscriptions(aggregate_secret_tickers, source="secret_universe")
         except Exception:
             log.exception("polygon.pre_hydrate_error")
         finally:
@@ -270,12 +269,13 @@ async def lifespan(app: FastAPI):
             else:
                 tickers = await engine.refresh_secret_ingredients_universe()
 
+            aggregate_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
             live_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
             if update_subscriptions:
                 if polygon_client:
                     if settings.secret_universe_source == "polygon":
                         polygon_client.update_subscriptions([], source="watchlist")
-                    polygon_client.update_subscriptions(live_tickers, source="secret_universe")
+                    polygon_client.update_subscriptions(aggregate_tickers, source="secret_universe")
             SECRET_UNIVERSE_SIZE.set(len(tickers))
             secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
             return source, tickers, live_tickers
@@ -443,7 +443,7 @@ async def lifespan(app: FastAPI):
             db = SessionLocal()
             try:
                 aggregate_service = PolygonAggregateService(db)
-                tickers = SecretIngredientsService(db).select_live_subscription_tickers()
+                tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
                 if not tickers:
                     return
                 trade_date = aggregate_service.latest_day_aggregate_date()

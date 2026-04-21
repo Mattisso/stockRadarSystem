@@ -156,6 +156,27 @@ class SecretIngredientsService:
             return []
         return [ticker for ticker, _avg_volume, _last_price in ranked[:target_max]]
 
+    def select_aggregate_subscription_tickers(
+        self,
+        *,
+        max_symbols: int | None = None,
+        min_avg_volume: int | None = None,
+    ) -> list[str]:
+        """Select the aggregate-driven live universe for AM/A subscriptions.
+
+        Aggregate decisioning should not inherit the legacy quote-side liquidity
+        floor by default. Keep a separate selector so aggregate coverage can
+        widen without changing the legacy quote/live subset behavior.
+        """
+        target_max = settings.aggregate_live_max_symbols if max_symbols is None else max_symbols
+        target_min_avg_volume = (
+            settings.aggregate_live_min_avg_volume if min_avg_volume is None else min_avg_volume
+        )
+        return self.select_live_subscription_tickers(
+            max_symbols=target_max,
+            min_avg_volume=target_min_avg_volume,
+        )
+
     def record_candidates(self, events: list[SecretCandidateEvent]) -> list[L1Candidate]:
         records: list[L1Candidate] = []
         for event in events:
