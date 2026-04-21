@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     secret_universe_rebuild_minute: int = 0
     secret_polygon_live_max_symbols: int = 500
     secret_polygon_live_min_avg_volume: int = 500_000
-    aggregate_live_max_symbols: int = 500
+    aggregate_live_max_symbols: int = 0
     aggregate_live_min_avg_volume: int = 0
 
     # --- Broker ---

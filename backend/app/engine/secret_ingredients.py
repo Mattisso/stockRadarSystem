@@ -172,10 +172,40 @@ class SecretIngredientsService:
         target_min_avg_volume = (
             settings.aggregate_live_min_avg_volume if min_avg_volume is None else min_avg_volume
         )
-        return self.select_live_subscription_tickers(
-            max_symbols=target_max,
-            min_avg_volume=target_min_avg_volume,
+        latest_trade_date = (
+            self.db.query(UniverseDaily.trade_date)
+            .order_by(desc(UniverseDaily.trade_date))
+            .limit(1)
+            .scalar()
         )
+        if latest_trade_date is None:
+            return []
+
+        rows = (
+            self.db.query(UniverseDaily, Symbol)
+            .outerjoin(Symbol, Symbol.ticker == UniverseDaily.ticker)
+            .filter(UniverseDaily.trade_date == latest_trade_date)
+            .all()
+        )
+
+        ranked: list[tuple[str, int, float]] = []
+        for universe_row, symbol_row in rows:
+            avg_volume = universe_row.avg_volume
+            if avg_volume is None and symbol_row is not None:
+                avg_volume = symbol_row.avg_volume
+            avg_volume = max(0, avg_volume or 0)
+            if avg_volume < target_min_avg_volume:
+                continue
+
+            last_price = universe_row.last_price
+            if last_price is None and symbol_row is not None:
+                last_price = symbol_row.last_price
+            ranked.append((universe_row.ticker, avg_volume, last_price or 0.0))
+
+        ranked.sort(key=lambda item: (-item[1], item[2], item[0]))
+        if target_max <= 0:
+            return [ticker for ticker, _avg_volume, _last_price in ranked]
+        return [ticker for ticker, _avg_volume, _last_price in ranked[:target_max]]
 
     def record_candidates(self, events: list[SecretCandidateEvent]) -> list[L1Candidate]:
         records: list[L1Candidate] = []
