@@ -28,7 +28,7 @@ api:
     apiEnableDayRefresh: "true"
     apiEnableMinuteRefresh: "true"
     polygonEnableQuoteClient: "true"
-    polygonEnableAggregateClient: "true"
+    polygonEnableAggregateClient: "false"
   executionWorker:
     enabled: false
     brokerType: "mock"
