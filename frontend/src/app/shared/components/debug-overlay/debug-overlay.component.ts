@@ -4,12 +4,13 @@ import { DebugStorageService } from '../../../core/debug-storage.service';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { Clipboard } from '@angular/cdk/clipboard';
+import { DragDropModule } from '@angular/cdk/drag-drop';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 @Component({
   selector: 'app-debug-overlay',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatButtonModule, MatSnackBarModule],
+  imports: [CommonModule, DragDropModule, MatIconModule, MatButtonModule, MatSnackBarModule],
   templateUrl: './debug-overlay.component.html',
   styleUrl: './debug-overlay.component.scss'
 })

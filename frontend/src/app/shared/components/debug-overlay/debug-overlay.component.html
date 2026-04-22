@@ -1,5 +1,5 @@
-<div class="debug-container" [class.expanded]="expanded()">
-  <div class="debug-header" (click)="toggle()">
+<div class="debug-container" [class.expanded]="expanded()" cdkDrag>
+  <div class="debug-header" cdkDragHandle (click)="toggle()">
     <div class="header-content">
       <mat-icon>bug_report</mat-icon>
       <span class="title">API Debugger</span>

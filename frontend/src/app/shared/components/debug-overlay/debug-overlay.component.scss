@@ -24,7 +24,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  cursor: pointer;
+  cursor: move;
   user-select: none;
 
   &:hover {
@@ -65,6 +65,15 @@
       font-size: 20px;
     }
   }
+}
+
+.debug-container.cdk-drag-dragging {
+  transition: none;
+}
+
+.debug-container .cdk-drag-preview {
+  box-sizing: border-box;
+  border-radius: 8px;
 }
 
 .debug-body {
