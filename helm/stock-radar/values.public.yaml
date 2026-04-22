@@ -28,7 +28,7 @@ api:
     apiEnableDayRefresh: "true"
     apiEnableMinuteRefresh: "true"
     polygonEnableQuoteClient: "true"
-    polygonEnableAggregateClient: "false"
+    polygonEnableAggregateClient: "true"
   executionWorker:
     enabled: false
     brokerType: "mock"
@@ -41,7 +41,7 @@ api:
     polygonEnableQuoteClient: "true"
     polygonEnableAggregateClient: "false"
   polygonIngestWorker:
-    enabled: true
+    enabled: false
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
