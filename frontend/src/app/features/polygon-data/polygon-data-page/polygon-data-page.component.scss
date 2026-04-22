@@ -41,6 +41,10 @@
   min-width: 14rem;
 }
 
+.filter-row mat-form-field:last-of-type {
+  min-width: 11rem;
+}
+
 .data-table {
   width: 100%;
 }

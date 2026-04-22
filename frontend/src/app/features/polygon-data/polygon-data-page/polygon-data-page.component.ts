@@ -45,10 +45,17 @@ export class PolygonDataPageComponent implements OnInit {
   private readonly api = inject(PolygonDataApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly etTimeFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   readonly dataset = signal<PolygonDatasetKey>('day');
   readonly ticker = signal('');
   readonly tradeDate = signal('');
+  readonly sessionStartEt = signal('04:00');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
   readonly total = signal(0);
@@ -71,6 +78,31 @@ export class PolygonDataPageComponent implements OnInit {
   readonly tickColumns = ['tick_ts', 'ticker', 'event_type', 'bid', 'ask', 'last', 'volume'];
   readonly requestTicker = computed(() => this.ticker().trim().toUpperCase());
   readonly requestTradeDate = computed(() => this.tradeDate().trim() || null);
+  readonly showSessionStartFilter = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
+  readonly filteredMinuteAggregates = computed(() => {
+    if (this.dataset() !== 'minute') {
+      return this.minuteAggregates();
+    }
+    return this.minuteAggregates().filter(row => this.isAtOrAfterSessionStartEt(row.minute_ts));
+  });
+  readonly filteredSecondAggregates = computed(() => {
+    if (this.dataset() !== 'second') {
+      return this.secondAggregates();
+    }
+    return this.secondAggregates().filter(row => this.isAtOrAfterSessionStartEt(row.second_ts));
+  });
+  readonly displayedRowCount = computed(() => {
+    switch (this.dataset()) {
+      case 'minute':
+        return this.filteredMinuteAggregates().length;
+      case 'second':
+        return this.filteredSecondAggregates().length;
+      case 'ticks':
+        return this.ticks().length;
+      default:
+        return this.dayAggregates().length;
+    }
+  });
   readonly title = computed(() => {
     switch (this.dataset()) {
       case 'minute':
@@ -96,6 +128,9 @@ export class PolygonDataPageComponent implements OnInit {
     }
   });
   readonly infoMessage = computed(() => {
+    if (this.showSessionStartFilter()) {
+      return `Rows before ${this.sessionStartEt()} ET are hidden in the current page view.`;
+    }
     if (this.dataset() === 'second' && !this.requestTicker()) {
       return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
     }
@@ -232,5 +267,36 @@ export class PolygonDataPageComponent implements OnInit {
 
   private isDataset(value: unknown): value is PolygonDatasetKey {
     return value === 'day' || value === 'minute' || value === 'second' || value === 'ticks';
+  }
+
+  private isAtOrAfterSessionStartEt(timestamp: string): boolean {
+    const value = this.sessionStartEt().trim();
+    if (!value) {
+      return true;
+    }
+
+    const [hourText, minuteText] = value.split(':');
+    const startHour = Number(hourText);
+    const startMinute = Number(minuteText);
+    if (
+      Number.isNaN(startHour)
+      || Number.isNaN(startMinute)
+      || startHour < 0
+      || startHour > 23
+      || startMinute < 0
+      || startMinute > 59
+    ) {
+      return true;
+    }
+
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+      return true;
+    }
+
+    const parts = this.etTimeFormatter.formatToParts(date);
+    const hour = Number(parts.find(part => part.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find(part => part.type === 'minute')?.value ?? '0');
+    return hour * 60 + minute >= startHour * 60 + startMinute;
   }
 }
