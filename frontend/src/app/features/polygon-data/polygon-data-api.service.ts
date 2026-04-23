@@ -42,18 +42,18 @@ export class PolygonDataApiService {
     return this.http.get<IPagedResponse<IPolygonDayAggregate>>('/api/polygon/day-aggregates', { params });
   }
 
-  loadMinuteAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, sessionStartEt = ''): Observable<IPagedResponse<IPolygonMinuteAggregate>> {
+  loadMinuteAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, sessionTimeEt = ''): Observable<IPagedResponse<IPolygonMinuteAggregate>> {
     let params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
-    if (sessionStartEt) {
-      params = params.set('session_start_et', sessionStartEt);
+    if (sessionTimeEt) {
+      params = params.set('session_time_et', sessionTimeEt);
     }
     return this.http.get<IPagedResponse<IPolygonMinuteAggregate>>('/api/polygon/minute-aggregates', { params });
   }
 
-  loadSecondAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, sessionStartEt = ''): Observable<IPagedResponse<IPolygonSecondAggregate>> {
+  loadSecondAggregates(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, sessionTimeEt = ''): Observable<IPagedResponse<IPolygonSecondAggregate>> {
     let params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
-    if (sessionStartEt) {
-      params = params.set('session_start_et', sessionStartEt);
+    if (sessionTimeEt) {
+      params = params.set('session_time_et', sessionTimeEt);
     }
     return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(timeout(15000));
   }

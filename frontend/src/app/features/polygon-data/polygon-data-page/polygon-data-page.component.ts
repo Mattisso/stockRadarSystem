@@ -49,7 +49,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly dataset = signal<PolygonDatasetKey>('day');
   readonly ticker = signal('');
   readonly tradeDate = signal('');
-  readonly sessionStartEt = signal('04:00');
+  readonly sessionTimeEt = signal('04:00');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
   readonly total = signal(0);
@@ -111,7 +111,7 @@ export class PolygonDataPageComponent implements OnInit {
   });
   readonly infoMessage = computed(() => {
     if (this.showSessionStartFilter()) {
-      return `Rows before ${this.sessionStartEt()} ET are hidden in the current page view.`;
+      return `Showing rows at ${this.sessionTimeEt()} ET. For second bars, this includes all seconds inside that minute.`;
     }
     if (this.dataset() === 'second' && !this.requestTicker()) {
       return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
@@ -154,13 +154,13 @@ export class PolygonDataPageComponent implements OnInit {
 
     switch (this.dataset()) {
       case 'minute':
-        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
+        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionTimeEt()).subscribe({
           next: response => this.applyResponse('minute', response.items, response.total, response.trade_date),
           error: () => this.handleError('Failed to load Polygon minute aggregates.'),
         });
         break;
       case 'second':
-        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
+        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionTimeEt()).subscribe({
           next: response => this.applyResponse('second', response.items, response.total, response.trade_date),
           error: () => this.handleError('Polygon second aggregates are timing out. Narrow the query with a ticker or try again shortly.'),
         });
