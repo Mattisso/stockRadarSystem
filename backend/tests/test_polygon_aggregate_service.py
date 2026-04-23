@@ -8,6 +8,7 @@ from app.data.polygon_aggregate_service import (
 )
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
@@ -127,6 +128,10 @@ def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
     assert len(rows) == 1
     assert rows[0].ticker == "LCID"
     assert rows[0].minute_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)
+    live_rows = db.query(PolygonMinuteAggregateLive).all()
+    assert len(live_rows) == 1
+    assert live_rows[0].ticker == "LCID"
+    assert live_rows[0].minute_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)
 
 
 def test_upsert_second_aggregates_merges_same_second_rows(db):

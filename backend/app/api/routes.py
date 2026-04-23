@@ -29,6 +29,7 @@ from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick import PolygonTick
@@ -671,7 +672,7 @@ def get_polygon_day_aggregates(
 
 
 @router.get("/polygon/minute-aggregates", response_model=PolygonMinuteAggregatePageResponse)
-@track_tables("polygon_minute_aggregates")
+@track_tables("minute_aggregates_live")
 def get_polygon_minute_aggregates(
     page: int = 0,
     page_size: int = 25,
@@ -679,6 +680,66 @@ def get_polygon_minute_aggregates(
     ticker: str | None = None,
     session_time_et: dt_time | None = None,
     session_start_et: dt_time | None = None,
+    universe_only: bool = True,
+    db: Session = Depends(get_db),
+):
+    query = db.query(PolygonMinuteAggregateLive)
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        latest_minute_ts = db.query(func.max(PolygonMinuteAggregateLive.minute_ts)).scalar()
+        if latest_minute_ts is not None:
+            selected_trade_date = latest_minute_ts.date()
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        if not universe_tickers:
+            return PolygonMinuteAggregatePageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+            )
+        query = query.filter(PolygonMinuteAggregateLive.ticker.in_(universe_tickers))
+    if selected_trade_date:
+        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
+        end_dt = start_dt + timedelta(days=1)
+        query = query.filter(
+            PolygonMinuteAggregateLive.minute_ts >= start_dt,
+            PolygonMinuteAggregateLive.minute_ts < end_dt,
+        )
+    requested_session_time = session_time_et or session_start_et
+    if requested_session_time is not None:
+        query = query.filter(
+            text(
+                "date_trunc('minute', timezone('America/New_York', minute_ts at time zone 'UTC'))::time "
+                "= date_trunc('minute', CAST(:session_time_et AS time))::time"
+            ).bindparams(session_time_et=requested_session_time)
+        )
+    if ticker:
+        query = query.filter(PolygonMinuteAggregateLive.ticker == ticker.upper())
+    total = query.count()
+    rows = (
+        query.order_by(PolygonMinuteAggregateLive.minute_ts.desc(), PolygonMinuteAggregateLive.id.desc())
+        .offset(page * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return PolygonMinuteAggregatePageResponse(
+        items=[PolygonMinuteAggregateResponse.model_validate(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        trade_date=selected_trade_date,
+    )
+
+
+@router.get("/polygon/history/minute-aggregates", response_model=PolygonMinuteAggregatePageResponse)
+@track_tables("polygon_minute_aggregates")
+def get_polygon_minute_aggregates_history(
+    page: int = 0,
+    page_size: int = 25,
+    trade_date: date | None = None,
+    ticker: str | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
@@ -699,21 +760,10 @@ def get_polygon_minute_aggregates(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
-    if selected_trade_date:
+    if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
-        query = query.filter(
-            PolygonMinuteAggregate.minute_ts >= start_dt,
-            PolygonMinuteAggregate.minute_ts < end_dt,
-        )
-    requested_session_time = session_time_et or session_start_et
-    if requested_session_time is not None:
-        query = query.filter(
-            text(
-                "date_trunc('minute', timezone('America/New_York', minute_ts at time zone 'UTC'))::time "
-                "= date_trunc('minute', CAST(:session_time_et AS time))::time"
-            ).bindparams(session_time_et=requested_session_time)
-        )
+        query = query.filter(PolygonMinuteAggregate.minute_ts >= start_dt, PolygonMinuteAggregate.minute_ts < end_dt)
     if ticker:
         query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
     total = query.count()

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick_live import PolygonTickLive
 
@@ -12,8 +13,10 @@ from app.models.polygon_tick_live import PolygonTickLive
 @dataclass(slots=True)
 class PolygonLiveRetentionResult:
     deleted_tick_rows: int
+    deleted_minute_rows: int
     deleted_second_rows: int
     tick_cutoff_ts: datetime
+    minute_cutoff_ts: datetime
     second_cutoff_ts: datetime
 
 
@@ -27,16 +30,23 @@ class PolygonLiveRetentionService:
         self,
         *,
         tick_retention_hours: int,
+        minute_retention_hours: int,
         second_retention_hours: int,
         now: datetime | None = None,
     ) -> PolygonLiveRetentionResult:
         reference_time = now or datetime.now(timezone.utc)
         tick_cutoff_ts = reference_time - timedelta(hours=max(1, tick_retention_hours))
+        minute_cutoff_ts = reference_time - timedelta(hours=max(1, minute_retention_hours))
         second_cutoff_ts = reference_time - timedelta(hours=max(1, second_retention_hours))
 
         deleted_tick_rows = (
             self.db.query(PolygonTickLive)
             .filter(PolygonTickLive.tick_ts < tick_cutoff_ts)
+            .delete(synchronize_session=False)
+        )
+        deleted_minute_rows = (
+            self.db.query(PolygonMinuteAggregateLive)
+            .filter(PolygonMinuteAggregateLive.minute_ts < minute_cutoff_ts)
             .delete(synchronize_session=False)
         )
         deleted_second_rows = (
@@ -48,7 +58,9 @@ class PolygonLiveRetentionService:
 
         return PolygonLiveRetentionResult(
             deleted_tick_rows=deleted_tick_rows,
+            deleted_minute_rows=deleted_minute_rows,
             deleted_second_rows=deleted_second_rows,
             tick_cutoff_ts=tick_cutoff_ts,
+            minute_cutoff_ts=minute_cutoff_ts,
             second_cutoff_ts=second_cutoff_ts,
         )

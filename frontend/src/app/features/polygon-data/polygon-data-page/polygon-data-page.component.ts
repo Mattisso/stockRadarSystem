@@ -100,7 +100,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly description = computed(() => {
     switch (this.dataset()) {
       case 'minute':
-        return 'Minute bars for the current under-$10 universe. One page at a time, server-side paged.';
+        return 'Recent operational minute bars for the current under-$10 universe. One page at a time, server-side paged.';
       case 'second':
         return 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.';
       case 'ticks':

@@ -730,14 +730,17 @@ async def lifespan(app: FastAPI):
             try:
                 result = PolygonLiveRetentionService(db).purge(
                     tick_retention_hours=settings.polygon_live_ticks_retention_hours,
+                    minute_retention_hours=settings.polygon_live_minute_aggregates_retention_hours,
                     second_retention_hours=settings.polygon_live_second_aggregates_retention_hours,
                 )
                 db.commit()
                 log.info(
                     "scheduler.polygon_live_retention_completed",
                     deleted_tick_rows=result.deleted_tick_rows,
+                    deleted_minute_rows=result.deleted_minute_rows,
                     deleted_second_rows=result.deleted_second_rows,
                     tick_cutoff_ts=result.tick_cutoff_ts.isoformat(),
+                    minute_cutoff_ts=result.minute_cutoff_ts.isoformat(),
                     second_cutoff_ts=result.second_cutoff_ts.isoformat(),
                 )
             finally:

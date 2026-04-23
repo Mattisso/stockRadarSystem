@@ -13,6 +13,7 @@ from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.symbol import Symbol
@@ -137,33 +138,21 @@ class PolygonAggregateService:
             if allowed_tickers is not None and record.ticker not in allowed_tickers:
                 continue
             minute_ts = self._normalize_minute_ts(record.minute_ts)
-            existing = (
-                self.db.query(PolygonMinuteAggregate)
-                .filter_by(ticker=record.ticker, minute_ts=minute_ts)
-                .first()
-            )
-            if existing is None:
-                existing = PolygonMinuteAggregate(ticker=record.ticker, minute_ts=minute_ts)
-                self.db.add(existing)
+            _, inserted = self._upsert_minute_row(PolygonMinuteAggregate, record, minute_ts)
+            live_row, _ = self._upsert_minute_row(PolygonMinuteAggregateLive, record, minute_ts)
+            if inserted:
                 rows_added += 1
-            existing.open = record.open
-            existing.high = record.high
-            existing.low = record.low
-            existing.close = record.close
-            existing.volume = max(0, record.volume)
-            existing.vwap = record.vwap
-            existing.transactions = record.transactions
             state_records.append(
                 PolygonMinuteAggregateRecord(
                     ticker=record.ticker,
                     minute_ts=minute_ts,
-                    open=record.open,
-                    high=record.high,
-                    low=record.low,
-                    close=record.close,
-                    volume=max(0, record.volume),
-                    vwap=record.vwap,
-                    transactions=record.transactions,
+                    open=live_row.open,
+                    high=live_row.high,
+                    low=live_row.low,
+                    close=live_row.close,
+                    volume=live_row.volume,
+                    vwap=live_row.vwap,
+                    transactions=live_row.transactions,
                 )
             )
         self.db.flush()
@@ -172,6 +161,26 @@ class PolygonAggregateService:
             for state_record in state_records:
                 state_service.update_from_minute_aggregate(state_record)
         return rows_added
+
+    def _upsert_minute_row(
+        self,
+        model: type[PolygonMinuteAggregate] | type[PolygonMinuteAggregateLive],
+        record: PolygonMinuteAggregateRecord,
+        minute_ts: datetime,
+    ) -> tuple[PolygonMinuteAggregate | PolygonMinuteAggregateLive, bool]:
+        row = self.db.query(model).filter_by(ticker=record.ticker, minute_ts=minute_ts).first()
+        inserted = row is None
+        if row is None:
+            row = model(ticker=record.ticker, minute_ts=minute_ts)
+            self.db.add(row)
+        row.open = record.open
+        row.high = record.high
+        row.low = record.low
+        row.close = record.close
+        row.volume = max(0, record.volume)
+        row.vwap = record.vwap
+        row.transactions = record.transactions
+        return row, inserted
 
     def upsert_second_aggregates(
         self,

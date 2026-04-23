@@ -11,6 +11,8 @@ from app.core.database import get_db
 from app.main import app
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
+from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick import PolygonTick
@@ -437,6 +439,101 @@ def test_symbol_state_live_filters_to_latest_under_ten_universe(db_engine, auth_
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_polygon_minute_aggregates_reads_live_table(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 7),
+                        ticker="SIRI",
+                        exchange="NASDAQ",
+                        open_price=9.1,
+                        last_price=9.4,
+                        avg_volume=500_000,
+                    ),
+                    PolygonMinuteAggregate(
+                        ticker="SIRI",
+                        minute_ts=datetime(2026, 4, 7, 13, 29, 0, tzinfo=timezone.utc),
+                        open=9.0,
+                        high=9.05,
+                        low=8.95,
+                        close=9.01,
+                        volume=50,
+                        vwap=9.0,
+                        transactions=1,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="SIRI",
+                        minute_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.50,
+                        close=9.60,
+                        volume=300,
+                        vwap=9.56,
+                        transactions=2,
+                    ),
+                    PolygonMinuteAggregate(
+                        ticker="AAPL",
+                        minute_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=150.0,
+                        high=150.0,
+                        low=150.0,
+                        close=150.0,
+                        volume=999,
+                        vwap=150.0,
+                        transactions=1,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="AAPL",
+                        minute_ts=datetime(2026, 4, 7, 13, 30, 0, tzinfo=timezone.utc),
+                        open=150.0,
+                        high=150.0,
+                        low=150.0,
+                        close=150.0,
+                        volume=999,
+                        vwap=150.0,
+                        transactions=1,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/minute-aggregates",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-07"
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["minute_ts"].startswith("2026-04-07T13:30:00")
+        assert body["items"][0]["open"] == 9.5
+        assert body["items"][0]["high"] == 9.6
+        assert body["items"][0]["low"] == 9.5
+        assert body["items"][0]["close"] == 9.6
+        assert body["items"][0]["volume"] == 300
+        assert body["items"][0]["transactions"] == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_candidate_events_filters_by_trade_date_and_universe(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 
@@ -802,6 +899,72 @@ def test_polygon_second_aggregates_history_reads_retained_history_table(db_engin
         with TestClient(app) as client:
             response = client.get(
                 "/api/polygon/history/second-aggregates?ticker=ALTS",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["volume"] == 999
+        assert body["items"][0]["close"] == pytest.approx(1.10)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_polygon_minute_aggregates_history_reads_historical_table(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add(
+                UniverseDaily(
+                    trade_date=date(2026, 4, 11),
+                    ticker="ALTS",
+                    open_price=1.12,
+                    last_price=1.10,
+                    avg_volume=1_100_000,
+                )
+            )
+            db.add(
+                PolygonMinuteAggregate(
+                    ticker="ALTS",
+                    minute_ts=datetime(2026, 4, 11, 13, 30, 0, tzinfo=timezone.utc),
+                    open=1.09,
+                    high=1.10,
+                    low=1.09,
+                    close=1.10,
+                    volume=999,
+                    vwap=1.095,
+                    transactions=1,
+                )
+            )
+            db.add(
+                PolygonMinuteAggregateLive(
+                    ticker="ALTS",
+                    minute_ts=datetime(2026, 4, 11, 13, 31, 0, tzinfo=timezone.utc),
+                    open=1.11,
+                    high=1.12,
+                    low=1.11,
+                    close=1.12,
+                    volume=2500,
+                    vwap=1.115,
+                    transactions=2,
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/history/minute-aggregates?ticker=ALTS",
                 headers=auth_headers,
             )
 
