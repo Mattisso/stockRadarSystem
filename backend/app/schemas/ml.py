@@ -2,7 +2,7 @@
 
 from datetime import date, datetime, timezone
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, Field, field_serializer
 
 
 class ApiResponseModel(BaseModel):
@@ -364,6 +364,7 @@ class SymbolStateLivePageResponse(ApiResponseModel):
     total: int
     page: int
     page_size: int
+    summary: dict[str, int] = Field(default_factory=dict)
 
 
 class CandidateEventResponse(ApiResponseModel):
@@ -389,6 +390,7 @@ class CandidateEventPageResponse(ApiResponseModel):
     page: int
     page_size: int
     trade_date: date | None = None
+    summary: dict[str, int] = Field(default_factory=dict)
 
 
 class DecisionEventResponse(ApiResponseModel):
@@ -415,6 +417,7 @@ class DecisionEventPageResponse(ApiResponseModel):
     page: int
     page_size: int
     trade_date: date | None = None
+    summary: dict[str, int] = Field(default_factory=dict)
 
 
 class L2SubscriptionStatusResponse(ApiResponseModel):

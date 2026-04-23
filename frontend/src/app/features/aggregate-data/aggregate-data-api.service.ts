@@ -9,6 +9,7 @@ export interface IAggregatePagedResponse<T> {
   page: number;
   page_size: number;
   trade_date?: string | null;
+  summary?: Record<string, number>;
 }
 
 @Injectable({ providedIn: 'root' })

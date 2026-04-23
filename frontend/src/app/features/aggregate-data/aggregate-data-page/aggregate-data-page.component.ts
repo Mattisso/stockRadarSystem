@@ -55,6 +55,7 @@ export class AggregateDataPageComponent implements OnInit {
   readonly symbolStates = signal<ISymbolStateLive[]>([]);
   readonly candidateEvents = signal<ICandidateEvent[]>([]);
   readonly decisionEvents = signal<IDecisionEvent[]>([]);
+  readonly summary = signal<Record<string, number>>({});
 
   readonly pageSizeOptions = [10, 25, 50, 100];
   readonly liveStateColumns = [
@@ -92,43 +93,31 @@ export class AggregateDataPageComponent implements OnInit {
   ];
   readonly summaryItems = computed(() => {
     if (this.dataset() === 'decision-events') {
-      const rows = this.decisionEvents();
-      const candidateCount = rows.filter(row => row.decision_type === 'candidate').length;
-      const rejectCount = rows.filter(row => row.decision_type === 'reject').length;
-      const buyCount = rows.filter(row => row.decision_type === 'buy').length;
-      const manageCount = rows.filter(row => row.decision_type === 'manage').length;
-      const sellCount = rows.filter(row => row.decision_type === 'sell').length;
+      const summary = this.summary();
       return [
-        { label: 'Candidate', value: candidateCount },
-        { label: 'Buy', value: buyCount },
-        { label: 'Manage', value: manageCount },
-        { label: 'Sell', value: sellCount },
-        { label: 'Reject', value: rejectCount },
+        { label: 'Candidate', value: summary['candidate'] ?? 0 },
+        { label: 'Buy', value: summary['buy'] ?? 0 },
+        { label: 'Manage', value: summary['manage'] ?? 0 },
+        { label: 'Sell', value: summary['sell'] ?? 0 },
+        { label: 'Reject', value: summary['reject'] ?? 0 },
       ];
     }
     if (this.dataset() === 'candidate-events') {
-      const rows = this.candidateEvents();
-      const staleCount = rows.filter(row => row.is_second_stream_stale || row.is_minute_stream_stale).length;
+      const summary = this.summary();
       return [
-        { label: 'Events Loaded', value: rows.length },
-        { label: 'Stale Events', value: staleCount },
-        { label: 'Live Events', value: rows.length - staleCount },
+        { label: 'Events', value: summary['events'] ?? this.total() },
+        { label: 'Stale Events', value: summary['stale'] ?? 0 },
+        { label: 'Live Events', value: summary['live'] ?? 0 },
       ];
     }
-    const rows = this.symbolStates();
-    const validatedCount = rows.filter(row => row.candidate_status === 'validated').length;
-    const buyCount = rows.filter(row => row.candidate_status === 'buy').length;
-    const manageCount = rows.filter(row => row.candidate_status === 'manage').length;
-    const soldCount = rows.filter(row => row.candidate_status === 'sold').length;
-    const rejectedCount = rows.filter(row => row.candidate_status === 'rejected').length;
-    const staleCount = rows.filter(row => row.is_second_stream_stale || row.is_minute_stream_stale).length;
+    const summary = this.summary();
     return [
-      { label: 'Validated', value: validatedCount },
-      { label: 'Buy', value: buyCount },
-      { label: 'Manage', value: manageCount },
-      { label: 'Sold', value: soldCount },
-      { label: 'Rejected', value: rejectedCount },
-      { label: 'Stale', value: staleCount },
+      { label: 'Validated', value: summary['validated'] ?? 0 },
+      { label: 'Buy', value: summary['buy'] ?? 0 },
+      { label: 'Manage', value: summary['manage'] ?? 0 },
+      { label: 'Sold', value: summary['sold'] ?? 0 },
+      { label: 'Rejected', value: summary['rejected'] ?? 0 },
+      { label: 'Stale', value: summary['stale'] ?? 0 },
     ];
   });
 
@@ -201,6 +190,7 @@ export class AggregateDataPageComponent implements OnInit {
     this.symbolStates.set([]);
     this.candidateEvents.set([]);
     this.decisionEvents.set([]);
+    this.summary.set({});
 
     const ticker = this.ticker().trim().toUpperCase();
     const secondaryFilter = this.secondaryFilter().trim();
@@ -211,6 +201,7 @@ export class AggregateDataPageComponent implements OnInit {
         next: response => {
           this.decisionEvents.set(response.items);
           this.total.set(response.total);
+          this.summary.set(response.summary ?? {});
           this.resolvedTradeDate.set(response.trade_date ?? null);
           this.loading.set(false);
         },
@@ -224,6 +215,7 @@ export class AggregateDataPageComponent implements OnInit {
         next: response => {
           this.candidateEvents.set(response.items);
           this.total.set(response.total);
+          this.summary.set(response.summary ?? {});
           this.resolvedTradeDate.set(response.trade_date ?? null);
           this.loading.set(false);
         },
@@ -236,6 +228,7 @@ export class AggregateDataPageComponent implements OnInit {
       next: response => {
         this.symbolStates.set(response.items);
         this.total.set(response.total);
+        this.summary.set(response.summary ?? {});
         this.resolvedTradeDate.set(null);
         this.loading.set(false);
       },

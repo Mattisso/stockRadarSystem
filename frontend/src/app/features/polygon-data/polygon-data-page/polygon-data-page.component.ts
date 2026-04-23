@@ -45,12 +45,6 @@ export class PolygonDataPageComponent implements OnInit {
   private readonly api = inject(PolygonDataApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly etTimeFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 
   readonly dataset = signal<PolygonDatasetKey>('day');
   readonly ticker = signal('');
@@ -79,24 +73,12 @@ export class PolygonDataPageComponent implements OnInit {
   readonly requestTicker = computed(() => this.ticker().trim().toUpperCase());
   readonly requestTradeDate = computed(() => this.tradeDate().trim() || null);
   readonly showSessionStartFilter = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
-  readonly filteredMinuteAggregates = computed(() => {
-    if (this.dataset() !== 'minute') {
-      return this.minuteAggregates();
-    }
-    return this.minuteAggregates().filter(row => this.isAtOrAfterSessionStartEt(row.minute_ts));
-  });
-  readonly filteredSecondAggregates = computed(() => {
-    if (this.dataset() !== 'second') {
-      return this.secondAggregates();
-    }
-    return this.secondAggregates().filter(row => this.isAtOrAfterSessionStartEt(row.second_ts));
-  });
   readonly displayedRowCount = computed(() => {
     switch (this.dataset()) {
       case 'minute':
-        return this.filteredMinuteAggregates().length;
+        return this.minuteAggregates().length;
       case 'second':
-        return this.filteredSecondAggregates().length;
+        return this.secondAggregates().length;
       case 'ticks':
         return this.ticks().length;
       default:
@@ -172,13 +154,13 @@ export class PolygonDataPageComponent implements OnInit {
 
     switch (this.dataset()) {
       case 'minute':
-        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate).subscribe({
+        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
           next: response => this.applyResponse('minute', response.items, response.total, response.trade_date),
           error: () => this.handleError('Failed to load Polygon minute aggregates.'),
         });
         break;
       case 'second':
-        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate).subscribe({
+        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
           next: response => this.applyResponse('second', response.items, response.total, response.trade_date),
           error: () => this.handleError('Polygon second aggregates are timing out. Narrow the query with a ticker or try again shortly.'),
         });
@@ -267,36 +249,5 @@ export class PolygonDataPageComponent implements OnInit {
 
   private isDataset(value: unknown): value is PolygonDatasetKey {
     return value === 'day' || value === 'minute' || value === 'second' || value === 'ticks';
-  }
-
-  private isAtOrAfterSessionStartEt(timestamp: string): boolean {
-    const value = this.sessionStartEt().trim();
-    if (!value) {
-      return true;
-    }
-
-    const [hourText, minuteText] = value.split(':');
-    const startHour = Number(hourText);
-    const startMinute = Number(minuteText);
-    if (
-      Number.isNaN(startHour)
-      || Number.isNaN(startMinute)
-      || startHour < 0
-      || startHour > 23
-      || startMinute < 0
-      || startMinute > 59
-    ) {
-      return true;
-    }
-
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) {
-      return true;
-    }
-
-    const parts = this.etTimeFormatter.formatToParts(date);
-    const hour = Number(parts.find(part => part.type === 'hour')?.value ?? '0');
-    const minute = Number(parts.find(part => part.type === 'minute')?.value ?? '0');
-    return hour * 60 + minute >= startHour * 60 + startMinute;
   }
 }

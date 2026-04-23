@@ -2,7 +2,7 @@
 
 from collections import Counter
 from dataclasses import asdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from statistics import median
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -677,6 +677,7 @@ def get_polygon_minute_aggregates(
     page_size: int = 25,
     trade_date: date | None = None,
     ticker: str | None = None,
+    session_start_et: dt_time | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
@@ -704,6 +705,11 @@ def get_polygon_minute_aggregates(
             PolygonMinuteAggregate.minute_ts >= start_dt,
             PolygonMinuteAggregate.minute_ts < end_dt,
         )
+    if session_start_et is not None:
+        query = query.filter(
+            text("timezone('America/New_York', minute_ts at time zone 'UTC')::time >= :session_start_et")
+            .bindparams(session_start_et=session_start_et)
+        )
     if ticker:
         query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
     total = query.count()
@@ -730,6 +736,7 @@ def get_polygon_second_aggregates(
     trade_date: date | None = None,
     ticker: str | None = None,
     event_type: str | None = "trade",
+    session_start_et: dt_time | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
@@ -754,6 +761,11 @@ def get_polygon_second_aggregates(
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonSecondAggregateLive.second_ts >= start_dt, PolygonSecondAggregateLive.second_ts < end_dt)
+    if session_start_et is not None:
+        query = query.filter(
+            text("timezone('America/New_York', second_ts at time zone 'UTC')::time >= :session_start_et")
+            .bindparams(session_start_et=session_start_et)
+        )
     if ticker:
         query = query.filter(PolygonSecondAggregateLive.ticker == ticker.upper())
     total = query.count()
@@ -963,13 +975,26 @@ def get_symbol_state_live(
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
-            return SymbolStateLivePageResponse(items=[], total=0, page=page, page_size=page_size)
+            return SymbolStateLivePageResponse(items=[], total=0, page=page, page_size=page_size, summary={})
         query = query.filter(SymbolStateLive.ticker.in_(universe_tickers))
     if ticker:
         query = query.filter(SymbolStateLive.ticker == ticker.upper())
     if candidate_status:
         query = query.filter(SymbolStateLive.candidate_status == candidate_status.lower())
     total = query.count()
+    status_counts = {
+        status or "unknown": count
+        for status, count in query.with_entities(SymbolStateLive.candidate_status, func.count())
+        .group_by(SymbolStateLive.candidate_status)
+        .all()
+    }
+    stale_count = query.filter(
+        or_(SymbolStateLive.is_second_stream_stale.is_(True), SymbolStateLive.is_minute_stream_stale.is_(True))
+    ).count()
+    summary = {
+        **status_counts,
+        "stale": stale_count,
+    }
     rows = (
         query.order_by(
             SymbolStateLive.updated_at.desc().nullslast(),
@@ -984,6 +1009,7 @@ def get_symbol_state_live(
         total=total,
         page=page,
         page_size=page_size,
+        summary=summary,
     )
 
 
@@ -1013,6 +1039,7 @@ def get_candidate_events(
                 page=page,
                 page_size=page_size,
                 trade_date=selected_trade_date,
+                summary={},
             )
         query = query.filter(CandidateEvent.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
@@ -1024,6 +1051,14 @@ def get_candidate_events(
     if trigger_name:
         query = query.filter(CandidateEvent.trigger_name == trigger_name)
     total = query.count()
+    stale_count = query.filter(
+        or_(CandidateEvent.is_second_stream_stale.is_(True), CandidateEvent.is_minute_stream_stale.is_(True))
+    ).count()
+    summary = {
+        "events": total,
+        "stale": stale_count,
+        "live": total - stale_count,
+    }
     rows = (
         query.order_by(CandidateEvent.event_ts.desc(), CandidateEvent.id.desc())
         .offset(page * page_size)
@@ -1036,6 +1071,7 @@ def get_candidate_events(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        summary=summary,
     )
 
 
@@ -1065,6 +1101,7 @@ def get_decision_events(
                 page=page,
                 page_size=page_size,
                 trade_date=selected_trade_date,
+                summary={},
             )
         query = query.filter(DecisionEvent.ticker.in_(universe_tickers))
     if selected_trade_date is not None:
@@ -1076,6 +1113,12 @@ def get_decision_events(
     if decision_type:
         query = query.filter(DecisionEvent.decision_type == decision_type.lower())
     total = query.count()
+    summary = {
+        decision_type or "unknown": count
+        for decision_type, count in query.with_entities(DecisionEvent.decision_type, func.count())
+        .group_by(DecisionEvent.decision_type)
+        .all()
+    }
     rows = (
         query.order_by(DecisionEvent.decision_ts.desc(), DecisionEvent.id.desc())
         .offset(page * page_size)
@@ -1088,6 +1131,7 @@ def get_decision_events(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        summary=summary,
     )
 
 
