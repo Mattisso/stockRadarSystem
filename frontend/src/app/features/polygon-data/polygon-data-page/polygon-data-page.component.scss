@@ -86,3 +86,21 @@ mat-card-subtitle {
   gap: 0.75rem;
   margin-top: 1rem;
 }
+
+.paginator-shell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.page-jump mat-form-field {
+  width: 5.5rem;
+}

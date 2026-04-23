@@ -50,6 +50,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly ticker = signal('');
   readonly tradeDate = signal('');
   readonly sessionTimeEt = signal('04:00');
+  readonly pageJump = signal('1');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
   readonly total = signal(0);
@@ -72,6 +73,14 @@ export class PolygonDataPageComponent implements OnInit {
   readonly tickColumns = ['tick_ts', 'ticker', 'event_type', 'bid', 'ask', 'last', 'volume'];
   readonly requestTicker = computed(() => this.ticker().trim().toUpperCase());
   readonly requestTradeDate = computed(() => this.tradeDate().trim() || null);
+  readonly totalPages = computed(() => {
+    const total = this.total();
+    const size = this.pageSize();
+    if (total <= 0 || size <= 0) {
+      return 1;
+    }
+    return Math.ceil(total / size);
+  });
   readonly showSessionStartFilter = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
   readonly displayedRowCount = computed(() => {
     switch (this.dataset()) {
@@ -132,6 +141,7 @@ export class PolygonDataPageComponent implements OnInit {
 
   reload(): void {
     this.pageIndex.set(0);
+    this.pageJump.set('1');
     this.tickCursor.set(null);
     this.nextTickCursor.set(null);
     this.tickCursorHistory.set([]);
@@ -142,7 +152,24 @@ export class PolygonDataPageComponent implements OnInit {
   onPage(event: PageEvent): void {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
+    this.pageJump.set(String(event.pageIndex + 1));
     this.fetchPage(event.pageIndex, event.pageSize);
+  }
+
+  onPageJump(): void {
+    if (this.dataset() === 'ticks') {
+      return;
+    }
+    const requestedPage = Number.parseInt(this.pageJump().trim(), 10);
+    if (!Number.isFinite(requestedPage)) {
+      this.pageJump.set(String(this.pageIndex() + 1));
+      return;
+    }
+    const clampedPage = Math.min(Math.max(requestedPage, 1), this.totalPages());
+    const zeroBasedPage = clampedPage - 1;
+    this.pageIndex.set(zeroBasedPage);
+    this.pageJump.set(String(clampedPage));
+    this.fetchPage(zeroBasedPage, this.pageSize());
   }
 
   private fetchPage(page: number, pageSize: number): void {
@@ -189,6 +216,7 @@ export class PolygonDataPageComponent implements OnInit {
     hasMore?: boolean,
   ): void {
     this.total.set(total ?? 0);
+    this.pageJump.set(String(this.pageIndex() + 1));
     this.resolvedTradeDate.set(tradeDate);
     switch (dataset) {
       case 'minute':

@@ -131,12 +131,31 @@
           <button mat-stroked-button (click)="onTickNext()" [disabled]="!tickHasMore() || loading()">Next</button>
         </div>
       } @else {
-        <mat-paginator
-          [length]="total()"
-          [pageIndex]="pageIndex()"
-          [pageSize]="pageSize()"
-          [pageSizeOptions]="pageSizeOptions"
-          (page)="onPage($event)" />
+        <div class="paginator-shell">
+          <mat-paginator
+            [length]="total()"
+            [pageIndex]="pageIndex()"
+            [pageSize]="pageSize()"
+            [pageSizeOptions]="pageSizeOptions"
+            [showFirstLastButtons]="true"
+            (page)="onPage($event)" />
+          <div class="page-jump">
+            <span>Page</span>
+            <mat-form-field appearance="outline">
+              <input
+                matInput
+                type="number"
+                min="1"
+                [max]="totalPages()"
+                [ngModel]="pageJump()"
+                (ngModelChange)="pageJump.set($event)"
+                (keyup.enter)="onPageJump()"
+              />
+            </mat-form-field>
+            <span>of {{ totalPages() }}</span>
+            <button mat-stroked-button (click)="onPageJump()">Go</button>
+          </div>
+        </div>
       }
     </mat-card-content>
   </mat-card>

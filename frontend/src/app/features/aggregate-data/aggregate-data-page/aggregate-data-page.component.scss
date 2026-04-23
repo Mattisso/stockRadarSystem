@@ -124,6 +124,24 @@
   padding: 0.85rem 1rem;
 }
 
+.paginator-shell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.page-jump mat-form-field {
+  width: 5.5rem;
+}
+
 @media (max-width: 900px) {
   .page-header {
     flex-direction: column;

@@ -46,6 +46,7 @@ export class AggregateDataPageComponent implements OnInit {
   readonly ticker = signal('');
   readonly tradeDate = signal('');
   readonly secondaryFilter = signal('');
+  readonly pageJump = signal('1');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
   readonly total = signal(0);
@@ -58,6 +59,14 @@ export class AggregateDataPageComponent implements OnInit {
   readonly summary = signal<Record<string, number>>({});
 
   readonly pageSizeOptions = [10, 25, 50, 100];
+  readonly totalPages = computed(() => {
+    const total = this.total();
+    const size = this.pageSize();
+    if (total <= 0 || size <= 0) {
+      return 1;
+    }
+    return Math.ceil(total / size);
+  });
   readonly liveStateColumns = [
     'ticker',
     'candidate_status',
@@ -175,13 +184,28 @@ export class AggregateDataPageComponent implements OnInit {
 
   reload(): void {
     this.pageIndex.set(0);
+    this.pageJump.set('1');
     this.fetchPage(0, this.pageSize());
   }
 
   onPage(event: PageEvent): void {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
+    this.pageJump.set(String(event.pageIndex + 1));
     this.fetchPage(event.pageIndex, event.pageSize);
+  }
+
+  onPageJump(): void {
+    const requestedPage = Number.parseInt(this.pageJump().trim(), 10);
+    if (!Number.isFinite(requestedPage)) {
+      this.pageJump.set(String(this.pageIndex() + 1));
+      return;
+    }
+    const clampedPage = Math.min(Math.max(requestedPage, 1), this.totalPages());
+    const zeroBasedPage = clampedPage - 1;
+    this.pageIndex.set(zeroBasedPage);
+    this.pageJump.set(String(clampedPage));
+    this.fetchPage(zeroBasedPage, this.pageSize());
   }
 
   private fetchPage(page: number, pageSize: number): void {
@@ -201,6 +225,7 @@ export class AggregateDataPageComponent implements OnInit {
         next: response => {
           this.decisionEvents.set(response.items);
           this.total.set(response.total);
+          this.pageJump.set(String(page + 1));
           this.summary.set(response.summary ?? {});
           this.resolvedTradeDate.set(response.trade_date ?? null);
           this.loading.set(false);
@@ -215,6 +240,7 @@ export class AggregateDataPageComponent implements OnInit {
         next: response => {
           this.candidateEvents.set(response.items);
           this.total.set(response.total);
+          this.pageJump.set(String(page + 1));
           this.summary.set(response.summary ?? {});
           this.resolvedTradeDate.set(response.trade_date ?? null);
           this.loading.set(false);
@@ -228,6 +254,7 @@ export class AggregateDataPageComponent implements OnInit {
       next: response => {
         this.symbolStates.set(response.items);
         this.total.set(response.total);
+        this.pageJump.set(String(page + 1));
         this.summary.set(response.summary ?? {});
         this.resolvedTradeDate.set(null);
         this.loading.set(false);
