@@ -125,7 +125,7 @@ export class PolygonDataPageComponent implements OnInit {
       case 'ticks':
         return 'Raw persisted live Polygon ticks for the current under-$10 universe. Use a ticker filter for the fastest view.';
       default:
-        return 'Daily Polygon bars for the active under-$10 universe.';
+        return 'Daily Polygon bars for the active under-$10 universe. This page tracks the latest completed trading day, not intraday session progress.';
     }
   });
   readonly infoMessage = computed(() => {
@@ -145,6 +145,9 @@ export class PolygonDataPageComponent implements OnInit {
     }
     if (this.dataset() === 'ticks' && !this.requestTicker()) {
       return 'Raw ticks default to the latest cross-universe page. Add a ticker filter for a narrower view.';
+    }
+    if (this.dataset() === 'day') {
+      return 'Day aggregates update on completed trading days. Use minute, second, or ticks pages for intraday movement.';
     }
     return null;
   });

@@ -18,6 +18,7 @@ from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.polygon_tick import PolygonTick
 from app.models.polygon_tick_live import PolygonTickLive
 from app.models.symbol_state_live import SymbolStateLive
+from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
 
 
@@ -769,6 +770,55 @@ def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers
         assert body["items"][0]["last"] == pytest.approx(1.115)
         assert body["has_more"] is False
         assert body["next_cursor"] is None
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_polygon_ticks_does_not_fallback_to_symbol_table_when_universe_daily_is_empty(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add(
+                Symbol(
+                    ticker="SOFI",
+                    exchange="NASDAQ",
+                    last_price=9.5,
+                    avg_volume=2_000_000,
+                    is_active=True,
+                )
+            )
+            db.add(
+                PolygonTickLive(
+                    ticker="SOFI",
+                    event_type="trade",
+                    bid=18.30,
+                    ask=18.31,
+                    last=18.30,
+                    volume=1000,
+                    tick_ts=datetime(2026, 4, 24, 13, 20, 0, tzinfo=timezone.utc),
+                )
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/ticks",
+                headers=auth_headers,
+                params={"page_size": 25},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["items"] == []
     finally:
         app.dependency_overrides.pop(get_db, None)
 

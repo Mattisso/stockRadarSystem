@@ -181,6 +181,7 @@ def _latest_universe_tickers(
     db: Session,
     *,
     max_price: float | None = None,
+    allow_symbol_fallback: bool = True,
 ) -> list[str]:
     latest_trade_date = (
         db.query(UniverseDaily.trade_date)
@@ -196,7 +197,7 @@ def _latest_universe_tickers(
         query = query.filter(func.coalesce(UniverseDaily.open_price, UniverseDaily.last_price, 0) <= max_price)
     rows = query.order_by(UniverseDaily.ticker.asc()).all()
     universe_tickers = [row.ticker for row in rows]
-    if universe_tickers:
+    if universe_tickers or not allow_symbol_fallback:
         return universe_tickers
 
     active_query = db.query(Symbol.ticker).filter(Symbol.is_active.is_(True))
@@ -667,7 +668,11 @@ def get_polygon_day_aggregates(
     else:
         query = query.filter(PolygonDayAggregate.trade_date == trade_date)
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonDayAggregatePageResponse(
                 items=[],
@@ -720,7 +725,11 @@ def get_polygon_minute_aggregates(
         ts_column=PolygonMinuteAggregateLive.minute_ts,
     )
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonMinuteAggregatePageResponse(
                 items=[],
@@ -788,7 +797,11 @@ def get_polygon_minute_aggregates_history(
         ts_column=PolygonMinuteAggregate.minute_ts,
     )
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonMinuteAggregatePageResponse(
                 items=[],
@@ -849,7 +862,11 @@ def get_polygon_second_aggregates(
         ts_column=PolygonSecondAggregateLive.second_ts,
     )
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonSecondAggregatePageResponse(
                 items=[],
@@ -914,7 +931,11 @@ def get_polygon_second_aggregates_history(
         ts_column=PolygonSecondAggregate.second_ts,
     )
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonSecondAggregatePageResponse(
                 items=[],
@@ -969,7 +990,11 @@ def get_polygon_ticks(
         if latest_tick_ts is not None:
             selected_trade_date = latest_tick_ts.date()
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonTickPageResponse(
                 items=[],
@@ -1042,7 +1067,11 @@ def get_polygon_ticks_history(
         if latest_tick_ts is not None:
             selected_trade_date = latest_tick_ts.date()
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
         if not universe_tickers:
             return PolygonTickPageResponse(
                 items=[],
