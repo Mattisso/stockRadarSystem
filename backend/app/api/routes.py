@@ -231,6 +231,18 @@ def _source_latest_timestamp(
     return db.query(func.max(ts_column)).select_from(model).scalar()
 
 
+def _under_ten_aggregate_filter(model, *, max_price: float):
+    return model.high < max_price
+
+
+def _under_ten_tick_filter(model, *, max_price: float):
+    return and_(
+        model.bid < max_price,
+        model.ask < max_price,
+        model.last < max_price,
+    )
+
+
 def _deduped_tick_query(db: Session, query, model):
     dedupe_subquery = (
         query.with_entities(
@@ -682,6 +694,7 @@ def get_polygon_day_aggregates(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonDayAggregate.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_aggregate_filter(PolygonDayAggregate, max_price=settings.secret_universe_max_price))
     if ticker:
         query = query.filter(PolygonDayAggregate.ticker == ticker.upper())
     total = query.count()
@@ -739,6 +752,7 @@ def get_polygon_minute_aggregates(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonMinuteAggregateLive.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_aggregate_filter(PolygonMinuteAggregateLive, max_price=settings.secret_universe_max_price))
     if selected_trade_date:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
@@ -811,6 +825,7 @@ def get_polygon_minute_aggregates_history(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_aggregate_filter(PolygonMinuteAggregate, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
@@ -876,6 +891,7 @@ def get_polygon_second_aggregates(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonSecondAggregateLive.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_aggregate_filter(PolygonSecondAggregateLive, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
@@ -945,6 +961,7 @@ def get_polygon_second_aggregates_history(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonSecondAggregate.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_aggregate_filter(PolygonSecondAggregate, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
@@ -1004,6 +1021,7 @@ def get_polygon_ticks(
                 has_more=False,
             )
         query = query.filter(PolygonTickLive.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_tick_filter(PolygonTickLive, max_price=settings.secret_universe_max_price))
     if selected_trade_date:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
@@ -1081,6 +1099,7 @@ def get_polygon_ticks_history(
                 trade_date=selected_trade_date,
             )
         query = query.filter(PolygonTick.ticker.in_(universe_tickers))
+        query = query.filter(_under_ten_tick_filter(PolygonTick, max_price=settings.secret_universe_max_price))
     if selected_trade_date:
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)

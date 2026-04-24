@@ -515,7 +515,7 @@ def test_polygon_minute_aggregates_reads_live_table(db_engine, auth_headers):
             response = client.get(
                 "/api/polygon/minute-aggregates",
                 headers=auth_headers,
-                params={"page": 0, "page_size": 10},
+                params={"page": 0, "page_size": 10, "trade_date": "2026-04-24"},
             )
 
         assert response.status_code == 200
@@ -531,6 +531,60 @@ def test_polygon_minute_aggregates_reads_live_table(db_engine, auth_headers):
         assert body["items"][0]["close"] == 9.6
         assert body["items"][0]["volume"] == 300
         assert body["items"][0]["transactions"] == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_polygon_minute_aggregates_excludes_rows_priced_over_ten_even_if_ticker_is_in_universe(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 24),
+                        ticker="SOFI",
+                        exchange="NASDAQ",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=500_000,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="SOFI",
+                        minute_ts=datetime(2026, 4, 24, 13, 20, 0, tzinfo=timezone.utc),
+                        open=18.30,
+                        high=18.36,
+                        low=18.29,
+                        close=18.36,
+                        volume=300,
+                        vwap=18.33,
+                        transactions=2,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/minute-aggregates",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-24"
+        assert body["total"] == 0
+        assert body["items"] == []
     finally:
         app.dependency_overrides.pop(get_db, None)
 
