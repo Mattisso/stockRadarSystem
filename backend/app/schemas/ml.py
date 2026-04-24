@@ -316,6 +316,9 @@ class PolygonMinuteAggregatePageResponse(ApiResponseModel):
     page: int
     page_size: int
     trade_date: date | None = None
+    source: str = "live"
+    latest_available_ts: datetime | None = None
+    is_stale: bool = False
 
 
 class PolygonSecondAggregatePageResponse(ApiResponseModel):
@@ -324,6 +327,9 @@ class PolygonSecondAggregatePageResponse(ApiResponseModel):
     page: int
     page_size: int
     trade_date: date | None = None
+    source: str = "live"
+    latest_available_ts: datetime | None = None
+    is_stale: bool = False
 
 
 class PolygonTickPageResponse(ApiResponseModel):

@@ -15,6 +15,9 @@ export interface IPagedResponse<T> {
   page: number | null;
   page_size: number;
   trade_date: string | null;
+  source?: string;
+  latest_available_ts?: string | null;
+  is_stale?: boolean;
   next_cursor?: string | null;
   has_more?: boolean;
 }

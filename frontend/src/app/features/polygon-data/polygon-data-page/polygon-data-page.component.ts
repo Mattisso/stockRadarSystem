@@ -59,6 +59,9 @@ export class PolygonDataPageComponent implements OnInit {
   readonly resolvedTradeDate = signal<string | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly dataSourceName = signal<string | null>(null);
+  readonly latestAvailableTs = signal<string | null>(null);
+  readonly sourceIsStale = signal(false);
   readonly tickCursor = signal<string | null>(null);
   readonly nextTickCursor = signal<string | null>(null);
   readonly tickCursorHistory = signal<(string | null)[]>([]);
@@ -127,10 +130,15 @@ export class PolygonDataPageComponent implements OnInit {
   });
   readonly infoMessage = computed(() => {
     if (this.showSessionStartFilter()) {
-      if (this.aggregateSource() === 'history') {
-        return 'Viewing historical data. Start Time (ET) applies to the historical table for the selected trading date.';
+      if (this.dataset() === 'minute' || this.dataset() === 'second') {
+        const source = this.dataSourceName() ?? this.aggregateSource();
+        const latestTs = this.latestAvailableTs();
+        const freshness = latestTs
+          ? ` Latest ${this.dataset()} timestamp in ${source}: ${new Date(latestTs).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET.`
+          : '';
+        const stale = this.sourceIsStale() ? ` ${source} is stale for the selected trading date.` : '';
+        return `Showing rows at or after ${this.sessionStartEt()} ET from ${source}.${freshness}${stale}`;
       }
-      return `Showing rows at or after ${this.sessionStartEt()} ET.`;
     }
     if (this.dataset() === 'second' && !this.requestTicker()) {
       return 'Default second-aggregate view is limited to a recent operational window to keep the page responsive.';
@@ -194,6 +202,9 @@ export class PolygonDataPageComponent implements OnInit {
   private fetchPage(page: number, pageSize: number): void {
     this.loading.set(true);
     this.error.set(null);
+    this.dataSourceName.set(null);
+    this.latestAvailableTs.set(null);
+    this.sourceIsStale.set(false);
     this.clearData();
     const ticker = this.requestTicker();
     const tradeDate = this.requestTradeDate();
@@ -205,7 +216,18 @@ export class PolygonDataPageComponent implements OnInit {
             ? this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt())
             : this.api.loadMinuteAggregatesHistory(page, pageSize, ticker, tradeDate)
         ).subscribe({
-          next: response => this.applyResponse('minute', response.items, response.total, response.trade_date),
+          next: response =>
+            this.applyResponse(
+              'minute',
+              response.items,
+              response.total,
+              response.trade_date,
+              undefined,
+              undefined,
+              response.source,
+              response.latest_available_ts ?? null,
+              response.is_stale ?? false,
+            ),
           error: () => this.handleError('Failed to load Polygon minute aggregates.'),
         });
         break;
@@ -215,7 +237,18 @@ export class PolygonDataPageComponent implements OnInit {
             ? this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt())
             : this.api.loadSecondAggregatesHistory(page, pageSize, ticker, tradeDate)
         ).subscribe({
-          next: response => this.applyResponse('second', response.items, response.total, response.trade_date),
+          next: response =>
+            this.applyResponse(
+              'second',
+              response.items,
+              response.total,
+              response.trade_date,
+              undefined,
+              undefined,
+              response.source,
+              response.latest_available_ts ?? null,
+              response.is_stale ?? false,
+            ),
           error: () => this.handleError('Polygon second aggregates are timing out. Narrow the query with a ticker or try again shortly.'),
         });
         break;
@@ -241,10 +274,16 @@ export class PolygonDataPageComponent implements OnInit {
     tradeDate: string | null,
     nextCursor?: string | null,
     hasMore?: boolean,
+    source?: string | null,
+    latestAvailableTs?: string | null,
+    isStale?: boolean,
   ): void {
     this.total.set(total ?? 0);
     this.pageJump.set(String(this.pageIndex() + 1));
     this.resolvedTradeDate.set(tradeDate);
+    this.dataSourceName.set(source ?? null);
+    this.latestAvailableTs.set(latestAvailableTs ?? null);
+    this.sourceIsStale.set(isStale ?? false);
     switch (dataset) {
       case 'minute':
         this.minuteAggregates.set(items as IPolygonMinuteAggregate[]);

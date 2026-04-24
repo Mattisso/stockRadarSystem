@@ -206,6 +206,30 @@ def _latest_universe_tickers(
     return [row.ticker for row in active_rows]
 
 
+def _resolve_canonical_intraday_trade_date(
+    db: Session,
+    *,
+    explicit_trade_date: date | None,
+    model,
+    ts_column,
+) -> date | None:
+    if explicit_trade_date is not None:
+        return explicit_trade_date
+    latest_ts = db.query(func.max(ts_column)).select_from(model).scalar()
+    if latest_ts is None:
+        return None
+    return latest_ts.date()
+
+
+def _source_latest_timestamp(
+    db: Session,
+    *,
+    model,
+    ts_column,
+):
+    return db.query(func.max(ts_column)).select_from(model).scalar()
+
+
 def _deduped_tick_query(db: Session, query, model):
     dedupe_subquery = (
         query.with_entities(
@@ -684,11 +708,17 @@ def get_polygon_minute_aggregates(
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonMinuteAggregateLive)
-    selected_trade_date = trade_date
-    if selected_trade_date is None:
-        latest_minute_ts = db.query(func.max(PolygonMinuteAggregateLive.minute_ts)).scalar()
-        if latest_minute_ts is not None:
-            selected_trade_date = latest_minute_ts.date()
+    selected_trade_date = _resolve_canonical_intraday_trade_date(
+        db,
+        explicit_trade_date=trade_date,
+        model=PolygonMinuteAggregate,
+        ts_column=PolygonMinuteAggregate.minute_ts,
+    )
+    latest_available_ts = _source_latest_timestamp(
+        db,
+        model=PolygonMinuteAggregateLive,
+        ts_column=PolygonMinuteAggregateLive.minute_ts,
+    )
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
@@ -729,6 +759,9 @@ def get_polygon_minute_aggregates(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        source="live",
+        latest_available_ts=latest_available_ts,
+        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
     )
 
 
@@ -743,11 +776,17 @@ def get_polygon_minute_aggregates_history(
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonMinuteAggregate)
-    selected_trade_date = trade_date
-    if selected_trade_date is None:
-        latest_minute_ts = db.query(func.max(PolygonMinuteAggregate.minute_ts)).scalar()
-        if latest_minute_ts is not None:
-            selected_trade_date = latest_minute_ts.date()
+    selected_trade_date = _resolve_canonical_intraday_trade_date(
+        db,
+        explicit_trade_date=trade_date,
+        model=PolygonMinuteAggregate,
+        ts_column=PolygonMinuteAggregate.minute_ts,
+    )
+    latest_available_ts = _source_latest_timestamp(
+        db,
+        model=PolygonMinuteAggregate,
+        ts_column=PolygonMinuteAggregate.minute_ts,
+    )
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
@@ -778,6 +817,9 @@ def get_polygon_minute_aggregates_history(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        source="history",
+        latest_available_ts=latest_available_ts,
+        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
     )
 
 
@@ -795,11 +837,17 @@ def get_polygon_second_aggregates(
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonSecondAggregateLive)
-    selected_trade_date = trade_date
-    if selected_trade_date is None:
-        latest_second_ts = db.query(func.max(PolygonSecondAggregateLive.second_ts)).scalar()
-        if latest_second_ts is not None:
-            selected_trade_date = latest_second_ts.date()
+    selected_trade_date = _resolve_canonical_intraday_trade_date(
+        db,
+        explicit_trade_date=trade_date,
+        model=PolygonSecondAggregate,
+        ts_column=PolygonSecondAggregate.second_ts,
+    )
+    latest_available_ts = _source_latest_timestamp(
+        db,
+        model=PolygonSecondAggregateLive,
+        ts_column=PolygonSecondAggregateLive.second_ts,
+    )
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
@@ -837,6 +885,9 @@ def get_polygon_second_aggregates(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        source="live",
+        latest_available_ts=latest_available_ts,
+        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
     )
 
 
@@ -851,11 +902,17 @@ def get_polygon_second_aggregates_history(
     db: Session = Depends(get_db),
 ):
     query = db.query(PolygonSecondAggregate)
-    selected_trade_date = trade_date
-    if selected_trade_date is None:
-        latest_second_ts = db.query(func.max(PolygonSecondAggregate.second_ts)).scalar()
-        if latest_second_ts is not None:
-            selected_trade_date = latest_second_ts.date()
+    selected_trade_date = _resolve_canonical_intraday_trade_date(
+        db,
+        explicit_trade_date=trade_date,
+        model=PolygonSecondAggregate,
+        ts_column=PolygonSecondAggregate.second_ts,
+    )
+    latest_available_ts = _source_latest_timestamp(
+        db,
+        model=PolygonSecondAggregate,
+        ts_column=PolygonSecondAggregate.second_ts,
+    )
     if universe_only:
         universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
         if not universe_tickers:
@@ -886,6 +943,9 @@ def get_polygon_second_aggregates_history(
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
+        source="history",
+        latest_available_ts=latest_available_ts,
+        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
     )
 
 
