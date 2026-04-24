@@ -19,6 +19,7 @@ import {
 import { PolygonDataApiService } from '../polygon-data-api.service';
 
 type PolygonDatasetKey = 'day' | 'minute' | 'second' | 'ticks';
+type PolygonAggregateSource = 'live' | 'history';
 
 @Component({
   selector: 'app-polygon-data-page',
@@ -50,6 +51,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly ticker = signal('');
   readonly tradeDate = signal('');
   readonly sessionStartEt = signal('04:00');
+  readonly aggregateSource = signal<PolygonAggregateSource>('live');
   readonly pageJump = signal<string | number>('1');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
@@ -82,6 +84,7 @@ export class PolygonDataPageComponent implements OnInit {
     return Math.ceil(total / size);
   });
   readonly showSessionStartFilter = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
+  readonly showAggregateSourceToggle = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
   readonly displayedRowCount = computed(() => {
     switch (this.dataset()) {
       case 'minute':
@@ -97,9 +100,9 @@ export class PolygonDataPageComponent implements OnInit {
   readonly title = computed(() => {
     switch (this.dataset()) {
       case 'minute':
-        return 'Polygon Minute Aggregates';
+        return this.aggregateSource() === 'live' ? 'Polygon Minute Aggregates' : 'Polygon Minute Aggregates History';
       case 'second':
-        return 'Polygon Second Aggregates';
+        return this.aggregateSource() === 'live' ? 'Polygon Second Aggregates' : 'Polygon Second Aggregates History';
       case 'ticks':
         return 'Polygon Live Ticks';
       default:
@@ -109,9 +112,13 @@ export class PolygonDataPageComponent implements OnInit {
   readonly description = computed(() => {
     switch (this.dataset()) {
       case 'minute':
-        return 'Recent operational minute bars for the current under-$10 universe. One page at a time, server-side paged.';
+        return this.aggregateSource() === 'live'
+          ? 'Recent operational minute bars for the current under-$10 universe. One page at a time, server-side paged.'
+          : 'Historical minute bars for the current under-$10 universe. One page at a time, server-side paged.';
       case 'second':
-        return 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.';
+        return this.aggregateSource() === 'live'
+          ? 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.'
+          : 'Historical second bars. Use a ticker filter for the fastest view.';
       case 'ticks':
         return 'Raw persisted live Polygon ticks for the current under-$10 universe. Use a ticker filter for the fastest view.';
       default:
@@ -120,6 +127,9 @@ export class PolygonDataPageComponent implements OnInit {
   });
   readonly infoMessage = computed(() => {
     if (this.showSessionStartFilter()) {
+      if (this.aggregateSource() === 'history') {
+        return 'Viewing historical data. Start Time (ET) applies to the historical table for the selected trading date.';
+      }
       return `Showing rows at or after ${this.sessionStartEt()} ET.`;
     }
     if (this.dataset() === 'second' && !this.requestTicker()) {
@@ -135,6 +145,7 @@ export class PolygonDataPageComponent implements OnInit {
     this.route.data.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(data => {
       const routeDataset = data['dataset'];
       this.dataset.set(this.isDataset(routeDataset) ? routeDataset : 'day');
+      this.aggregateSource.set('live');
       this.reload();
     });
   }
@@ -172,6 +183,14 @@ export class PolygonDataPageComponent implements OnInit {
     this.fetchPage(zeroBasedPage, this.pageSize());
   }
 
+  setAggregateSource(source: PolygonAggregateSource): void {
+    if (!this.showAggregateSourceToggle() || this.aggregateSource() === source) {
+      return;
+    }
+    this.aggregateSource.set(source);
+    this.reload();
+  }
+
   private fetchPage(page: number, pageSize: number): void {
     this.loading.set(true);
     this.error.set(null);
@@ -181,13 +200,21 @@ export class PolygonDataPageComponent implements OnInit {
 
     switch (this.dataset()) {
       case 'minute':
-        this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
+        (
+          this.aggregateSource() === 'live'
+            ? this.api.loadMinuteAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt())
+            : this.api.loadMinuteAggregatesHistory(page, pageSize, ticker, tradeDate)
+        ).subscribe({
           next: response => this.applyResponse('minute', response.items, response.total, response.trade_date),
           error: () => this.handleError('Failed to load Polygon minute aggregates.'),
         });
         break;
       case 'second':
-        this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt()).subscribe({
+        (
+          this.aggregateSource() === 'live'
+            ? this.api.loadSecondAggregates(page, pageSize, ticker, tradeDate, this.sessionStartEt())
+            : this.api.loadSecondAggregatesHistory(page, pageSize, ticker, tradeDate)
+        ).subscribe({
           next: response => this.applyResponse('second', response.items, response.total, response.trade_date),
           error: () => this.handleError('Polygon second aggregates are timing out. Narrow the query with a ticker or try again shortly.'),
         });

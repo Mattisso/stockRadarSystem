@@ -45,6 +45,18 @@
   min-width: 11rem;
 }
 
+.source-toggle {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.source-toggle .active-toggle {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #174ea6;
+}
+
 .data-table {
   width: 100%;
 }

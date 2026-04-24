@@ -49,6 +49,23 @@
   <button mat-raised-button color="primary" (click)="reload()">Reload</button>
 </div>
 
+@if (showAggregateSourceToggle()) {
+  <div class="source-toggle" aria-label="Aggregate source">
+    <button
+      mat-stroked-button
+      [class.active-toggle]="aggregateSource() === 'live'"
+      (click)="setAggregateSource('live')">
+      Live
+    </button>
+    <button
+      mat-stroked-button
+      [class.active-toggle]="aggregateSource() === 'history'"
+      (click)="setAggregateSource('history')">
+      History
+    </button>
+  </div>
+}
+
 @if (loading()) {
   <app-loading />
 } @else if (error()) {
