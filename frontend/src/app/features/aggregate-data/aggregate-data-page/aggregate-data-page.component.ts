@@ -46,7 +46,7 @@ export class AggregateDataPageComponent implements OnInit {
   readonly ticker = signal('');
   readonly tradeDate = signal('');
   readonly secondaryFilter = signal('');
-  readonly pageJump = signal('1');
+  readonly pageJump = signal<string | number>('1');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
   readonly total = signal(0);
@@ -196,7 +196,7 @@ export class AggregateDataPageComponent implements OnInit {
   }
 
   onPageJump(): void {
-    const requestedPage = Number.parseInt(this.pageJump().trim(), 10);
+    const requestedPage = Number.parseInt(String(this.pageJump()).trim(), 10);
     if (!Number.isFinite(requestedPage)) {
       this.pageJump.set(String(this.pageIndex() + 1));
       return;
