@@ -6,7 +6,7 @@ from app.data.polygon_aggregate_service import (
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
-from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
+from app.engine.aggregate_trigger_engine import AggregateCandidateTrigger, AggregateTriggerEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
@@ -213,3 +213,30 @@ def test_new_high_of_day_early_emits_candidate_event(db):
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
     assert "new_high_of_day_early" in {trigger.trigger_name for trigger in triggers}
+
+
+def test_trigger_persist_with_validation_does_not_overwrite_active_or_sold_states(db):
+    engine = AggregateTriggerEngine(db)
+    event_ts = datetime(2026, 4, 24, 13, 30, 0, tzinfo=timezone.utc)
+
+    for protected_status in ("buy", "manage", "sold"):
+        state = SymbolStateLive(
+            ticker=f"T{protected_status[0].upper()}",
+            candidate_status=protected_status,
+            validation_score=0.0,
+            validation_pass_count=0,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+        db.add(state)
+        db.flush()
+
+        trigger = AggregateCandidateTrigger(
+            ticker=state.ticker,
+            event_ts=event_ts,
+            trigger_name="breakout_above_recent_high",
+            score=0.91,
+            payload={"close": 3.1},
+        )
+        engine.persist_with_validation([trigger], state, event_ts=event_ts)
+        assert state.candidate_status == protected_status

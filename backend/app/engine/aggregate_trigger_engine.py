@@ -32,6 +32,8 @@ class AggregateCandidateTrigger:
 class AggregateTriggerEngine:
     """Evaluate aggregate-only candidate triggers from stored second bars."""
 
+    PROTECTED_LIFECYCLE_STATES = {"buy", "manage", "sold"}
+
     def __init__(self, db: Session) -> None:
         self.db = db
 
@@ -100,7 +102,8 @@ class AggregateTriggerEngine:
 
     def persist(self, triggers: list[AggregateCandidateTrigger], state: SymbolStateLive) -> int:
         if not triggers:
-            state.candidate_status = "idle"
+            if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
+                state.candidate_status = "idle"
             state.candidate_score = None
             self.db.flush()
             return 0
@@ -120,7 +123,8 @@ class AggregateTriggerEngine:
                     is_minute_stream_stale=state.is_minute_stream_stale,
                 )
             )
-        state.candidate_status = "candidate"
+        if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
+            state.candidate_status = "candidate"
         state.candidate_score = max(trigger.score for trigger in triggers)
         self.db.flush()
         return len(triggers)
@@ -135,7 +139,8 @@ class AggregateTriggerEngine:
         validation = AggregateValidationEngine(self.db).evaluate(state.ticker, state, event_ts)
         AggregateValidationEngine(self.db).persist(state, validation)
         if not triggers:
-            state.candidate_status = "idle"
+            if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
+                state.candidate_status = "idle"
             state.candidate_score = None
             self.db.flush()
             return 0
@@ -161,7 +166,8 @@ class AggregateTriggerEngine:
                     is_minute_stream_stale=state.is_minute_stream_stale,
                 )
             )
-        state.candidate_status = "candidate"
+        if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
+            state.candidate_status = "candidate"
         state.candidate_score = max(trigger.score for trigger in triggers)
         self.db.flush()
         return len(triggers)

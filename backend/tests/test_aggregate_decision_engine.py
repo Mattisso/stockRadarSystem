@@ -32,6 +32,15 @@ def test_decision_engine_emits_candidate_for_validated_state(db):
         ]
     )
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    state.validation_score = 0.7
+    state.validation_pass_count = 7
+    state.candidate_score = 0.6
+    state.current_minute_high = 3.28
+    state.rolling_second_high = 3.30
+    state.rolling_second_low = 3.10
+    state.candidate_status = "validated"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = False
     engine = AggregateDecisionEngine(db)
 
     decision = engine.evaluate(
@@ -261,6 +270,60 @@ def test_decision_engine_emits_sell_for_active_position_breakdown(db):
     assert row is not None
     assert row.decision_type == "sell"
     assert row.reason_code == "active_position_sharp_reversal"
+    assert state.candidate_status == "sold"
+
+
+def test_decision_engine_blocks_same_day_reentry_after_sell(db):
+    state = SymbolStateLive(
+        ticker="HIMS",
+        candidate_status="sold",
+        validation_score=0.95,
+        validation_pass_count=9,
+        candidate_score=0.9,
+        current_minute_high=12.0,
+        rolling_second_high=11.95,
+        rolling_second_low=11.8,
+        is_second_stream_stale=False,
+        is_minute_stream_stale=False,
+    )
+    db.add(state)
+    db.add(
+        DecisionEvent(
+            ticker="HIMS",
+            decision_ts=datetime(2026, 4, 24, 13, 10, 0),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+            decision_payload=json.dumps({"current_close": 11.9}),
+            candidate_score=0.9,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.add(
+        DecisionEvent(
+            ticker="HIMS",
+            decision_ts=datetime(2026, 4, 24, 13, 12, 0),
+            decision_type="sell",
+            reason_code="active_position_sharp_reversal",
+            decision_payload=json.dumps({"entry_price": 11.9}),
+            candidate_score=0.85,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.flush()
+
+    engine = AggregateDecisionEngine(db)
+    decision = engine.evaluate(
+        ticker="HIMS",
+        event_ts=datetime(2026, 4, 24, 13, 20, 0, tzinfo=timezone.utc),
+        trigger_count=1,
+        state=state,
+    )
+
+    assert decision is None
     assert state.candidate_status == "sold"
 
 

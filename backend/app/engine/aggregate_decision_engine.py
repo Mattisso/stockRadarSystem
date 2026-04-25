@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,8 @@ from app.core.config import settings
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol_state_live import SymbolStateLive
+
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass(slots=True)
@@ -40,6 +43,11 @@ class AggregateDecisionEngine:
 
         latest_second = self._latest_second_row(ticker=ticker, event_ts=event_ts)
         buy_context = self._latest_buy_context(ticker=ticker)
+
+        # Preserve a completed same-day round-trip. Once a symbol has bought and sold
+        # on the same trading day, do not allow trigger churn to re-open it again.
+        if state.candidate_status == "sold" and self._has_buy_on_trade_day(ticker=ticker, event_ts=event_ts):
+            return None
 
         if self._is_active_position(state) and state.is_second_stream_stale:
             return AggregateDecision(
@@ -429,6 +437,26 @@ class AggregateDecisionEngine:
             .order_by(DecisionEvent.decision_ts.desc(), DecisionEvent.id.desc())
             .first()
         )
+
+    def _has_buy_on_trade_day(self, *, ticker: str, event_ts: datetime) -> bool:
+        trade_day = self._trade_day_for_ts(event_ts)
+        rows = (
+            self.db.query(DecisionEvent.decision_ts)
+            .filter(
+                DecisionEvent.ticker == ticker.upper(),
+                DecisionEvent.decision_type == "buy",
+            )
+            .all()
+        )
+        return any(self._trade_day_for_ts(row[0]) == trade_day for row in rows)
+
+    @staticmethod
+    def _trade_day_for_ts(value: datetime) -> datetime.date:
+        if value.tzinfo is None:
+            aware = value.replace(tzinfo=timezone.utc)
+        else:
+            aware = value.astimezone(timezone.utc)
+        return aware.astimezone(NEW_YORK_TZ).date()
 
     @staticmethod
     def _normalize_ts(value: datetime) -> datetime:
