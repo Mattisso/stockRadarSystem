@@ -416,11 +416,12 @@ async def lifespan(app: FastAPI):
         if job is None:
             log.warning("scheduler.secret_universe_job_missing_after_registration", job_id=job_id)
             return
+        next_run_time = getattr(job, "next_run_time", None)
         log.info(
             "scheduler.secret_universe_job_registered",
             job_id=job.id,
             trigger=str(job.trigger),
-            next_run_time=job.next_run_time.isoformat() if job.next_run_time else None,
+            next_run_time=next_run_time.isoformat() if next_run_time else None,
         )
 
     def _secret_universe_job_listener(event) -> None:
