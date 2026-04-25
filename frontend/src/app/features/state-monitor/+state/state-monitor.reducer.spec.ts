@@ -14,7 +14,7 @@ describe('stateMonitorFeature reducer', () => {
       { ticker: 'AAA', candidate_status: 'manage' },
       { ticker: 'BBB', candidate_status: 'buy' },
     ] as any;
-    const summary = { watching: 4, candidate: 3, buy: 2, hold: 1, sold: 5 };
+    const summary = { watching: 4, candidate: 3, buy: 2, manage: 1, sold: 5, rejected: 6 };
 
     const state = stateMonitorFeature.reducer(
       initialStateMonitorState,
@@ -47,16 +47,18 @@ describe('stateMonitorFeature reducer', () => {
       watching: 10,
       candidate: 7,
       buy: 2,
-      hold: 3,
+      manage: 3,
       sold: 5,
+      rejected: 4,
     });
 
     expect(distribution).toEqual({
       watching: 10,
       candidate: 7,
       buy: 2,
-      hold: 3,
+      manage: 3,
       sold: 5,
+      rejected: 4,
     });
   });
 });

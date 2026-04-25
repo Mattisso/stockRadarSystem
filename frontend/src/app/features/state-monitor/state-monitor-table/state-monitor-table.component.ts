@@ -10,7 +10,7 @@ export function stateMonitorStatusLabel(status: string): string {
   switch (status) {
     case 'idle': return 'Watching';
     case 'validated': return 'Candidate';
-    case 'manage': return 'Hold';
+    case 'manage': return 'Manage';
     case 'buy': return 'Buy';
     case 'sold': return 'Sold';
     case 'candidate': return 'Candidate';

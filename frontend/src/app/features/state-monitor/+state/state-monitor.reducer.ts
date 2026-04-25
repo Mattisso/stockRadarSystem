@@ -48,8 +48,9 @@ export const stateMonitorFeature = createFeature({
       watching: summary['watching'] ?? 0,
       candidate: summary['candidate'] ?? 0,
       buy: summary['buy'] ?? 0,
-      hold: summary['hold'] ?? 0,
+      manage: summary['manage'] ?? 0,
       sold: summary['sold'] ?? 0,
+      rejected: summary['rejected'] ?? 0,
     })),
   }),
 });

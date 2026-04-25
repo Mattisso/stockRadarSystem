@@ -15,7 +15,7 @@ import {
   selectLastUpdated,
 } from '../+state/state-monitor.reducer';
 
-const STATE_MONITOR_LIFECYCLE_KEYS = ['watching', 'candidate', 'buy', 'hold', 'sold'] as const;
+const STATE_MONITOR_LIFECYCLE_KEYS = ['watching', 'candidate', 'buy', 'manage', 'sold', 'rejected'] as const;
 type StateMonitorLifecycleKey = (typeof STATE_MONITOR_LIFECYCLE_KEYS)[number];
 
 @Component({
@@ -39,12 +39,13 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
     { key: 'watching', label: 'Watching', icon: 'visibility' },
     { key: 'candidate', label: 'Candidate', icon: 'star_outline' },
     { key: 'buy', label: 'Buy', icon: 'shopping_cart' },
-    { key: 'hold', label: 'Hold', icon: 'pause_circle' },
+    { key: 'manage', label: 'Manage', icon: 'pause_circle' },
     { key: 'sold', label: 'Sold', icon: 'sell' },
+    { key: 'rejected', label: 'Rejected', icon: 'block' },
   ];
 
   readonly runtimeNote =
-    'This page shows the aggregate-driven live lifecycle from Polygon data. Hold is the active-position lock that prevents repeated buys until a sell event fires.';
+    'This page shows the aggregate-driven live lifecycle from Polygon data. Repeated buys are suppressed while a symbol remains in buy/manage until a sell event fires.';
 
   readonly emptyStateNote =
     'Zero counts are normal when the market is closed, the runtime was recently restarted, or no symbols currently qualify for aggregate state progression.';

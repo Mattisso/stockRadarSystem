@@ -1160,8 +1160,9 @@ def get_symbol_state_live(
         "watching": status_counts.get("idle", 0),
         "candidate": status_counts.get("candidate", 0) + status_counts.get("validated", 0),
         "buy": status_counts.get("buy", 0),
-        "hold": status_counts.get("manage", 0),
+        "manage": status_counts.get("manage", 0),
         "sold": status_counts.get("sold", 0),
+        "rejected": status_counts.get("rejected", 0),
         "stale": stale_count,
     }
     rows = (

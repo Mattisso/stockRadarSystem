@@ -11,7 +11,7 @@ describe('StateMonitorTableComponent', () => {
     expect(stateMonitorStatusLabel('candidate')).toBe('Candidate');
     expect(stateMonitorStatusLabel('validated')).toBe('Candidate');
     expect(stateMonitorStatusLabel('buy')).toBe('Buy');
-    expect(stateMonitorStatusLabel('manage')).toBe('Hold');
+    expect(stateMonitorStatusLabel('manage')).toBe('Manage');
     expect(stateMonitorStatusLabel('sold')).toBe('Sold');
     expect(stateMonitorStatusLabel('rejected')).toBe('Rejected');
   });
