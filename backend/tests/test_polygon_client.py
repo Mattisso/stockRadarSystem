@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.broker.interface import Quote
 from app.data.cache import InMemoryCache
 from app.data.polygon_client import PolygonClient
@@ -371,6 +370,10 @@ async def test_ws_loop_secret_session_resubscribes_union_with_trade_wildcard(cac
     snapshot = client.session_snapshot()
     assert snapshot["reconnect_count"] == 1
     assert snapshot["include_trade_wildcard"] is True
+    assert snapshot["last_error_type"] == "exception"
+    assert snapshot["last_error_at"] is not None
+    assert snapshot["last_connected_at"] is not None
+    assert snapshot["consecutive_failures"] == 0
 
 
 @pytest.mark.asyncio
@@ -407,3 +410,54 @@ async def test_start_and_stop_websocket_mode(cache, queue):
         await client.stop()
 
     ws_loop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_session_snapshot_reports_quote_and_aggregate_telemetry(cache, queue):
+    await cache.connect()
+
+    class _FakeSession:
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+        enable_quotes=True,
+        enable_aggregates=True,
+        db_session_factory=_FakeSession,
+    )
+    client.update_subscriptions(["LCID"], source="secret_universe")
+
+    now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    with patch("app.data.polygon_client.PolygonAggregateService") as aggregate_service_cls:
+        aggregate_service = aggregate_service_cls.return_value
+        aggregate_service.upsert_minute_aggregates.return_value = 1
+        aggregate_service.upsert_second_aggregates.return_value = 1
+        await client._handle_ws_payload(
+            [
+                {"ev": "Q", "sym": "LCID", "bp": 3.47, "ap": 3.48, "z": 100000, "t": now_ms},
+                {"ev": "AM", "sym": "LCID", "o": 3.40, "h": 3.50, "l": 3.39, "c": 3.48, "v": 1000, "s": now_ms, "e": now_ms + 60000, "av": 3.45, "a": 10},
+                {"ev": "A", "sym": "LCID", "o": 3.47, "h": 3.49, "l": 3.46, "c": 3.48, "v": 100, "s": now_ms, "e": now_ms + 1000, "av": 3.48, "a": 4},
+            ]
+        )
+
+    snapshot = client.session_snapshot()
+    assert snapshot["quotes_enabled"] is True
+    assert snapshot["aggregates_enabled"] is True
+    assert snapshot["quote_message_count"] == 1
+    assert snapshot["aggregate_batch_count"] == 1
+    assert snapshot["persisted_minute_bar_count"] == 1
+    assert snapshot["persisted_second_bar_count"] == 1
+    assert snapshot["last_quote_received_at"] is not None
+    assert snapshot["last_aggregate_received_at"] is not None
+    assert snapshot["last_aggregate_persisted_at"] is not None
+    assert snapshot["last_minute_persisted_at"] is not None
+    assert snapshot["last_second_persisted_at"] is not None
+    assert snapshot["quote_age_seconds"] is not None
+    assert snapshot["aggregate_persist_age_seconds"] is not None

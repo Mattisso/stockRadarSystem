@@ -81,8 +81,23 @@ class PolygonClient:
         self._running = False
         self._session_connected = False
         self._reconnect_count = 0
+        self._consecutive_failures = 0
         self._ws_quote_count = 0
         self._last_ws_quote_log_at = 0.0
+        self._aggregate_batch_count = 0
+        self._persisted_minute_bar_count = 0
+        self._persisted_second_bar_count = 0
+        self._last_connected_at: datetime | None = None
+        self._last_disconnected_at: datetime | None = None
+        self._last_error_at: datetime | None = None
+        self._last_error_type: str | None = None
+        self._last_error_code: int | str | None = None
+        self._last_error_reason: str | None = None
+        self._last_quote_received_at: datetime | None = None
+        self._last_aggregate_received_at: datetime | None = None
+        self._last_aggregate_persisted_at: datetime | None = None
+        self._last_minute_persisted_at: datetime | None = None
+        self._last_second_persisted_at: datetime | None = None
         self._ws: Any = None
         self._ws_lock = asyncio.Lock()
 
@@ -154,13 +169,46 @@ class PolygonClient:
         return symbols
 
     def session_snapshot(self) -> dict:
+        now = datetime.now(tz=timezone.utc)
+
+        def _iso(value: datetime | None) -> str | None:
+            return value.isoformat() if value is not None else None
+
+        def _age_seconds(value: datetime | None) -> float | None:
+            if value is None:
+                return None
+            return max((now - value).total_seconds(), 0.0)
+
         return {
             "mode": self._mode,
             "connected": self._session_connected,
             "reconnect_count": self._reconnect_count,
+            "consecutive_failures": self._consecutive_failures,
             "subscription_count": len(self.current_symbols()),
             "include_trade_wildcard": self._include_trade_wildcard,
+            "quotes_enabled": self._enable_quotes,
+            "aggregates_enabled": self._enable_aggregates,
             "channels": list(self._subscription_channels()),
+            "last_connected_at": _iso(self._last_connected_at),
+            "last_disconnected_at": _iso(self._last_disconnected_at),
+            "last_error_at": _iso(self._last_error_at),
+            "last_error_type": self._last_error_type,
+            "last_error_code": self._last_error_code,
+            "last_error_reason": self._last_error_reason,
+            "last_quote_received_at": _iso(self._last_quote_received_at),
+            "last_aggregate_received_at": _iso(self._last_aggregate_received_at),
+            "last_aggregate_persisted_at": _iso(self._last_aggregate_persisted_at),
+            "last_minute_persisted_at": _iso(self._last_minute_persisted_at),
+            "last_second_persisted_at": _iso(self._last_second_persisted_at),
+            "quote_age_seconds": _age_seconds(self._last_quote_received_at),
+            "aggregate_age_seconds": _age_seconds(self._last_aggregate_received_at),
+            "aggregate_persist_age_seconds": _age_seconds(self._last_aggregate_persisted_at),
+            "minute_persist_age_seconds": _age_seconds(self._last_minute_persisted_at),
+            "second_persist_age_seconds": _age_seconds(self._last_second_persisted_at),
+            "quote_message_count": self._ws_quote_count,
+            "aggregate_batch_count": self._aggregate_batch_count,
+            "persisted_minute_bar_count": self._persisted_minute_bar_count,
+            "persisted_second_bar_count": self._persisted_second_bar_count,
         }
 
     async def load_reference_universe(
@@ -267,6 +315,8 @@ class PolygonClient:
             try:
                 async with self._connection_manager.open() as ws:
                     self._session_connected = True
+                    self._consecutive_failures = 0
+                    self._last_connected_at = datetime.now(tz=timezone.utc)
                     POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(1)
                     await self._connection_manager.subscribe(
                         ws,
@@ -288,6 +338,12 @@ class PolygonClient:
                 break
             except ConnectionClosed as exc:
                 self._session_connected = False
+                self._consecutive_failures += 1
+                self._last_disconnected_at = datetime.now(tz=timezone.utc)
+                self._last_error_at = self._last_disconnected_at
+                self._last_error_type = "connection_closed"
+                self._last_error_code = exc.code
+                self._last_error_reason = exc.reason or None
                 POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
                 self._reconnect_count += 1
                 POLYGON_RECONNECT_TOTAL.labels(mode=self._mode).inc()
@@ -296,12 +352,19 @@ class PolygonClient:
                     code=exc.code,
                     reason=exc.reason,
                     quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                    consecutive_failures=self._consecutive_failures,
                     delay=delay,
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
             except Exception:
                 self._session_connected = False
+                self._consecutive_failures += 1
+                self._last_disconnected_at = datetime.now(tz=timezone.utc)
+                self._last_error_at = self._last_disconnected_at
+                self._last_error_type = "exception"
+                self._last_error_code = None
+                self._last_error_reason = None
                 POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
                 self._reconnect_count += 1
                 POLYGON_RECONNECT_TOTAL.labels(mode=self._mode).inc()
@@ -309,6 +372,7 @@ class PolygonClient:
                     "polygon.ws_error",
                     delay=delay,
                     quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                    consecutive_failures=self._consecutive_failures,
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
@@ -319,6 +383,7 @@ class PolygonClient:
             quotes = self._parser.parse_messages(payload)
             if quotes:
                 self._ws_quote_count += len(quotes)
+                self._last_quote_received_at = datetime.now(tz=timezone.utc)
                 loop = asyncio.get_running_loop()
                 now = loop.time()
                 if now - self._last_ws_quote_log_at >= 10:
@@ -543,6 +608,7 @@ class PolygonClient:
         bars = self._aggregate_parser.parse_messages(payload)
         if not bars:
             return
+        self._last_aggregate_received_at = datetime.now(tz=timezone.utc)
 
         allowed_tickers = set(self.current_symbols())
         minute_records: list[PolygonMinuteAggregateRecord] = []
@@ -591,6 +657,15 @@ class PolygonClient:
             if second_records:
                 aggregate_service.upsert_second_aggregates(second_records, allowed_tickers=allowed_tickers)
             db.commit()
+            persisted_at = datetime.now(tz=timezone.utc)
+            self._aggregate_batch_count += 1
+            self._persisted_minute_bar_count += len(minute_records)
+            self._persisted_second_bar_count += len(second_records)
+            self._last_aggregate_persisted_at = persisted_at
+            if minute_records:
+                self._last_minute_persisted_at = persisted_at
+            if second_records:
+                self._last_second_persisted_at = persisted_at
             log.info(
                 "polygon.aggregate_batch_persisted",
                 symbols=len(allowed_tickers),
