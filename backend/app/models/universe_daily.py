@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Date, DateTime, Float, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,5 +22,5 @@ class UniverseDaily(Base):
     open_price: Mapped[float] = mapped_column(Float, nullable=True)
     prev_close: Mapped[float] = mapped_column(Float, nullable=True)
     last_price: Mapped[float] = mapped_column(Float, nullable=True)
-    avg_volume: Mapped[int] = mapped_column(Integer, nullable=True)
+    avg_volume: Mapped[int] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, Integer, String, func
+from sqlalchemy import BigInteger, Date, DateTime, Float, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -19,8 +19,8 @@ class PolygonDayAggregate(Base):
     high: Mapped[float] = mapped_column(Float, nullable=False)
     low: Mapped[float] = mapped_column(Float, nullable=False)
     close: Mapped[float] = mapped_column(Float, nullable=False)
-    volume: Mapped[int] = mapped_column(Integer, nullable=False)
+    volume: Mapped[int] = mapped_column(BigInteger, nullable=False)
     vwap: Mapped[float | None] = mapped_column(Float, nullable=True)
-    transactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transactions: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     source_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
