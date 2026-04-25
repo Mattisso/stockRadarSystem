@@ -24,7 +24,7 @@
               <mat-icon>{{ s.icon }}</mat-icon>
             </div>
             <div class="stage-card__info">
-              <span class="stage-card__count">{{ distribution()[s.key] }}</span>
+              <span class="stage-card__count">{{ countForStage(s.key) }}</span>
               <span class="stage-card__label">{{ s.label }}</span>
             </div>
           </mat-card-content>

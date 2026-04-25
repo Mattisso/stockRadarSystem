@@ -25,6 +25,7 @@ import {
 })
 export class StateMonitorPageComponent implements OnInit, OnDestroy {
   private readonly store = inject(Store);
+  private readonly lifecycleKeys = ['watching', 'candidate', 'buy', 'hold', 'sold'] as const;
 
   entries = this.store.selectSignal(selectEntriesSortedByStage);
   distribution = this.store.selectSignal(selectStageDistribution);
@@ -32,7 +33,7 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
   error = this.store.selectSignal(selectStateMonitorError);
   lastUpdated = this.store.selectSignal(selectLastUpdated);
 
-  readonly stages = [
+  readonly stages: ReadonlyArray<{ key: (typeof this.lifecycleKeys)[number]; label: string; icon: string }> = [
     { key: 'watching', label: 'Watching', icon: 'visibility' },
     { key: 'candidate', label: 'Candidate', icon: 'star_outline' },
     { key: 'buy', label: 'Buy', icon: 'shopping_cart' },
@@ -53,5 +54,9 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.store.dispatch(StateMonitorActions.stopPolling());
+  }
+
+  countForStage(key: (typeof this.lifecycleKeys)[number]): number {
+    return this.distribution()[key];
   }
 }
