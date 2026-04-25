@@ -6,6 +6,13 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from apscheduler.events import (
+    EVENT_JOB_ERROR,
+    EVENT_JOB_EXECUTED,
+    EVENT_JOB_MAX_INSTANCES,
+    EVENT_JOB_MISSED,
+    EVENT_JOB_SUBMITTED,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -402,6 +409,55 @@ async def lifespan(app: FastAPI):
     # ── Scheduler ───────────────────────────────────────────────────
     scheduler = AsyncIOScheduler()
     use_polygon_secret_universe = settings.secret_universe_enabled and settings.secret_universe_source == "polygon"
+    secret_universe_job_ids = {"secret_universe_refresh", "secret_universe_refresh_interval"}
+
+    def _log_secret_universe_job_registration(job_id: str) -> None:
+        job = scheduler.get_job(job_id)
+        if job is None:
+            log.warning("scheduler.secret_universe_job_missing_after_registration", job_id=job_id)
+            return
+        log.info(
+            "scheduler.secret_universe_job_registered",
+            job_id=job.id,
+            trigger=str(job.trigger),
+            next_run_time=job.next_run_time.isoformat() if job.next_run_time else None,
+        )
+
+    def _secret_universe_job_listener(event) -> None:
+        job_id = getattr(event, "job_id", None)
+        if job_id not in secret_universe_job_ids:
+            return
+        if event.code == EVENT_JOB_SUBMITTED:
+            log.info("scheduler.secret_universe_job_submitted", job_id=job_id)
+        elif event.code == EVENT_JOB_EXECUTED:
+            log.info("scheduler.secret_universe_job_executed", job_id=job_id)
+        elif event.code == EVENT_JOB_ERROR:
+            log.error(
+                "scheduler.secret_universe_job_failed",
+                job_id=job_id,
+                exception=repr(getattr(event, "exception", None)),
+            )
+        elif event.code == EVENT_JOB_MISSED:
+            log.warning(
+                "scheduler.secret_universe_job_missed",
+                job_id=job_id,
+                scheduled_run_time=event.scheduled_run_time.isoformat() if event.scheduled_run_time else None,
+            )
+        elif event.code == EVENT_JOB_MAX_INSTANCES:
+            scheduled_times = [
+                run_time.isoformat()
+                for run_time in getattr(event, "scheduled_run_times", []) or []
+            ]
+            log.warning(
+                "scheduler.secret_universe_job_max_instances",
+                job_id=job_id,
+                scheduled_run_times=scheduled_times,
+            )
+
+    scheduler.add_listener(
+        _secret_universe_job_listener,
+        EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED | EVENT_JOB_MAX_INSTANCES,
+    )
 
     async def refresh_universe_job():
         start = time.monotonic()
@@ -818,6 +874,7 @@ async def lifespan(app: FastAPI):
                 max_instances=1,
                 id="secret_universe_refresh",
             )
+            _log_secret_universe_job_registration("secret_universe_refresh")
             if should_interval_refresh_polygon_day_aggregates():
                 scheduler.add_job(
                     refresh_secret_universe_job,
@@ -826,6 +883,7 @@ async def lifespan(app: FastAPI):
                     max_instances=1,
                     id="secret_universe_refresh_interval",
                 )
+                _log_secret_universe_job_registration("secret_universe_refresh_interval")
         if should_enable_minute_refresh() and settings.polygon_minute_aggregate_ingestion_enabled:
             scheduler.add_job(
                 refresh_polygon_minute_aggregates_job,

@@ -106,7 +106,7 @@ push:
 	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
-.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall show-public-image-tag
+.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall show-public-image-tag public-images public-worker-image public-pod-images
 
 helm-template:
 	helm template stock-radar $(HELM_DIR) \
@@ -186,6 +186,15 @@ public-uninstall:
 show-public-image-tag:
 	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "No recorded public image tag yet."; exit 1)
 	@cat $(PUBLIC_IMAGE_TAG_FILE)
+
+public-images:
+	kubectl get deploy -n $(PUBLIC_NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+
+public-worker-image:
+	kubectl get deploy -n $(PUBLIC_NAMESPACE) stock-radar-worker -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+
+public-pod-images:
+	kubectl get pods -n $(PUBLIC_NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.containers[0].image}{"\n"}{end}'
 
 # ── Terraform (database provisioning) ──────────────────────────────
 .PHONY: tf-init tf-plan tf-apply tf-destroy
