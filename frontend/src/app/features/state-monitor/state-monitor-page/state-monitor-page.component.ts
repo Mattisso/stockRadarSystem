@@ -15,6 +15,9 @@ import {
   selectLastUpdated,
 } from '../+state/state-monitor.reducer';
 
+const STATE_MONITOR_LIFECYCLE_KEYS = ['watching', 'candidate', 'buy', 'hold', 'sold'] as const;
+type StateMonitorLifecycleKey = (typeof STATE_MONITOR_LIFECYCLE_KEYS)[number];
+
 @Component({
   selector: 'app-state-monitor-page',
   standalone: true,
@@ -25,7 +28,6 @@ import {
 })
 export class StateMonitorPageComponent implements OnInit, OnDestroy {
   private readonly store = inject(Store);
-  private readonly lifecycleKeys = ['watching', 'candidate', 'buy', 'hold', 'sold'] as const;
 
   entries = this.store.selectSignal(selectEntriesSortedByStage);
   distribution = this.store.selectSignal(selectStageDistribution);
@@ -33,7 +35,7 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
   error = this.store.selectSignal(selectStateMonitorError);
   lastUpdated = this.store.selectSignal(selectLastUpdated);
 
-  readonly stages: ReadonlyArray<{ key: (typeof this.lifecycleKeys)[number]; label: string; icon: string }> = [
+  readonly stages: ReadonlyArray<{ key: StateMonitorLifecycleKey; label: string; icon: string }> = [
     { key: 'watching', label: 'Watching', icon: 'visibility' },
     { key: 'candidate', label: 'Candidate', icon: 'star_outline' },
     { key: 'buy', label: 'Buy', icon: 'shopping_cart' },
@@ -56,7 +58,7 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
     this.store.dispatch(StateMonitorActions.stopPolling());
   }
 
-  countForStage(key: (typeof this.lifecycleKeys)[number]): number {
+  countForStage(key: StateMonitorLifecycleKey): number {
     return this.distribution()[key];
   }
 }

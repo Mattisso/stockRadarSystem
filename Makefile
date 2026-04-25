@@ -365,7 +365,7 @@ print-client-tunnel:
 	@echo "http://127.0.0.1:14200"
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
-.PHONY: dev test migrate serve-frontend tunnel tunnel-frontend
+.PHONY: dev test frontend-specs frontend-specs-watch frontend-check migrate serve-frontend tunnel tunnel-frontend
 
 dev:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -375,6 +375,16 @@ serve-frontend:
 
 test:
 	cd backend && python -m pytest tests/ -v
+
+frontend-specs:
+	@test -n "$$(find frontend/src -name '*.spec.ts' -print -quit)" || (echo "No frontend *.spec.ts files found under frontend/src."; exit 1)
+	cd frontend && npm run test
+
+frontend-specs-watch:
+	@test -n "$$(find frontend/src -name '*.spec.ts' -print -quit)" || (echo "No frontend *.spec.ts files found under frontend/src."; exit 1)
+	cd frontend && npm run test:watch
+
+frontend-check: frontend-specs
 
 migrate:
 	cd backend && alembic upgrade head
