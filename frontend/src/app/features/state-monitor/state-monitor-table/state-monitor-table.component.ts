@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { MatTableModule } from '@angular/material/table';
 
-import { IStateMachineEntry } from '../../../shared/models/state-machine.model';
-import { StageBadgePipe } from '../../../shared/pipes/stage-badge.pipe';
+import { ISymbolStateLive } from '../../../shared/models/aggregate-data.model';
 import { TimeAgoPipe } from '../../../shared/pipes/time-ago.pipe';
 import { ScoreBarComponent } from '../../../shared/components/score-bar/score-bar.component';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
@@ -10,23 +9,44 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 @Component({
   selector: 'app-state-monitor-table',
   standalone: true,
-  imports: [MatTableModule, StageBadgePipe, TimeAgoPipe, ScoreBarComponent, StatusBadgeComponent],
+  imports: [MatTableModule, TimeAgoPipe, ScoreBarComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './state-monitor-table.component.html',
   styleUrl: './state-monitor-table.component.scss',
 })
 export class StateMonitorTableComponent {
-  entries = input<IStateMachineEntry[]>([]);
+  entries = input<ISymbolStateLive[]>([]);
 
-  displayedColumns = ['ticker', 'stage', 'score', 'consecutive_ticks', 'decay_ticks', 'entered_at', 'reason'];
+  displayedColumns = ['ticker', 'status', 'candidate_score', 'validation_pass_count', 'last_second_ts', 'last_minute_ts', 'streams', 'updated_at'];
 
-  stageColor(stage: string): 'green' | 'orange' | 'amber' | 'blue' | 'grey' {
-    switch (stage) {
-      case 'ready_to_buy': return 'green';
-      case 'l2_confirm': return 'blue';
-      case 'candidate': return 'orange';
-      case 'watching': return 'amber';
-      default: return 'grey';
+  statusLabel(status: string): string {
+    switch (status) {
+      case 'idle': return 'Watching';
+      case 'validated': return 'Candidate';
+      case 'manage': return 'Hold';
+      case 'buy': return 'Buy';
+      case 'sold': return 'Sold';
+      case 'candidate': return 'Candidate';
+      case 'rejected': return 'Rejected';
+      default: return status;
+    }
+  }
+
+  statusColor(status: string): 'green' | 'red' | 'orange' | 'amber' | 'blue' | 'grey' {
+    switch (status) {
+      case 'buy': return 'green';
+      case 'manage': return 'blue';
+      case 'candidate':
+      case 'validated':
+        return 'orange';
+      case 'idle':
+        return 'amber';
+      case 'sold':
+        return 'grey';
+      case 'rejected':
+        return 'red';
+      default:
+        return 'grey';
     }
   }
 }

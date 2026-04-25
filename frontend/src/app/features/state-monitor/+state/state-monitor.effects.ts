@@ -1,9 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
-import { catchError, map, of, switchMap, takeUntil } from 'rxjs';
+import { catchError, interval, map, of, startWith, switchMap, takeUntil } from 'rxjs';
 
-import { WebSocketService } from '../../../core/websocket.service';
-import { IStateMachineEntry } from '../../../shared/models/state-machine.model';
 import { StateMonitorApiService } from '../state-monitor-api.service';
 import { StateMonitorActions } from './state-monitor.actions';
 
@@ -11,14 +9,13 @@ import { StateMonitorActions } from './state-monitor.actions';
 export class StateMonitorEffects {
   private readonly actions$ = inject(Actions);
   private readonly api = inject(StateMonitorApiService);
-  private readonly ws = inject(WebSocketService);
 
   load$ = createEffect(() =>
     this.actions$.pipe(
       ofType(StateMonitorActions.load),
       switchMap(() =>
         this.api.getAll().pipe(
-          map(entries => StateMonitorActions.loaded({ entries })),
+          map(response => StateMonitorActions.loaded({ entries: response.items, summary: response.summary })),
           catchError(error =>
             of(StateMonitorActions.loadFailed({ error: error.message })),
           ),
@@ -27,13 +24,19 @@ export class StateMonitorEffects {
     ),
   );
 
-  wsStream$ = createEffect(() =>
+  polling$ = createEffect(() =>
     this.actions$.pipe(
       ofType(StateMonitorActions.startPolling),
       switchMap(() =>
-        this.ws.topic$<IStateMachineEntry[]>('state_machine').pipe(
+        interval(5000).pipe(
+          startWith(0),
           takeUntil(this.actions$.pipe(ofType(StateMonitorActions.stopPolling))),
-          map(entries => StateMonitorActions.wsReceived({ entries })),
+          switchMap(() =>
+            this.api.getAll().pipe(
+              map(response => StateMonitorActions.pollingLoaded({ entries: response.items, summary: response.summary })),
+              catchError(error => of(StateMonitorActions.loadFailed({ error: error.message }))),
+            ),
+          ),
         ),
       ),
     ),

@@ -1,14 +1,16 @@
 import { createFeature, createReducer, createSelector, on } from '@ngrx/store';
 
-import { SymbolStage } from '../../../shared/models/signal.model';
 import { StateMonitorActions } from './state-monitor.actions';
 import { initialStateMonitorState } from './state-monitor.state';
 
-const stageOrder: Record<string, number> = {
-  ready_to_buy: 0,
-  l2_confirm: 1,
+const statusOrder: Record<string, number> = {
+  buy: 0,
+  manage: 1,
   candidate: 2,
-  watching: 3,
+  validated: 3,
+  idle: 4,
+  sold: 5,
+  rejected: 6,
 };
 
 export const stateMonitorFeature = createFeature({
@@ -16,9 +18,10 @@ export const stateMonitorFeature = createFeature({
   reducer: createReducer(
     initialStateMonitorState,
     on(StateMonitorActions.load, state => ({ ...state, loading: true, error: null })),
-    on(StateMonitorActions.loaded, (state, { entries }) => ({
+    on(StateMonitorActions.loaded, (state, { entries, summary }) => ({
       ...state,
       entries,
+      summary,
       loading: false,
       lastUpdated: new Date().toISOString(),
     })),
@@ -27,30 +30,27 @@ export const stateMonitorFeature = createFeature({
       loading: false,
       error,
     })),
-    on(StateMonitorActions.wsReceived, (state, { entries }) => ({
+    on(StateMonitorActions.pollingLoaded, (state, { entries, summary }) => ({
       ...state,
       entries,
+      summary,
+      loading: false,
       lastUpdated: new Date().toISOString(),
     })),
   ),
-  extraSelectors: ({ selectEntries }) => ({
+  extraSelectors: ({ selectEntries, selectSummary }) => ({
     selectEntriesSortedByStage: createSelector(selectEntries, entries =>
       [...entries].sort(
-        (a, b) => (stageOrder[a.stage] ?? 99) - (stageOrder[b.stage] ?? 99),
+        (a, b) => (statusOrder[a.candidate_status] ?? 99) - (statusOrder[b.candidate_status] ?? 99),
       ),
     ),
-    selectStageDistribution: createSelector(selectEntries, entries => {
-      const counts: Record<string, number> = {
-        watching: 0,
-        candidate: 0,
-        l2_confirm: 0,
-        ready_to_buy: 0,
-      };
-      entries.forEach(e => {
-        if (e.stage in counts) counts[e.stage]++;
-      });
-      return counts;
-    }),
+    selectStageDistribution: createSelector(selectSummary, summary => ({
+      watching: summary['watching'] ?? 0,
+      candidate: summary['candidate'] ?? 0,
+      buy: summary['buy'] ?? 0,
+      hold: summary['hold'] ?? 0,
+      sold: summary['sold'] ?? 0,
+    })),
   }),
 });
 

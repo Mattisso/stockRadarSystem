@@ -35,15 +35,16 @@ export class StateMonitorPageComponent implements OnInit, OnDestroy {
   readonly stages = [
     { key: 'watching', label: 'Watching', icon: 'visibility' },
     { key: 'candidate', label: 'Candidate', icon: 'star_outline' },
-    { key: 'l2_confirm', label: 'L2 Confirm', icon: 'verified' },
-    { key: 'ready_to_buy', label: 'Ready to Buy', icon: 'shopping_cart' },
+    { key: 'buy', label: 'Buy', icon: 'shopping_cart' },
+    { key: 'hold', label: 'Hold', icon: 'pause_circle' },
+    { key: 'sold', label: 'Sold', icon: 'sell' },
   ];
 
   readonly runtimeNote =
-    'This page shows live in-memory state from the current API process. It does not show historical signals or persisted Secret Sauce records.';
+    'This page shows the aggregate-driven live lifecycle from Polygon data. Hold is the active-position lock that prevents repeated buys until a sell event fires.';
 
   readonly emptyStateNote =
-    'Zero counts are normal when the market is closed, the API was recently restarted, or no symbols currently qualify for stage progression.';
+    'Zero counts are normal when the market is closed, the runtime was recently restarted, or no symbols currently qualify for aggregate state progression.';
 
   ngOnInit(): void {
     this.store.dispatch(StateMonitorActions.load());

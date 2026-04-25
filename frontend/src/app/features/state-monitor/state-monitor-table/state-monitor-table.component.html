@@ -4,38 +4,45 @@
     <td mat-cell *matCellDef="let row" class="ticker-cell">{{ row.ticker }}</td>
   </ng-container>
 
-  <ng-container matColumnDef="stage">
-    <th mat-header-cell *matHeaderCellDef>Stage</th>
+  <ng-container matColumnDef="status">
+    <th mat-header-cell *matHeaderCellDef>Status</th>
     <td mat-cell *matCellDef="let row">
-      <app-status-badge [label]="row.stage | stageBadge" [color]="stageColor(row.stage)" />
+      <app-status-badge [label]="statusLabel(row.candidate_status)" [color]="statusColor(row.candidate_status)" />
     </td>
   </ng-container>
 
-  <ng-container matColumnDef="score">
-    <th mat-header-cell *matHeaderCellDef>Score</th>
+  <ng-container matColumnDef="candidate_score">
+    <th mat-header-cell *matHeaderCellDef>Candidate Score</th>
     <td mat-cell *matCellDef="let row">
-      <app-score-bar [value]="row.score" />
+      <app-score-bar [value]="row.candidate_score ?? 0" />
     </td>
   </ng-container>
 
-  <ng-container matColumnDef="consecutive_ticks">
-    <th mat-header-cell *matHeaderCellDef>Consec. Ticks</th>
-    <td mat-cell *matCellDef="let row">{{ row.consecutive_ticks }}</td>
+  <ng-container matColumnDef="validation_pass_count">
+    <th mat-header-cell *matHeaderCellDef>Validation Passes</th>
+    <td mat-cell *matCellDef="let row">{{ row.validation_pass_count }}</td>
   </ng-container>
 
-  <ng-container matColumnDef="decay_ticks">
-    <th mat-header-cell *matHeaderCellDef>Decay Ticks</th>
-    <td mat-cell *matCellDef="let row">{{ row.decay_ticks }}</td>
+  <ng-container matColumnDef="last_second_ts">
+    <th mat-header-cell *matHeaderCellDef>Last Second</th>
+    <td mat-cell *matCellDef="let row">{{ row.last_second_ts ? (row.last_second_ts | timeAgo) : '-' }}</td>
   </ng-container>
 
-  <ng-container matColumnDef="entered_at">
-    <th mat-header-cell *matHeaderCellDef>Time in Stage</th>
-    <td mat-cell *matCellDef="let row">{{ row.entered_at | timeAgo }}</td>
+  <ng-container matColumnDef="last_minute_ts">
+    <th mat-header-cell *matHeaderCellDef>Last Minute</th>
+    <td mat-cell *matCellDef="let row">{{ row.last_minute_ts ? (row.last_minute_ts | timeAgo) : '-' }}</td>
   </ng-container>
 
-  <ng-container matColumnDef="reason">
-    <th mat-header-cell *matHeaderCellDef>Reason</th>
-    <td mat-cell *matCellDef="let row">{{ row.reason ?? '-' }}</td>
+  <ng-container matColumnDef="streams">
+    <th mat-header-cell *matHeaderCellDef>Streams</th>
+    <td mat-cell *matCellDef="let row">
+      S: {{ row.is_second_stream_stale ? 'Stale' : 'Live' }} · M: {{ row.is_minute_stream_stale ? 'Stale' : 'Live' }}
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="updated_at">
+    <th mat-header-cell *matHeaderCellDef>Updated</th>
+    <td mat-cell *matCellDef="let row">{{ row.updated_at ? (row.updated_at | timeAgo) : '-' }}</td>
   </ng-container>
 
   <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
@@ -43,5 +50,5 @@
 </table>
 
 @if (entries().length === 0) {
-  <p class="empty-state">No tickers in pipeline — all symbols in Normal stage.</p>
+  <p class="empty-state">No symbols are currently active in the aggregate lifecycle.</p>
 }
