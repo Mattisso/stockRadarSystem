@@ -52,10 +52,25 @@
   <app-universe-table [symbols]="pagedSymbols()" />
 
   <div class="pagination">
+    <button type="button" class="page-button" (click)="goToFirstPage()" [disabled]="currentPage() <= 1">
+      First
+    </button>
     <button type="button" class="page-button" (click)="previousPage()" [disabled]="currentPage() <= 1">
       Previous
     </button>
     <span class="page-label">Page {{ currentPage() }} of {{ totalPages() }}</span>
+    <label class="page-jump">
+      <span>Page</span>
+      <input
+        type="number"
+        min="1"
+        [max]="totalPages()"
+        [ngModel]="pageJump()"
+        (ngModelChange)="pageJump.set($event)"
+        (keydown.enter)="onPageJump()"
+      />
+      <button type="button" class="page-button" (click)="onPageJump()">Go</button>
+    </label>
     <button
       type="button"
       class="page-button"
@@ -63,6 +78,14 @@
       [disabled]="currentPage() >= totalPages()"
     >
       Next
+    </button>
+    <button
+      type="button"
+      class="page-button"
+      (click)="goToLastPage()"
+      [disabled]="currentPage() >= totalPages()"
+    >
+      Last
     </button>
   </div>
 }

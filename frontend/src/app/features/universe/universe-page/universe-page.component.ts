@@ -26,6 +26,7 @@ export class UniversePageComponent implements OnInit {
   statusFilter = signal<'all' | 'active' | 'inactive'>('all');
   pageSize = signal(25);
   currentPage = signal(1);
+  pageJump = signal<string | number>('1');
 
   filteredSymbols = computed(() =>
     this.symbols().filter((symbol) => this.matchesFilters(symbol))
@@ -75,18 +76,42 @@ export class UniversePageComponent implements OnInit {
   updatePageSize(value: number | string): void {
     this.pageSize.set(Number(value));
     this.currentPage.set(1);
+    this.pageJump.set('1');
   }
 
   previousPage(): void {
     if (this.currentPage() > 1) {
       this.currentPage.set(this.currentPage() - 1);
+      this.pageJump.set(String(this.currentPage()));
     }
   }
 
   nextPage(): void {
     if (this.currentPage() < this.totalPages()) {
       this.currentPage.set(this.currentPage() + 1);
+      this.pageJump.set(String(this.currentPage()));
     }
+  }
+
+  goToFirstPage(): void {
+    this.currentPage.set(1);
+    this.pageJump.set('1');
+  }
+
+  goToLastPage(): void {
+    this.currentPage.set(this.totalPages());
+    this.pageJump.set(String(this.totalPages()));
+  }
+
+  onPageJump(): void {
+    const requestedPage = Number.parseInt(String(this.pageJump()).trim(), 10);
+    if (!Number.isFinite(requestedPage)) {
+      this.pageJump.set(String(this.currentPage()));
+      return;
+    }
+    const clampedPage = Math.min(Math.max(requestedPage, 1), this.totalPages());
+    this.currentPage.set(clampedPage);
+    this.pageJump.set(String(clampedPage));
   }
 
   clearFilters(): void {
@@ -95,6 +120,7 @@ export class UniversePageComponent implements OnInit {
     this.statusFilter.set('all');
     this.pageSize.set(25);
     this.currentPage.set(1);
+    this.pageJump.set('1');
   }
 
   private matchesFilters(symbol: ISymbol): boolean {

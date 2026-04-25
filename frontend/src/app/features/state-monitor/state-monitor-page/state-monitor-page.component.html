@@ -32,12 +32,55 @@
       }
     </div>
 
+    <div class="results-summary">
+      Showing {{ pagedEntries().length }} of {{ entries().length }} symbols
+    </div>
+
+    <div class="pagination-controls">
+      <label class="filter-field">
+        <span>Rows Per Page</span>
+        <select [ngModel]="pageSize()" (ngModelChange)="updatePageSize($event)">
+          @for (size of pageSizeOptions; track size) {
+            <option [value]="size">{{ size }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
     @if (entries().length === 0) {
       <div class="empty-state">
         No symbols are currently active in the aggregate lifecycle monitor.
       </div>
     }
 
-    <app-state-monitor-table [entries]="entries()" />
+    <app-state-monitor-table [entries]="pagedEntries()" />
+
+    <div class="pagination">
+      <button type="button" class="page-button" (click)="goToFirstPage()" [disabled]="currentPage() <= 1">
+        First
+      </button>
+      <button type="button" class="page-button" (click)="previousPage()" [disabled]="currentPage() <= 1">
+        Previous
+      </button>
+      <span class="page-label">Page {{ currentPage() }} of {{ totalPages() }}</span>
+      <label class="page-jump">
+        <span>Page</span>
+        <input
+          type="number"
+          min="1"
+          [max]="totalPages()"
+          [ngModel]="pageJump()"
+          (ngModelChange)="pageJump.set($event)"
+          (keydown.enter)="onPageJump()"
+        />
+        <button type="button" class="page-button" (click)="onPageJump()">Go</button>
+      </label>
+      <button type="button" class="page-button" (click)="nextPage()" [disabled]="currentPage() >= totalPages()">
+        Next
+      </button>
+      <button type="button" class="page-button" (click)="goToLastPage()" [disabled]="currentPage() >= totalPages()">
+        Last
+      </button>
+    </div>
   }
 </div>
