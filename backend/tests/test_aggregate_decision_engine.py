@@ -421,10 +421,58 @@ def test_decision_engine_emits_sell_for_stop_loss(db):
 
 def test_decision_engine_emits_sell_for_momentum_dies(db):
     service = PolygonAggregateService(db)
+    engine = AggregateDecisionEngine(db)
+    service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 1, tzinfo=timezone.utc), 3.17, 3.18, 3.16, 3.18, 300, 3.18, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 2, tzinfo=timezone.utc), 3.18, 3.18, 3.14, 3.16, 300, 3.16, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 3, tzinfo=timezone.utc), 3.16, 3.17, 3.14, 3.15, 300, 3.15, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 4, tzinfo=timezone.utc), 3.15, 3.16, 3.13, 3.14, 300, 3.14, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 5, tzinfo=timezone.utc), 3.14, 3.15, 3.12, 3.13, 300, 3.13, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 6, tzinfo=timezone.utc), 3.13, 3.13, 3.11, 3.12, 300, 3.12, 1),
+        ]
+    )
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    state.validation_score = 0.9
+    state.validation_pass_count = 9
+    state.candidate_score = 0.82
+    state.current_minute_high = 3.16
+    state.rolling_second_high = 3.16
+    state.rolling_second_low = 3.10
+    state.candidate_status = "manage"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = False
+    db.add(
+        DecisionEvent(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 11, 14, 10, 0),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+            decision_payload=json.dumps({"current_close": 3.10}),
+            candidate_score=0.82,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.flush()
+
+    decision = engine.evaluate(
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 11, 14, 10, 6, tzinfo=timezone.utc),
+        trigger_count=1,
+        state=state,
+    )
+    assert decision is not None
+    assert decision.reason_code == "active_position_momentum_dies"
+
+
+def test_decision_engine_does_not_emit_momentum_dies_below_entry_price(db):
+    service = PolygonAggregateService(db)
     buy_engine = AggregateDecisionEngine(db)
     service.upsert_second_aggregates(
         [
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 1, tzinfo=timezone.utc), 3.10, 3.12, 3.09, 3.11, 300, 3.11, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 1, tzinfo=timezone.utc), 3.10, 3.12, 3.09, 3.11, 300, 3.11, 1),
         ]
     )
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
@@ -439,7 +487,7 @@ def test_decision_engine_emits_sell_for_momentum_dies(db):
     buy_engine.persist(
         buy_engine.evaluate(
             ticker="LCID",
-            event_ts=datetime(2026, 4, 11, 14, 10, 1, tzinfo=timezone.utc),
+            event_ts=datetime(2026, 4, 11, 14, 20, 1, tzinfo=timezone.utc),
             trigger_count=1,
             state=state,
         ),
@@ -447,25 +495,27 @@ def test_decision_engine_emits_sell_for_momentum_dies(db):
     )
     service.upsert_second_aggregates(
         [
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 2, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 3, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 4, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 5, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
-            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 10, 6, tzinfo=timezone.utc), 3.11, 3.11, 3.04, 3.05, 300, 3.06, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 2, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 3, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 4, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 5, tzinfo=timezone.utc), 3.11, 3.12, 3.10, 3.11, 300, 3.11, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 14, 20, 6, tzinfo=timezone.utc), 3.11, 3.11, 3.04, 3.05, 300, 3.06, 1),
         ]
     )
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     state.candidate_status = "manage"
     state.is_second_stream_stale = False
     state.is_minute_stream_stale = False
+
     decision = buy_engine.evaluate(
         ticker="LCID",
-        event_ts=datetime(2026, 4, 11, 14, 10, 6, tzinfo=timezone.utc),
+        event_ts=datetime(2026, 4, 11, 14, 20, 6, tzinfo=timezone.utc),
         trigger_count=1,
         state=state,
     )
+
     assert decision is not None
-    assert decision.reason_code == "active_position_momentum_dies"
+    assert decision.reason_code != "active_position_momentum_dies"
 
 
 def test_decision_engine_emits_sell_for_no_continuation(db):

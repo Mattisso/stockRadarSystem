@@ -73,7 +73,12 @@ class AggregateDecisionEngine:
                 reason_code="active_position_stop_loss",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_momentum_dies(ticker=ticker, event_ts=event_ts, latest_second=latest_second):
+        if self._is_active_position(state) and self._should_sell_momentum_dies(
+            ticker=ticker,
+            event_ts=event_ts,
+            latest_second=latest_second,
+            buy_context=buy_context,
+        ):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -307,8 +312,16 @@ class AggregateDecisionEngine:
         ticker: str,
         event_ts: datetime,
         latest_second: PolygonSecondAggregate | None,
+        buy_context: dict | None = None,
     ) -> bool:
-        if latest_second is None:
+        if latest_second is None or buy_context is None:
+            return False
+        entry_price = buy_context.get("entry_price")
+        if entry_price is None or entry_price <= 0:
+            return False
+        # Momentum-dies is a profit-protection rule, not a loss-cutting rule.
+        # If the trade is below entry, let stop-loss / reversal logic own the exit.
+        if latest_second.close < entry_price:
             return False
         lookback = settings.aggregate_sell_momentum_lookback_bars
         prior_rows = (
