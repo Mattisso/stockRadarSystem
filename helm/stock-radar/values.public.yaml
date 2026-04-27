@@ -8,25 +8,8 @@ api:
       memory: "1Gi"
       cpu: "500m"
   worker:
-    enabled: true
+    enabled: false
     replicaCount: 1
-  image:
-    repository: localhost:32000/stock-radar-api
-    tag: latest
-    pullPolicy: Always
-  env:
-    PGHOST: stock-radar-postgres
-    PGPORT: "5434"
-    PGDATABASE: stock_radar
-    REDIS_URL: "redis://stock-radar-redis:6379/0"
-    TRADING_MODE: paper
-    BUY_USE_BRACKETS: "true"
-    SECRET_UNIVERSE_ENABLED: "true"
-    SECRET_UNIVERSE_SOURCE: "polygon"
-    CORS_ALLOWED_ORIGINS: "https://stockradarx.com,https://www.stockradarx.com"
-    CORS_ALLOWED_ORIGIN_REGEX: ""
-    DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
-  worker:
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
@@ -43,6 +26,22 @@ api:
       limits:
         memory: "1Gi"
         cpu: "500m"
+  image:
+    repository: localhost:32000/stock-radar-api
+    tag: latest
+    pullPolicy: Always
+  env:
+    PGHOST: stock-radar-postgres
+    PGPORT: "5434"
+    PGDATABASE: stock_radar
+    REDIS_URL: "redis://stock-radar-redis:6379/0"
+    TRADING_MODE: paper
+    BUY_USE_BRACKETS: "true"
+    SECRET_UNIVERSE_ENABLED: "true"
+    SECRET_UNIVERSE_SOURCE: "polygon"
+    CORS_ALLOWED_ORIGINS: "https://stockradarx.com,https://www.stockradarx.com"
+    CORS_ALLOWED_ORIGIN_REGEX: ""
+    DATABASE_URL: "postgresql://postgres:postgres@stock-radar-postgres:5434/stock_radar"
   aggregateDecisionWorker:
     enabled: true
     brokerType: "mock"
@@ -62,7 +61,7 @@ api:
         memory: "1500Mi"
         cpu: "750m"
   executionWorker:
-    enabled: false
+    enabled: true
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
