@@ -269,14 +269,45 @@ export class AggregateDataPageComponent implements OnInit {
     this.loading.set(false);
   }
 
-  previewDecisionPayload(payload: string | null): string {
-    if (!payload) {
+  previewDecisionPayload(row: IDecisionEvent): string {
+    if (!row.decision_payload) {
       return '-';
     }
-    if (payload.length <= 80) {
-      return payload;
+
+    try {
+      const payload = JSON.parse(row.decision_payload) as Record<string, unknown>;
+      const summaryParts: string[] = [];
+
+      if (row.reason_code) {
+        summaryParts.push(`reason=${row.reason_code}`);
+      }
+      if (payload['validation_score'] != null) {
+        summaryParts.push(`validation_score=${payload['validation_score']}`);
+      }
+      if (payload['validation_pass_count'] != null) {
+        summaryParts.push(`validation_passes=${payload['validation_pass_count']}`);
+      }
+      if (payload['candidate_score'] != null) {
+        summaryParts.push(`candidate_score=${payload['candidate_score']}`);
+      }
+      if (payload['current_close'] != null) {
+        summaryParts.push(`current_close=${payload['current_close']}`);
+      }
+      if (payload['entry_price'] != null) {
+        summaryParts.push(`entry_price=${payload['entry_price']}`);
+      }
+
+      if (summaryParts.length) {
+        return summaryParts.join(', ');
+      }
+    } catch {
+      // Fall back to the raw payload if the stored value is not valid JSON.
     }
-    return `${payload.slice(0, 77)}...`;
+
+    if (row.decision_payload.length <= 80) {
+      return row.decision_payload;
+    }
+    return `${row.decision_payload.slice(0, 77)}...`;
   }
 
   badgeClass(value: string | null | undefined, kind: 'decision' | 'status'): string {
