@@ -24,11 +24,22 @@ api:
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"
     apiEnablePositionMonitorJob: "true"
-    apiEnableAggregateRollingRefresh: "true"
-    apiEnableDayRefresh: "true"
-    apiEnableMinuteRefresh: "true"
+    apiEnableAggregateRollingRefresh: "false"
+    apiEnableDayRefresh: "false"
+    apiEnableMinuteRefresh: "false"
     polygonEnableQuoteClient: "true"
-    polygonEnableAggregateClient: "true"
+    polygonEnableAggregateClient: "false"
+  aggregateDecisionWorker:
+    enabled: true
+    brokerType: "mock"
+    uvicornWorkers: "1"
+    apiEnableLegacyScanJob: "false"
+    apiEnablePositionMonitorJob: "false"
+    apiEnableAggregateRollingRefresh: "true"
+    apiEnableDayRefresh: "false"
+    apiEnableMinuteRefresh: "false"
+    polygonEnableQuoteClient: "false"
+    polygonEnableAggregateClient: "false"
   executionWorker:
     enabled: false
     brokerType: "mock"
@@ -41,7 +52,7 @@ api:
     polygonEnableQuoteClient: "true"
     polygonEnableAggregateClient: "false"
   polygonIngestWorker:
-    enabled: false
+    enabled: true
     brokerType: "mock"
     uvicornWorkers: "1"
     apiEnableLegacyScanJob: "false"

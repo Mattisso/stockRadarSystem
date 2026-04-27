@@ -64,28 +64,36 @@ log = get_logger(__name__)
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
+def current_runtime_role() -> str:
+    return settings.api_runtime_role.lower()
+
+
+def should_run_background_jobs() -> bool:
+    return current_runtime_role() in {"all", "worker"}
+
+
 def should_enable_quote_client() -> bool:
-    return bool(settings.polygon_api_key) and settings.polygon_enable_quote_client
+    return should_run_background_jobs() and bool(settings.polygon_api_key) and settings.polygon_enable_quote_client
 
 
 def should_enable_aggregate_client() -> bool:
-    return bool(settings.polygon_api_key) and settings.polygon_enable_aggregate_client
+    return should_run_background_jobs() and bool(settings.polygon_api_key) and settings.polygon_enable_aggregate_client
 
 
 def should_enable_position_monitor_job() -> bool:
-    return settings.api_enable_position_monitor_job
+    return should_run_background_jobs() and settings.api_enable_position_monitor_job
 
 
 def should_enable_aggregate_rolling_refresh() -> bool:
-    return should_enable_aggregate_client() and settings.api_enable_aggregate_rolling_refresh
+    return should_run_background_jobs() and settings.api_enable_aggregate_rolling_refresh
 
 
 def should_enable_day_refresh() -> bool:
-    return settings.api_enable_day_refresh
+    return should_run_background_jobs() and settings.api_enable_day_refresh
 
 
 def should_enable_minute_refresh() -> bool:
-    return should_enable_aggregate_client() and settings.api_enable_minute_refresh
+    return should_run_background_jobs() and settings.api_enable_minute_refresh
 
 
 def should_interval_refresh_polygon_day_aggregates() -> bool:
@@ -93,7 +101,6 @@ def should_interval_refresh_polygon_day_aggregates() -> bool:
         settings.secret_universe_enabled
         and settings.secret_universe_source == "polygon"
         and settings.polygon_day_aggregate_ingestion_enabled
-        and settings.polygon_enable_aggregate_client
         and should_enable_day_refresh()
         and settings.polygon_day_aggregate_refresh_minutes > 0
     )
@@ -103,8 +110,8 @@ def should_interval_refresh_polygon_day_aggregates() -> bool:
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     setup_logging()
-    runtime_role = settings.api_runtime_role.lower()
-    run_background = runtime_role in {"all", "worker"}
+    runtime_role = current_runtime_role()
+    run_background = should_run_background_jobs()
     runtime = RuntimeOrchestrator()
     app.state.runtime = runtime
 
@@ -945,7 +952,7 @@ async def lifespan(app: FastAPI):
         if should_enable_aggregate_rolling_refresh():
             initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
             runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
-        if settings.polygon_enable_aggregate_client and settings.aggregate_history_export_enabled:
+        if should_enable_aggregate_rolling_refresh() and settings.aggregate_history_export_enabled:
             initial_history_export_task = asyncio.create_task(aggregate_history_export_job())
             runtime.register_task("initial_aggregate_history_export", initial_history_export_task)
     else:
