@@ -24,6 +24,9 @@ export interface IPagedResponse<T> {
 
 @Injectable({ providedIn: 'root' })
 export class PolygonDataApiService {
+  private static readonly LIVE_AGGREGATE_TIMEOUT_MS = 15000;
+  private static readonly LIVE_TICK_TIMEOUT_MS = 30000;
+
   private readonly http = inject(HttpClient);
 
   private buildBaseParams(page: number, pageSize: number, ticker: string, tradeDate: string | null): HttpParams {
@@ -68,7 +71,9 @@ export class PolygonDataApiService {
     if (sessionStartEt) {
       params = params.set('session_start_et', sessionStartEt);
     }
-    return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params }).pipe(timeout(15000));
+    return this.http
+      .get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/second-aggregates', { params })
+      .pipe(timeout(PolygonDataApiService.LIVE_AGGREGATE_TIMEOUT_MS));
   }
 
   loadSecondAggregatesHistory(
@@ -78,7 +83,9 @@ export class PolygonDataApiService {
     tradeDate: string | null = null,
   ): Observable<IPagedResponse<IPolygonSecondAggregate>> {
     const params = this.buildBaseParams(page, pageSize, ticker, tradeDate);
-    return this.http.get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/history/second-aggregates', { params }).pipe(timeout(15000));
+    return this.http
+      .get<IPagedResponse<IPolygonSecondAggregate>>('/api/polygon/history/second-aggregates', { params })
+      .pipe(timeout(PolygonDataApiService.LIVE_AGGREGATE_TIMEOUT_MS));
   }
 
   loadTicks(page = 0, pageSize = 25, ticker = '', tradeDate: string | null = null, cursor: string | null = null): Observable<IPagedResponse<IPolygonTick>> {
@@ -86,6 +93,8 @@ export class PolygonDataApiService {
     if (cursor) {
       params = params.set('cursor', cursor);
     }
-    return this.http.get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params }).pipe(timeout(15000));
+    return this.http
+      .get<IPagedResponse<IPolygonTick>>('/api/polygon/ticks', { params })
+      .pipe(timeout(PolygonDataApiService.LIVE_TICK_TIMEOUT_MS));
   }
 }

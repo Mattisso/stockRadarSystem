@@ -3,6 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute, RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { TimeoutError } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -258,7 +259,12 @@ export class PolygonDataPageComponent implements OnInit {
       case 'ticks':
         this.api.loadTicks(page, pageSize, ticker, tradeDate, this.tickCursor()).subscribe({
           next: response => this.applyResponse('ticks', response.items, response.total, response.trade_date, response.next_cursor, response.has_more),
-          error: () => this.handleError('Failed to load Polygon live ticks.'),
+          error: err =>
+            this.handleError(
+              err instanceof TimeoutError
+                ? 'Polygon live ticks are timing out. Try again shortly or narrow the query with a ticker.'
+                : 'Failed to load Polygon live ticks.',
+            ),
         });
         break;
       default:
