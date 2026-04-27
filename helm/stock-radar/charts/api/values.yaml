@@ -1,5 +1,13 @@
 webReplicaCount: 1
 
+webResources:
+  requests:
+    memory: "384Mi"
+    cpu: "75m"
+  limits:
+    memory: "1Gi"
+    cpu: "500m"
+
 worker:
   enabled: true
   replicaCount: 1
@@ -12,6 +20,13 @@ worker:
   apiEnableMinuteRefresh: "false"
   polygonEnableQuoteClient: "true"
   polygonEnableAggregateClient: "false"
+  resources:
+    requests:
+      memory: "384Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
 
 aggregateDecisionWorker:
   enabled: true
@@ -25,6 +40,13 @@ aggregateDecisionWorker:
   apiEnableMinuteRefresh: "false"
   polygonEnableQuoteClient: "false"
   polygonEnableAggregateClient: "false"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "125m"
+    limits:
+      memory: "1500Mi"
+      cpu: "750m"
 
 executionWorker:
   enabled: false
@@ -38,6 +60,13 @@ executionWorker:
   apiEnableMinuteRefresh: "false"
   polygonEnableQuoteClient: "true"
   polygonEnableAggregateClient: "false"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "150m"
+    limits:
+      memory: "1500Mi"
+      cpu: "750m"
 
 polygonIngestWorker:
   enabled: true
@@ -51,6 +80,13 @@ polygonIngestWorker:
   apiEnableMinuteRefresh: "true"
   polygonEnableQuoteClient: "false"
   polygonEnableAggregateClient: "true"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "150m"
+    limits:
+      memory: "1500Mi"
+      cpu: "750m"
 
 image:
   repository: stock-radar-api

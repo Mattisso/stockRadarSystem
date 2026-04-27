@@ -151,7 +151,7 @@ spec:
               value: {{ .Values.polygon.flatfilesEndpointUrl | quote }}
             {{- end }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml (default .Values.resources .Values.polygonIngestWorker.resources) | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
 {{- end }}

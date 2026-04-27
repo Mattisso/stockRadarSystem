@@ -146,6 +146,6 @@ spec:
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml (default .Values.resources .Values.webResources) | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
