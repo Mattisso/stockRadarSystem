@@ -79,6 +79,7 @@ class PolygonClient:
         )
         self._task: asyncio.Task | None = None
         self._running = False
+        self._subscriptions_paused = False
         self._session_connected = False
         self._reconnect_count = 0
         self._consecutive_failures = 0
@@ -141,13 +142,49 @@ class PolygonClient:
         else:
             log.info("polygon.subscriptions_updated", count=len(self._symbols), source=source)
 
-        if self._running and self._mode == "websocket":
+        if self._running and self._mode == "websocket" and not self._subscriptions_paused:
             asyncio.create_task(self._resubscribe())
+
+    async def pause_subscriptions(self) -> None:
+        """Temporarily remove live symbol subscriptions while retaining the desired symbol set."""
+        if self._subscriptions_paused:
+            return
+        self._subscriptions_paused = True
+        async with self._ws_lock:
+            if self._ws and self.current_symbols():
+                try:
+                    await self._connection_manager.unsubscribe(
+                        self._ws,
+                        self.current_symbols(),
+                        channels=self._subscription_channels(),
+                        include_trades=self._enable_quotes and self._include_trade_wildcard,
+                    )
+                except Exception:
+                    log.exception("polygon.pause_subscriptions_error")
+        log.info("polygon.subscriptions_paused", count=len(self.current_symbols()))
+
+    async def resume_subscriptions(self) -> None:
+        """Restore live symbol subscriptions after a paused period."""
+        if not self._subscriptions_paused:
+            return
+        self._subscriptions_paused = False
+        async with self._ws_lock:
+            if self._ws and self.current_symbols():
+                try:
+                    await self._connection_manager.subscribe(
+                        self._ws,
+                        self.current_symbols(),
+                        channels=self._subscription_channels(),
+                        include_trades=self._enable_quotes and self._include_trade_wildcard,
+                    )
+                except Exception:
+                    log.exception("polygon.resume_subscriptions_error")
+        log.info("polygon.subscriptions_resumed", count=len(self.current_symbols()))
 
     async def _resubscribe(self) -> None:
         """Send new subscription commands to the active WebSocket."""
         async with self._ws_lock:
-            if self._ws:
+            if self._ws and not self._subscriptions_paused:
                 try:
                     await self._connection_manager.subscribe(
                         self._ws,
@@ -182,6 +219,7 @@ class PolygonClient:
         return {
             "mode": self._mode,
             "connected": self._session_connected,
+            "subscriptions_paused": self._subscriptions_paused,
             "reconnect_count": self._reconnect_count,
             "consecutive_failures": self._consecutive_failures,
             "subscription_count": len(self.current_symbols()),
@@ -314,29 +352,36 @@ class PolygonClient:
             ws_quote_count_before_session = self._ws_quote_count
             try:
                 async with self._connection_manager.open() as ws:
+                    self._ws = ws
                     self._session_connected = True
                     self._consecutive_failures = 0
                     self._last_connected_at = datetime.now(tz=timezone.utc)
                     POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(1)
-                    await self._connection_manager.subscribe(
-                        ws,
-                        self.current_symbols(),
-                        channels=self._subscription_channels(),
-                        include_trades=self._enable_quotes and self._include_trade_wildcard,
-                    )
+                    if not self._subscriptions_paused:
+                        await self._connection_manager.subscribe(
+                            ws,
+                            self.current_symbols(),
+                            channels=self._subscription_channels(),
+                            include_trades=self._enable_quotes and self._include_trade_wildcard,
+                        )
+                    else:
+                        log.info("polygon.ws_subscription_skipped", reason="subscriptions_paused")
                     delay = 1.0  # Reset backoff on success
                     async for raw in ws:
                         if not self._running:
                             break
                         await self._handle_ws_payload(raw)
-                    log.info(
-                        "polygon.ws_loop_ended",
-                        quotes_received=self._ws_quote_count - ws_quote_count_before_session,
-                    )
+                log.info(
+                    "polygon.ws_loop_ended",
+                    quotes_received=self._ws_quote_count - ws_quote_count_before_session,
+                )
+                self._ws = None
 
             except asyncio.CancelledError:
+                self._ws = None
                 break
             except ConnectionClosed as exc:
+                self._ws = None
                 self._session_connected = False
                 self._consecutive_failures += 1
                 self._last_disconnected_at = datetime.now(tz=timezone.utc)
@@ -358,6 +403,7 @@ class PolygonClient:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._reconnect_max_delay)
             except Exception:
+                self._ws = None
                 self._session_connected = False
                 self._consecutive_failures += 1
                 self._last_disconnected_at = datetime.now(tz=timezone.utc)

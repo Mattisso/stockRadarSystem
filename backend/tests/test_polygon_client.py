@@ -306,6 +306,7 @@ class _RetryConnectionManager:
         self.client = client
         self.open_calls = 0
         self.subscribe_calls: list[list[str]] = []
+        self.unsubscribe_calls: list[list[str]] = []
 
     @asynccontextmanager
     async def open(self):
@@ -316,6 +317,11 @@ class _RetryConnectionManager:
 
     async def subscribe(self, ws, symbols, channels=("Q",), include_trades=False):
         self.subscribe_calls.append(
+            {"symbols": list(symbols), "channels": list(channels), "include_trades": include_trades}
+        )
+
+    async def unsubscribe(self, ws, symbols, channels=("Q",), include_trades=False):
+        self.unsubscribe_calls.append(
             {"symbols": list(symbols), "channels": list(channels), "include_trades": include_trades}
         )
 
@@ -398,6 +404,58 @@ async def test_ws_loop_subscribes_q_am_a_when_aggregates_enabled(cache, queue):
     assert manager.subscribe_calls == [
         {"symbols": ["AAPL"], "channels": ["Q", "AM", "A"], "include_trades": False}
     ]
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_subscriptions_preserves_desired_symbols(cache, queue):
+    await cache.connect()
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+        include_trade_wildcard=True,
+    )
+    client.update_subscriptions(["AAPL"], source="watchlist")
+    client.update_subscriptions(["LCID"], source="secret_universe")
+    manager = _RetryConnectionManager(client)
+    client._connection_manager = manager
+    client._ws = object()
+
+    await client.pause_subscriptions()
+    client.update_subscriptions(["TSLA"], source="watchlist")
+    await client.resume_subscriptions()
+
+    assert manager.unsubscribe_calls == [
+        {"symbols": ["AAPL", "LCID"], "channels": ["Q"], "include_trades": True}
+    ]
+    assert manager.subscribe_calls == [
+        {"symbols": ["TSLA", "LCID"], "channels": ["Q"], "include_trades": True}
+    ]
+    snapshot = client.session_snapshot()
+    assert snapshot["subscriptions_paused"] is False
+
+
+@pytest.mark.asyncio
+async def test_ws_loop_skips_initial_subscribe_when_paused(cache, queue):
+    await cache.connect()
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+    )
+    client.update_subscriptions(["AAPL"], source="watchlist")
+    client._subscriptions_paused = True
+    manager = _RetryConnectionManager(client)
+    client._connection_manager = manager
+
+    with patch("app.data.polygon_client.asyncio.sleep", new=AsyncMock()):
+        client._running = True
+        await client._ws_loop()
+
+    assert manager.subscribe_calls == []
+    assert client.session_snapshot()["subscriptions_paused"] is True
 
 
 @pytest.mark.asyncio

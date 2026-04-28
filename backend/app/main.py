@@ -25,6 +25,7 @@ from app.api.ws_manager import ConnectionManager
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger, setup_logging
+from app.core.market_hours import is_regular_us_market_hours
 from app.core.metrics import (
     ML_MODEL_TRAINED,
     SCHEDULER_JOB_DURATION,
@@ -340,6 +341,8 @@ async def lifespan(app: FastAPI):
                 tick_persister=tick_persister,
             )
         if run_background:
+            if settings.polygon_mode == "websocket" and not is_regular_us_market_hours(datetime.now(timezone.utc)):
+                await polygon_client.pause_subscriptions()
             if polygon_queue_consumer is not None:
                 await polygon_queue_consumer.start()
             await polygon_client.start()
@@ -870,6 +873,23 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="aggregate_history_export").observe(time.monotonic() - start)
 
+    async def sync_polygon_market_hours_subscriptions_job():
+        start = time.monotonic()
+        try:
+            if polygon_client is None or settings.polygon_mode != "websocket":
+                return
+            if is_regular_us_market_hours(datetime.now(timezone.utc)):
+                await polygon_client.resume_subscriptions()
+            else:
+                await polygon_client.pause_subscriptions()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="polygon_market_hours_subscriptions").inc()
+            log.exception("scheduler.polygon_market_hours_subscriptions_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="polygon_market_hours_subscriptions").observe(
+                time.monotonic() - start
+            )
+
     if run_background:
         if not use_polygon_secret_universe:
             scheduler.add_job(refresh_universe_job, "interval", minutes=5, max_instances=1, id="universe_refresh")
@@ -907,6 +927,14 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_live_retention",
         )
+        if polygon_client is not None and settings.polygon_mode == "websocket":
+            scheduler.add_job(
+                sync_polygon_market_hours_subscriptions_job,
+                "interval",
+                minutes=1,
+                max_instances=1,
+                id="polygon_market_hours_subscriptions",
+            )
         if should_enable_aggregate_rolling_refresh():
             scheduler.add_job(
                 aggregate_rolling_refresh_job,
@@ -949,6 +977,9 @@ async def lifespan(app: FastAPI):
         if should_enable_minute_refresh() and settings.polygon_minute_aggregate_ingestion_enabled:
             initial_polygon_minute_task = asyncio.create_task(refresh_polygon_minute_aggregates_job())
             runtime.register_task("initial_polygon_minute_aggregates_refresh", initial_polygon_minute_task)
+        if polygon_client is not None and settings.polygon_mode == "websocket":
+            initial_market_hours_subscription_task = asyncio.create_task(sync_polygon_market_hours_subscriptions_job())
+            runtime.register_task("initial_polygon_market_hours_subscriptions", initial_market_hours_subscription_task)
         if should_enable_aggregate_rolling_refresh():
             initial_aggregate_refresh_task = asyncio.create_task(aggregate_rolling_refresh_job())
             runtime.register_task("initial_aggregate_rolling_refresh", initial_aggregate_refresh_task)
