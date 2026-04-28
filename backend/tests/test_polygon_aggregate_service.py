@@ -10,6 +10,8 @@ from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.decision_event import DecisionEvent
+from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol import Symbol
 from app.models.universe_daily import UniverseDaily
 
@@ -180,3 +182,44 @@ def test_upsert_second_aggregates_merges_same_second_rows(db):
     assert row.close == 3.28
     assert row.volume == 300
     assert row.transactions == 5
+
+
+def test_upsert_second_aggregates_skips_decision_processing_outside_regular_hours(db):
+    service = PolygonAggregateService(db)
+    service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 4, 20, 0, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.20,
+                low=2.99,
+                close=3.18,
+                volume=1000,
+            )
+        ]
+    )
+
+    inserted = service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 20, 0, 1, tzinfo=timezone.utc),
+                open=3.10,
+                high=3.16,
+                low=3.09,
+                close=3.15,
+                volume=200,
+                transactions=1,
+            )
+        ]
+    )
+
+    assert inserted == 1
+    assert db.query(DecisionEvent).count() == 0
+
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    assert state.last_second_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 20, 0, 1, tzinfo=timezone.utc)
+    assert state.candidate_status == "idle"
+    assert state.candidate_score is None
+    assert state.validation_score is None

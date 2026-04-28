@@ -7,6 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.market_hours import is_regular_us_market_hours
 from app.engine.aggregate_decision_engine import AggregateDecisionEngine
 from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
@@ -54,9 +55,12 @@ class AggregateRuntimeService:
 
         refreshed_validation_count = 0
         persisted_decision_count = 0
+        allow_decisions = is_regular_us_market_hours(reference_ts)
         for state in states:
             state_service.refresh_state(state, as_of=reference_ts)
             if state.last_second_ts is None:
+                continue
+            if not allow_decisions:
                 continue
             validation = validation_engine.evaluate(state.ticker, state, reference_ts)
             validation_engine.persist(state, validation)
