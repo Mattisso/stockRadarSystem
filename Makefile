@@ -1,6 +1,7 @@
 NAMESPACE := stock-radar
 PUBLIC_NAMESPACE := stock-radar-public
 REGISTRY := localhost:32000
+PUBLIC_REGISTRY ?= 192.168.1.77:32000
 HELM_DIR := helm/stock-radar
 HELM_RELEASE := stock-radar
 PUBLIC_HELM_RELEASE := stock-radar-public
@@ -159,14 +160,15 @@ public-status:
 	kubectl get ingress -n $(PUBLIC_NAMESPACE)
 
 build-public-images:
-	docker build -t $(REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG) \
+	docker build -t $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG) \
 		-f backend/Dockerfile_prod backend
-	docker build -t $(REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG) \
+	docker build -t $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG) \
 		-f frontend/Dockerfile_prod frontend
-	docker push $(REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG)
-	docker push $(REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG)
+	docker push $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG)
+	docker push $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG)
 	@printf '%s\n' '$(PUBLIC_IMAGE_TAG)' > $(PUBLIC_IMAGE_TAG_FILE)
 	@echo "Recorded public image tag: $(PUBLIC_IMAGE_TAG)"
+	@echo "Pushed public images to: $(PUBLIC_REGISTRY)"
 
 deploy-stockradarx-public:
 	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "Missing $(PUBLIC_IMAGE_TAG_FILE). Run 'make build-public-images' first."; exit 1)
