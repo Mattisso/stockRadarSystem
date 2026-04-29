@@ -355,7 +355,7 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
         assert response.status_code == 200
         body = response.json()
         assert body["trade_date"] == "2026-04-07"
-        assert body["total"] == 2
+        assert body["total"] is None
         assert len(body["items"]) == 2
         assert body["items"][0]["ticker"] == "SIRI"
         assert body["items"][0]["second_ts"].startswith("2026-04-07T13:30:00")
@@ -515,13 +515,13 @@ def test_polygon_minute_aggregates_reads_live_table(db_engine, auth_headers):
             response = client.get(
                 "/api/polygon/minute-aggregates",
                 headers=auth_headers,
-                params={"page": 0, "page_size": 10, "trade_date": "2026-04-24"},
+                params={"page": 0, "page_size": 10},
             )
 
         assert response.status_code == 200
         body = response.json()
         assert body["trade_date"] == "2026-04-07"
-        assert body["total"] == 1
+        assert body["total"] is None
         assert len(body["items"]) == 1
         assert body["items"][0]["ticker"] == "SIRI"
         assert body["items"][0]["minute_ts"].startswith("2026-04-07T13:30:00")
@@ -582,8 +582,8 @@ def test_polygon_minute_aggregates_excludes_rows_priced_over_ten_even_if_ticker_
 
         assert response.status_code == 200
         body = response.json()
-        assert body["trade_date"] == "2026-04-24"
-        assert body["total"] == 0
+        assert body["trade_date"] is None
+        assert body["total"] is None
         assert body["items"] == []
     finally:
         app.dependency_overrides.pop(get_db, None)

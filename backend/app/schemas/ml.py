@@ -312,7 +312,7 @@ class PolygonDayAggregatePageResponse(ApiResponseModel):
 
 class PolygonMinuteAggregatePageResponse(ApiResponseModel):
     items: list[PolygonMinuteAggregateResponse]
-    total: int
+    total: int | None = None
     page: int
     page_size: int
     trade_date: date | None = None
@@ -323,7 +323,7 @@ class PolygonMinuteAggregatePageResponse(ApiResponseModel):
 
 class PolygonSecondAggregatePageResponse(ApiResponseModel):
     items: list[PolygonSecondAggregateResponse]
-    total: int
+    total: int | None = None
     page: int
     page_size: int
     trade_date: date | None = None

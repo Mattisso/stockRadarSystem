@@ -769,7 +769,6 @@ def get_polygon_minute_aggregates(
         )
     if ticker:
         query = query.filter(PolygonMinuteAggregateLive.ticker == ticker.upper())
-    total = query.count()
     rows = (
         query.order_by(PolygonMinuteAggregateLive.minute_ts.desc(), PolygonMinuteAggregateLive.id.desc())
         .offset(page * page_size)
@@ -778,7 +777,7 @@ def get_polygon_minute_aggregates(
     )
     return PolygonMinuteAggregatePageResponse(
         items=[PolygonMinuteAggregateResponse.model_validate(row) for row in rows],
-        total=total,
+        total=None,
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
@@ -905,7 +904,6 @@ def get_polygon_second_aggregates(
         )
     if ticker:
         query = query.filter(PolygonSecondAggregateLive.ticker == ticker.upper())
-    total = query.count()
     rows = (
         query.order_by(PolygonSecondAggregateLive.second_ts.desc(), PolygonSecondAggregateLive.ticker.asc())
         .offset(page * page_size)
@@ -914,7 +912,7 @@ def get_polygon_second_aggregates(
     )
     return PolygonSecondAggregatePageResponse(
         items=[PolygonSecondAggregateResponse.model_validate(row) for row in rows],
-        total=total,
+        total=None,
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
@@ -1031,7 +1029,6 @@ def get_polygon_ticks(
     if event_type:
         query = query.filter(PolygonTickLive.event_type == event_type.lower())
     query = _deduped_tick_query(db, query, PolygonTickLive)
-    total = query.count()
     if cursor:
         try:
             cursor_ts_raw, cursor_id_raw = cursor.rsplit("|", 1)
@@ -1058,7 +1055,7 @@ def get_polygon_ticks(
         next_cursor = f"{last_row.tick_ts.isoformat()}|{last_row.id}"
     return PolygonTickPageResponse(
         items=[PolygonTickResponse.model_validate(row) for row in visible_rows],
-        total=total,
+        total=None,
         page_size=page_size,
         trade_date=selected_trade_date,
         next_cursor=next_cursor,
