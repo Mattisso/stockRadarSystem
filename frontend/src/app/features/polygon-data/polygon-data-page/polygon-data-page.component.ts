@@ -56,7 +56,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly pageJump = signal<string | number>('1');
   readonly pageIndex = signal(0);
   readonly pageSize = signal(25);
-  readonly total = signal(0);
+  readonly total = signal<number | null>(0);
   readonly resolvedTradeDate = signal<string | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -82,11 +82,12 @@ export class PolygonDataPageComponent implements OnInit {
   readonly totalPages = computed(() => {
     const total = this.total();
     const size = this.pageSize();
-    if (total <= 0 || size <= 0) {
+    if (total == null || total <= 0 || size <= 0) {
       return 1;
     }
     return Math.ceil(total / size);
   });
+  readonly hasKnownTotal = computed(() => this.total() != null);
   readonly showSessionStartFilter = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
   readonly showAggregateSourceToggle = computed(() => this.dataset() === 'minute' || this.dataset() === 'second');
   readonly displayedRowCount = computed(() => {
@@ -287,7 +288,7 @@ export class PolygonDataPageComponent implements OnInit {
     latestAvailableTs?: string | null,
     isStale?: boolean,
   ): void {
-    this.total.set(total ?? 0);
+    this.total.set(total);
     this.pageJump.set(String(this.pageIndex() + 1));
     this.resolvedTradeDate.set(tradeDate);
     this.dataSourceName.set(source ?? null);

@@ -76,9 +76,9 @@
       <mat-card-title>{{ title() }}</mat-card-title>
       <mat-card-subtitle>
         @if (resolvedTradeDate()) { Trading date {{ resolvedTradeDate() }} · }
-        @if (showSessionStartFilter()) {
+        @if (hasKnownTotal() && showSessionStartFilter()) {
           showing {{ displayedRowCount() }} of {{ total() }} rows
-        } @else {
+        } @else if (hasKnownTotal()) {
           {{ total() }} rows
         }
       </mat-card-subtitle>
@@ -150,12 +150,13 @@
       } @else {
         <div class="paginator-shell">
           <mat-paginator
-            [length]="total()"
+            [length]="hasKnownTotal() ? total()! : displayedRowCount()"
             [pageIndex]="pageIndex()"
             [pageSize]="pageSize()"
             [pageSizeOptions]="pageSizeOptions"
             [showFirstLastButtons]="true"
             (page)="onPage($event)" />
+          @if (hasKnownTotal()) {
           <div class="page-jump">
             <span>Page</span>
             <mat-form-field appearance="outline">
@@ -172,6 +173,7 @@
             <span>of {{ totalPages() }}</span>
             <button mat-stroked-button (click)="onPageJump()">Go</button>
           </div>
+          }
         </div>
       }
     </mat-card-content>
