@@ -27,7 +27,7 @@ api:
         memory: "1Gi"
         cpu: "500m"
   image:
-    repository: 192.168.1.77:32000/stock-radar-api
+    repository: localhost:32000/stock-radar-api
     tag: latest
     pullPolicy: Always
   env:
@@ -117,6 +117,6 @@ api:
 
 frontend:
   image:
-    repository: 192.168.1.77:32000/stock-radar-frontend
+    repository: localhost:32000/stock-radar-frontend
     tag: latest
     pullPolicy: Always
