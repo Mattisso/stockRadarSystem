@@ -223,3 +223,64 @@ def test_upsert_second_aggregates_skips_decision_processing_outside_regular_hour
     assert state.candidate_status == "idle"
     assert state.candidate_score is None
     assert state.validation_score is None
+
+
+def test_upsert_second_aggregates_does_not_persist_lifecycle_decisions_during_regular_hours(db):
+    service = PolygonAggregateService(db)
+    service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 4, 14, 31, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.30,
+                low=2.99,
+                close=3.26,
+                volume=1800,
+            )
+        ]
+    )
+
+    inserted = service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 1, tzinfo=timezone.utc),
+                open=3.10,
+                high=3.16,
+                low=3.10,
+                close=3.15,
+                volume=350,
+                transactions=1,
+            ),
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 2, tzinfo=timezone.utc),
+                open=3.15,
+                high=3.21,
+                low=3.14,
+                close=3.20,
+                volume=380,
+                transactions=1,
+            ),
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 3, tzinfo=timezone.utc),
+                open=3.20,
+                high=3.27,
+                low=3.19,
+                close=3.26,
+                volume=420,
+                transactions=1,
+            ),
+        ]
+    )
+
+    assert inserted == 3
+    assert db.query(DecisionEvent).count() == 0
+
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    assert state.last_second_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, 3, tzinfo=timezone.utc)
+    assert state.candidate_score is not None
+    assert state.validation_score is not None
+    assert state.validation_pass_count >= 0
