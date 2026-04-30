@@ -832,6 +832,7 @@ async def lifespan(app: FastAPI):
                     refreshed_state_count=result.refreshed_state_count,
                     refreshed_validation_count=result.refreshed_validation_count,
                     persisted_decision_count=result.persisted_decision_count,
+                    processed_candidate_event_count=result.processed_candidate_event_count,
                     as_of=result.as_of.isoformat(),
                 )
             finally:

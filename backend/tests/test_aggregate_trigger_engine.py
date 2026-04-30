@@ -117,10 +117,11 @@ def test_upsert_second_aggregates_persists_candidate_events_and_live_score(db):
     events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(events) >= 1
     decisions = db.query(DecisionEvent).filter_by(ticker="LCID").all()
-    assert len(decisions) >= 1
+    assert len(decisions) == 0
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
-    assert state.candidate_status in {"validated", "rejected"}
+    assert state.candidate_status in {"candidate", "validated", "rejected"}
     assert state.candidate_score is not None
+    assert max(event.trigger_score or 0.0 for event in events) > 0.0
 
 
 def test_velocity_spike_emits_candidate_event(db):

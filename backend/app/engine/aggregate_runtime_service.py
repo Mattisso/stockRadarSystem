@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -11,6 +11,7 @@ from app.core.market_hours import is_regular_us_market_hours
 from app.engine.aggregate_decision_engine import AggregateDecisionEngine
 from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
+from app.models.candidate_event import CandidateEvent
 from app.models.symbol_state_live import SymbolStateLive
 
 
@@ -19,6 +20,7 @@ class AggregateRollingRefreshResult:
     refreshed_state_count: int
     persisted_decision_count: int
     refreshed_validation_count: int
+    processed_candidate_event_count: int
     as_of: datetime
 
 
@@ -34,16 +36,10 @@ class AggregateRuntimeService:
         as_of: datetime | None = None,
     ) -> AggregateRollingRefreshResult:
         reference_ts = self._normalize_ts(as_of or datetime.now(timezone.utc))
-        recent_cutoff = reference_ts - timedelta(
-            minutes=max(1, settings.polygon_second_aggregate_recent_window_minutes)
-        )
         states = (
             self.db.query(SymbolStateLive)
             .filter(
-                or_(
-                    SymbolStateLive.last_second_ts >= recent_cutoff,
-                    SymbolStateLive.candidate_status.in_(("candidate", "validated", "buy", "manage")),
-                )
+                SymbolStateLive.candidate_status.in_(("candidate", "validated", "buy", "manage"))
             )
             .order_by(SymbolStateLive.ticker.asc())
             .all()
@@ -55,7 +51,15 @@ class AggregateRuntimeService:
 
         refreshed_validation_count = 0
         persisted_decision_count = 0
+        processed_candidate_event_count = 0
         allow_decisions = is_regular_us_market_hours(reference_ts)
+        if allow_decisions:
+            persisted_from_events, processed_candidate_event_count = self._process_candidate_events(
+                state_service=state_service,
+                decision_engine=decision_engine,
+                as_of=reference_ts,
+            )
+            persisted_decision_count += persisted_from_events
         for state in states:
             state_service.refresh_state(state, as_of=reference_ts)
             if state.last_second_ts is None:
@@ -79,8 +83,96 @@ class AggregateRuntimeService:
             refreshed_state_count=len(states),
             refreshed_validation_count=refreshed_validation_count,
             persisted_decision_count=persisted_decision_count,
+            processed_candidate_event_count=processed_candidate_event_count,
             as_of=reference_ts,
         )
+
+    def _process_candidate_events(
+        self,
+        *,
+        state_service: SymbolStateLiveService,
+        decision_engine: AggregateDecisionEngine,
+        as_of: datetime,
+    ) -> tuple[int, int]:
+        rows = (
+            self.db.query(CandidateEvent)
+            .filter(
+                CandidateEvent.processed_at.is_(None),
+                CandidateEvent.event_ts <= as_of,
+            )
+            .order_by(CandidateEvent.event_ts.asc(), CandidateEvent.id.asc())
+            .limit(1000)
+            .all()
+        )
+        if not rows:
+            return 0, 0
+
+        persisted_decision_count = 0
+        processed_count = 0
+        idx = 0
+        while idx < len(rows):
+            batch_start = rows[idx]
+            batch = [batch_start]
+            idx += 1
+            while idx < len(rows):
+                row = rows[idx]
+                if row.ticker != batch_start.ticker or row.event_ts != batch_start.event_ts:
+                    break
+                batch.append(row)
+                idx += 1
+
+            state = self.db.query(SymbolStateLive).filter_by(ticker=batch_start.ticker).one_or_none()
+            if state is not None and is_regular_us_market_hours(batch_start.event_ts):
+                self._apply_candidate_batch_to_state(state, batch)
+                decision = decision_engine.evaluate(
+                    ticker=batch_start.ticker,
+                    event_ts=batch_start.event_ts,
+                    trigger_count=len(batch),
+                    state=state,
+                )
+                persisted_decision_count += decision_engine.persist(decision, state, dedupe=True)
+
+            for row in batch:
+                row.processed_at = as_of
+            processed_count += len(batch)
+
+        self.db.flush()
+        return persisted_decision_count, processed_count
+
+    @staticmethod
+    def _apply_candidate_batch_to_state(state: SymbolStateLive, batch: list[CandidateEvent]) -> None:
+        validation_score = None
+        validation_pass_count = None
+        for row in batch:
+            try:
+                payload = json.loads(row.trigger_payload or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("validation_score") is not None:
+                try:
+                    validation_score = float(payload["validation_score"])
+                except (TypeError, ValueError):
+                    pass
+            if payload.get("validation_pass_count") is not None:
+                try:
+                    validation_pass_count = int(payload["validation_pass_count"])
+                except (TypeError, ValueError):
+                    pass
+
+        state.last_second_ts = batch[-1].last_second_ts or state.last_second_ts
+        state.last_minute_ts = batch[-1].last_minute_ts or state.last_minute_ts
+        state.seconds_since_last_trade_bar = batch[-1].seconds_since_last_trade_bar
+        state.minutes_since_last_trade_bar = batch[-1].minutes_since_last_trade_bar
+        state.is_second_stream_stale = any(row.is_second_stream_stale for row in batch)
+        state.is_minute_stream_stale = any(row.is_minute_stream_stale for row in batch)
+        if validation_score is not None:
+            state.validation_score = validation_score
+        if validation_pass_count is not None:
+            state.validation_pass_count = validation_pass_count
+        trigger_score = max((row.trigger_score or 0.0) for row in batch)
+        state.candidate_score = trigger_score or state.candidate_score
+        if state.candidate_status not in {"buy", "manage", "sold"}:
+            state.candidate_status = "candidate"
 
     @staticmethod
     def _normalize_ts(value: datetime) -> datetime:
