@@ -426,6 +426,52 @@ class DecisionEventPageResponse(ApiResponseModel):
     summary: dict[str, int] = Field(default_factory=dict)
 
 
+class DecisionOutcomeDetailResponse(ApiResponseModel):
+    reason_code: str
+    ticker: str
+    trade_n: int
+    buy_ts: datetime
+    sell_ts: datetime
+    buy_price: float
+    sell_price: float
+    pnl_abs: float
+    pnl_pct: float
+
+
+class DecisionOutcomeSummaryResponse(ApiResponseModel):
+    trade_date: date
+    completed_trades: int
+    profitable_sales: int
+    losing_sales: int
+    flat_sales: int
+    avg_pnl_pct: float | None = None
+    worst_pnl_pct: float | None = None
+    best_pnl_pct: float | None = None
+
+
+class DecisionOutcomeByReasonResponse(ApiResponseModel):
+    reason_code: str
+    trades: int
+    profitable_sales: int
+    losing_sales: int
+    flat_sales: int
+    avg_pnl_pct: float | None = None
+
+
+class DuplicateBuyAuditResponse(ApiResponseModel):
+    ticker: str
+    buy_count: int
+    sell_count: int
+    total_count: int
+
+
+class SellToBuyChurnAuditResponse(ApiResponseModel):
+    ticker: str
+    decision_ts: datetime
+    decision_type: str
+    prev_type: str | None = None
+
+
 class L2SubscriptionStatusResponse(ApiResponseModel):
     ticker: str
     confirmed: bool

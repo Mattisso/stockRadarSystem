@@ -2,8 +2,10 @@
 
 from collections import Counter
 from dataclasses import asdict
+import json
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from statistics import median
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import and_, func, or_, text
@@ -70,6 +72,11 @@ from app.schemas.ml import (
     CandidateEventPageResponse,
     DecisionEventResponse,
     DecisionEventPageResponse,
+    DecisionOutcomeDetailResponse,
+    DecisionOutcomeSummaryResponse,
+    DecisionOutcomeByReasonResponse,
+    DuplicateBuyAuditResponse,
+    SellToBuyChurnAuditResponse,
     L2HealthResponse,
     L2SubscriptionStatusResponse,
     SecretReplayRequest,
@@ -175,6 +182,7 @@ async def contract_metadata():
 # ── Protected routes (require JWT) ───────────────────────────────────
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 def _latest_universe_tickers(
@@ -229,6 +237,80 @@ def _source_latest_timestamp(
     ts_column,
 ):
     return db.query(func.max(ts_column)).select_from(model).scalar()
+
+
+def _decision_trade_day(value: datetime) -> date:
+    if value.tzinfo is None:
+        aware = value.replace(tzinfo=timezone.utc)
+    else:
+        aware = value.astimezone(timezone.utc)
+    return aware.astimezone(NEW_YORK_TZ).date()
+
+
+def _default_decision_trade_day() -> date:
+    return datetime.now(NEW_YORK_TZ).date()
+
+
+def _decision_trade_day_rows(db: Session, *, trade_date: date) -> list[DecisionEvent]:
+    rows = (
+        db.query(DecisionEvent)
+        .filter(DecisionEvent.decision_type.in_(("buy", "sell")))
+        .order_by(DecisionEvent.ticker.asc(), DecisionEvent.decision_ts.asc(), DecisionEvent.id.asc())
+        .all()
+    )
+    return [row for row in rows if _decision_trade_day(row.decision_ts) == trade_date]
+
+
+def _payload_float(payload_text: str | None, *keys: str) -> float | None:
+    try:
+        payload = json.loads(payload_text or "{}")
+    except json.JSONDecodeError:
+        return None
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _paired_decision_outcomes(rows: list[DecisionEvent]) -> list[dict]:
+    buys_by_ticker: dict[str, list[DecisionEvent]] = {}
+    sells_by_ticker: dict[str, list[DecisionEvent]] = {}
+    for row in rows:
+        if row.decision_type == "buy":
+            buys_by_ticker.setdefault(row.ticker, []).append(row)
+        elif row.decision_type == "sell":
+            sells_by_ticker.setdefault(row.ticker, []).append(row)
+
+    paired: list[dict] = []
+    for ticker in sorted(set(buys_by_ticker) | set(sells_by_ticker)):
+        buys = buys_by_ticker.get(ticker, [])
+        sells = sells_by_ticker.get(ticker, [])
+        for idx, (buy_row, sell_row) in enumerate(zip(buys, sells), start=1):
+            buy_price = _payload_float(buy_row.decision_payload, "current_close")
+            sell_price = _payload_float(sell_row.decision_payload, "current_close", "entry_price")
+            if buy_price is None or sell_price is None or buy_price == 0:
+                continue
+            pnl_abs = round(sell_price - buy_price, 4)
+            pnl_pct = round(((sell_price / buy_price) - 1.0) * 100.0, 3)
+            paired.append(
+                {
+                    "reason_code": sell_row.reason_code,
+                    "ticker": ticker,
+                    "trade_n": idx,
+                    "buy_ts": buy_row.decision_ts,
+                    "sell_ts": sell_row.decision_ts,
+                    "buy_price": buy_price,
+                    "sell_price": sell_price,
+                    "pnl_abs": pnl_abs,
+                    "pnl_pct": pnl_pct,
+                }
+            )
+    return paired
 
 
 def _under_ten_aggregate_filter(model, *, max_price: float):
@@ -1411,3 +1493,136 @@ def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
 def analytics_signal_accuracy(db: Session = Depends(get_db)):
     """Get win rate by signal score bucket."""
     return TradeAnalytics(db).signal_accuracy_by_bucket()
+
+
+@router.get("/analytics/decision-events/summary", response_model=DecisionOutcomeSummaryResponse)
+@track_tables("decision_events")
+def analytics_decision_events_summary(
+    trade_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    paired = _paired_decision_outcomes(_decision_trade_day_rows(db, trade_date=target_trade_date))
+    pnl_values = [row["pnl_pct"] for row in paired]
+    profitable = sum(1 for row in paired if row["sell_price"] > row["buy_price"])
+    losing = sum(1 for row in paired if row["sell_price"] < row["buy_price"])
+    flat = sum(1 for row in paired if row["sell_price"] == row["buy_price"])
+    avg_pnl = round(sum(pnl_values) / len(pnl_values), 3) if pnl_values else None
+    worst_pnl = round(min(pnl_values), 3) if pnl_values else None
+    best_pnl = round(max(pnl_values), 3) if pnl_values else None
+    return DecisionOutcomeSummaryResponse(
+        trade_date=target_trade_date,
+        completed_trades=len(paired),
+        profitable_sales=profitable,
+        losing_sales=losing,
+        flat_sales=flat,
+        avg_pnl_pct=avg_pnl,
+        worst_pnl_pct=worst_pnl,
+        best_pnl_pct=best_pnl,
+    )
+
+
+@router.get("/analytics/decision-events/by-reason", response_model=list[DecisionOutcomeByReasonResponse])
+@track_tables("decision_events")
+def analytics_decision_events_by_reason(
+    trade_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    paired = _paired_decision_outcomes(_decision_trade_day_rows(db, trade_date=target_trade_date))
+    grouped: dict[str, list[dict]] = {}
+    for row in paired:
+        grouped.setdefault(row["reason_code"], []).append(row)
+
+    items: list[DecisionOutcomeByReasonResponse] = []
+    for reason_code, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+        pnl_values = [row["pnl_pct"] for row in rows]
+        items.append(
+            DecisionOutcomeByReasonResponse(
+                reason_code=reason_code,
+                trades=len(rows),
+                profitable_sales=sum(1 for row in rows if row["sell_price"] > row["buy_price"]),
+                losing_sales=sum(1 for row in rows if row["sell_price"] < row["buy_price"]),
+                flat_sales=sum(1 for row in rows if row["sell_price"] == row["buy_price"]),
+                avg_pnl_pct=round(sum(pnl_values) / len(pnl_values), 3) if pnl_values else None,
+            )
+        )
+    return items
+
+
+@router.get("/analytics/decision-events/details", response_model=list[DecisionOutcomeDetailResponse])
+@track_tables("decision_events")
+def analytics_decision_events_details(
+    trade_date: date | None = None,
+    reason_code: str | None = None,
+    ticker: str | None = None,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    paired = _paired_decision_outcomes(_decision_trade_day_rows(db, trade_date=target_trade_date))
+    items = [
+        DecisionOutcomeDetailResponse(**row)
+        for row in paired
+        if (reason_code is None or row["reason_code"] == reason_code)
+        and (ticker is None or row["ticker"] == ticker.upper())
+    ]
+    items.sort(key=lambda row: (row.reason_code, row.sell_ts, row.ticker))
+    return items
+
+
+@router.get("/analytics/decision-events/duplicate-buys", response_model=list[DuplicateBuyAuditResponse])
+@track_tables("decision_events")
+def analytics_decision_events_duplicate_buys(
+    trade_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    rows = _decision_trade_day_rows(db, trade_date=target_trade_date)
+    grouped: dict[str, Counter] = {}
+    for row in rows:
+        counter = grouped.setdefault(row.ticker, Counter())
+        counter[row.decision_type] += 1
+        counter["total"] += 1
+    items = [
+        DuplicateBuyAuditResponse(
+            ticker=ticker,
+            buy_count=counter.get("buy", 0),
+            sell_count=counter.get("sell", 0),
+            total_count=counter.get("total", 0),
+        )
+        for ticker, counter in grouped.items()
+        if counter.get("buy", 0) > 1
+    ]
+    items.sort(key=lambda row: (-row.total_count, row.ticker))
+    return items
+
+
+@router.get("/analytics/decision-events/sell-to-buy-churn", response_model=list[SellToBuyChurnAuditResponse])
+@track_tables("decision_events")
+def analytics_decision_events_sell_to_buy_churn(
+    trade_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    rows = _decision_trade_day_rows(db, trade_date=target_trade_date)
+    rows.sort(key=lambda row: (row.ticker, row.decision_ts, row.id))
+    by_ticker: dict[str, list[DecisionEvent]] = {}
+    for row in rows:
+        by_ticker.setdefault(row.ticker, []).append(row)
+
+    items: list[SellToBuyChurnAuditResponse] = []
+    for ticker, ticker_rows in by_ticker.items():
+        prev_type: str | None = None
+        for row in ticker_rows:
+            if row.decision_type == "buy" and prev_type == "sell":
+                items.append(
+                    SellToBuyChurnAuditResponse(
+                        ticker=ticker,
+                        decision_ts=row.decision_ts,
+                        decision_type=row.decision_type,
+                        prev_type=prev_type,
+                    )
+                )
+            prev_type = row.decision_type
+    items.sort(key=lambda row: (row.ticker, row.decision_ts))
+    return items

@@ -752,6 +752,178 @@ def test_decision_events_filters_by_trade_date_and_universe(db_engine, auth_head
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_decision_event_analytics_summary_and_by_reason(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    DecisionEvent(
+                        ticker="AAA",
+                        decision_ts=datetime(2026, 4, 29, 14, 0, 0, tzinfo=timezone.utc),
+                        decision_type="buy",
+                        reason_code="validated_buy_setup",
+                        decision_payload='{"current_close": 10.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="AAA",
+                        decision_ts=datetime(2026, 4, 29, 14, 5, 0, tzinfo=timezone.utc),
+                        decision_type="sell",
+                        reason_code="active_position_momentum_dies",
+                        decision_payload='{"current_close": 10.5, "entry_price": 10.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="BBB",
+                        decision_ts=datetime(2026, 4, 29, 15, 0, 0, tzinfo=timezone.utc),
+                        decision_type="buy",
+                        reason_code="validated_buy_setup",
+                        decision_payload='{"current_close": 20.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="BBB",
+                        decision_ts=datetime(2026, 4, 29, 15, 10, 0, tzinfo=timezone.utc),
+                        decision_type="sell",
+                        reason_code="active_position_stop_loss",
+                        decision_payload='{"current_close": 19.0, "entry_price": 20.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            summary = client.get(
+                "/api/analytics/decision-events/summary",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29"},
+            )
+            by_reason = client.get(
+                "/api/analytics/decision-events/by-reason",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29"},
+            )
+
+        assert summary.status_code == 200
+        body = summary.json()
+        assert body["trade_date"] == "2026-04-29"
+        assert body["completed_trades"] == 2
+        assert body["profitable_sales"] == 1
+        assert body["losing_sales"] == 1
+        assert body["flat_sales"] == 0
+        assert body["avg_pnl_pct"] == pytest.approx(0.0)
+
+        assert by_reason.status_code == 200
+        reason_rows = {row["reason_code"]: row for row in by_reason.json()}
+        assert reason_rows["active_position_momentum_dies"]["profitable_sales"] == 1
+        assert reason_rows["active_position_stop_loss"]["losing_sales"] == 1
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_decision_event_analytics_details_and_duplicate_buys(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    DecisionEvent(
+                        ticker="CLVT",
+                        decision_ts=datetime(2026, 4, 29, 14, 0, 0, tzinfo=timezone.utc),
+                        decision_type="buy",
+                        reason_code="validated_buy_setup",
+                        decision_payload='{"current_close": 5.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="CLVT",
+                        decision_ts=datetime(2026, 4, 29, 14, 5, 0, tzinfo=timezone.utc),
+                        decision_type="buy",
+                        reason_code="validated_buy_setup",
+                        decision_payload='{"current_close": 5.1}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="CLVT",
+                        decision_ts=datetime(2026, 4, 29, 14, 10, 0, tzinfo=timezone.utc),
+                        decision_type="sell",
+                        reason_code="active_position_momentum_dies",
+                        decision_payload='{"current_close": 5.2, "entry_price": 5.0}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            details = client.get(
+                "/api/analytics/decision-events/details",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29", "reason_code": "active_position_momentum_dies"},
+            )
+            duplicate_buys = client.get(
+                "/api/analytics/decision-events/duplicate-buys",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29"},
+            )
+
+        assert details.status_code == 200
+        detail_rows = details.json()
+        assert len(detail_rows) == 1
+        assert detail_rows[0]["ticker"] == "CLVT"
+        assert detail_rows[0]["buy_price"] == pytest.approx(5.0)
+        assert detail_rows[0]["sell_price"] == pytest.approx(5.2)
+
+        assert duplicate_buys.status_code == 200
+        audit_rows = duplicate_buys.json()
+        assert len(audit_rows) == 1
+        assert audit_rows[0]["ticker"] == "CLVT"
+        assert audit_rows[0]["buy_count"] == 2
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 
