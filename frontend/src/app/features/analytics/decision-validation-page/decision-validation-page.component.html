@@ -1,0 +1,171 @@
+<div class="decision-validation">
+  <div class="decision-validation__header">
+    <div>
+      <h1>Trade Validation</h1>
+      <p>Validate buy and sell events against stored Polygon second bars for the selected New York trading day.</p>
+    </div>
+    <a mat-stroked-button routerLink="/analytics">Back To Analytics</a>
+  </div>
+
+  <mat-card class="decision-validation__filters">
+    <div class="decision-validation__filter-grid">
+      <mat-form-field appearance="outline">
+        <mat-label>Trade Date</mat-label>
+        <input matInput type="date" [ngModel]="tradeDate()" (ngModelChange)="tradeDate.set($event)" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Ticker</mat-label>
+        <input matInput [ngModel]="ticker()" (ngModelChange)="ticker.set($event)" placeholder="Optional" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Reason Code</mat-label>
+        <input
+          matInput
+          [ngModel]="reasonCode()"
+          (ngModelChange)="reasonCode.set($event)"
+          placeholder="Optional" />
+      </mat-form-field>
+
+      <div class="decision-validation__actions">
+        <button mat-flat-button color="primary" (click)="reload()">Load Validation</button>
+      </div>
+    </div>
+  </mat-card>
+
+  @if (loading()) {
+    <app-loading />
+  } @else if (error()) {
+    <div class="decision-validation__error">{{ error() }}</div>
+  } @else {
+    <div class="decision-validation__summary-grid">
+      <mat-card class="summary-card">
+        <div class="summary-card__label">Total</div>
+        <div class="summary-card__value">{{ summary()['total'] ?? 0 }}</div>
+      </mat-card>
+      <mat-card class="summary-card">
+        <div class="summary-card__label">Matched</div>
+        <div class="summary-card__value">{{ matchedCount() }}</div>
+      </mat-card>
+      <mat-card class="summary-card summary-card--warn">
+        <div class="summary-card__label">No Prior Buy</div>
+        <div class="summary-card__value">{{ noPriorBuyCount() }}</div>
+      </mat-card>
+      <mat-card class="summary-card summary-card--warn">
+        <div class="summary-card__label">Buy Bar Missing</div>
+        <div class="summary-card__value">{{ buyBarNotFoundCount() }}</div>
+      </mat-card>
+      <mat-card class="summary-card summary-card--warn">
+        <div class="summary-card__label">Sell Bar Missing</div>
+        <div class="summary-card__value">{{ sellBarNotFoundCount() }}</div>
+      </mat-card>
+    </div>
+
+    <mat-card class="decision-validation__table-card">
+      <div class="decision-validation__table-wrap">
+        <table mat-table [dataSource]="rows()" [trackBy]="trackByRow">
+          <ng-container matColumnDef="ticker">
+            <th mat-header-cell *matHeaderCellDef>Ticker</th>
+            <td mat-cell *matCellDef="let row">{{ row.ticker }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="reason_code">
+            <th mat-header-cell *matHeaderCellDef>Reason</th>
+            <td mat-cell *matCellDef="let row">{{ row.reason_code }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="match_status">
+            <th mat-header-cell *matHeaderCellDef>Status</th>
+            <td mat-cell *matCellDef="let row">
+              <span class="status-pill" [class.status-pill--warn]="row.match_status !== 'MATCHED'">
+                {{ row.match_status }}
+              </span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_ts">
+            <th mat-header-cell *matHeaderCellDef>Buy TS</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.buy_ts) {
+                {{ row.buy_ts | date: 'yyyy-MM-dd HH:mm:ss':'UTC' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_ts">
+            <th mat-header-cell *matHeaderCellDef>Sell TS</th>
+            <td mat-cell *matCellDef="let row">{{ row.sell_ts | date: 'yyyy-MM-dd HH:mm:ss':'UTC' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_price_from_event">
+            <th mat-header-cell *matHeaderCellDef>Buy Event</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.buy_price_from_event !== null) {
+                {{ row.buy_price_from_event | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_price_from_event">
+            <th mat-header-cell *matHeaderCellDef>Sell Event</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.sell_price_from_event !== null) {
+                {{ row.sell_price_from_event | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_price_from_market">
+            <th mat-header-cell *matHeaderCellDef>Buy Market</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.buy_price_from_market !== null) {
+                {{ row.buy_price_from_market | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_price_from_market">
+            <th mat-header-cell *matHeaderCellDef>Sell Market</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.sell_price_from_market !== null) {
+                {{ row.sell_price_from_market | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="market_pnl_pct">
+            <th mat-header-cell *matHeaderCellDef>Market PnL %</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.market_pnl_pct !== null) {
+                {{ row.market_pnl_pct | number: '1.2-3' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="columns"></tr>
+          <tr mat-row *matRowDef="let row; columns: columns"></tr>
+        </table>
+      </div>
+
+      <mat-paginator
+        [length]="total()"
+        [pageIndex]="pageIndex()"
+        [pageSize]="pageSize()"
+        [pageSizeOptions]="pageSizeOptions"
+        (page)="onPage($event)" />
+    </mat-card>
+  }
+</div>

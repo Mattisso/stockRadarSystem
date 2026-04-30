@@ -15,5 +15,6 @@ export const APP_MENU: MenuItem[] = [
   { label: 'Secret Sauce', icon: 'science', route: '/secret-sauce' },
   { label: 'Trades', icon: 'swap_horiz', route: '/trades', section: 'Trading' },
   { label: 'Analytics', icon: 'analytics', route: '/analytics' },
+  { label: 'Trade Validation', icon: 'fact_check', route: '/analytics/decision-validation' },
   { label: 'Settings', icon: 'settings', route: '/settings', section: 'System' },
 ];

@@ -472,6 +472,33 @@ class SellToBuyChurnAuditResponse(ApiResponseModel):
     prev_type: str | None = None
 
 
+class DecisionMarketValidationRowResponse(ApiResponseModel):
+    ticker: str
+    reason_code: str
+    buy_id: int | None = None
+    buy_ts: datetime | None = None
+    sell_id: int
+    sell_ts: datetime
+    match_status: str
+    buy_price_from_event: float | None = None
+    sell_price_from_event: float | None = None
+    buy_bar_ts: datetime | None = None
+    buy_price_from_market: float | None = None
+    sell_bar_ts: datetime | None = None
+    sell_price_from_market: float | None = None
+    market_pnl_abs: float | None = None
+    market_pnl_pct: float | None = None
+
+
+class DecisionMarketValidationPageResponse(ApiResponseModel):
+    trade_date: date
+    total: int
+    page: int
+    page_size: int
+    summary: dict[str, int] = Field(default_factory=dict)
+    items: list[DecisionMarketValidationRowResponse]
+
+
 class L2SubscriptionStatusResponse(ApiResponseModel):
     ticker: str
     confirmed: bool

@@ -1,7 +1,13 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin } from 'rxjs';
-import { IKpi, IMlStatus, ISignalAccuracyBucket, IRetrainResponse } from '../../shared/models';
+import {
+  IKpi,
+  IMlStatus,
+  ISignalAccuracyBucket,
+  IRetrainResponse,
+  IDecisionMarketValidationPage,
+} from '../../shared/models';
 
 export interface AnalyticsData {
   kpis: IKpi;
@@ -23,5 +29,25 @@ export class AnalyticsApiService {
 
   retrain(): Observable<IRetrainResponse> {
     return this.http.post<IRetrainResponse>('/api/ml/retrain', {});
+  }
+
+  loadDecisionMarketValidation(
+    tradeDate: string,
+    page: number,
+    pageSize: number,
+    ticker?: string,
+    reasonCode?: string,
+  ): Observable<IDecisionMarketValidationPage> {
+    let params = new HttpParams()
+      .set('trade_date', tradeDate)
+      .set('page', String(page))
+      .set('page_size', String(pageSize));
+    if (ticker?.trim()) {
+      params = params.set('ticker', ticker.trim().toUpperCase());
+    }
+    if (reasonCode?.trim()) {
+      params = params.set('reason_code', reasonCode.trim());
+    }
+    return this.http.get<IDecisionMarketValidationPage>('/api/analytics/decision-events/market-validation', { params });
   }
 }

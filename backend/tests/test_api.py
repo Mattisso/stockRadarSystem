@@ -924,6 +924,92 @@ def test_decision_event_analytics_details_and_duplicate_buys(db_engine, auth_hea
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_decision_event_market_validation_endpoint(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    DecisionEvent(
+                        ticker="PLTR",
+                        decision_ts=datetime(2026, 4, 29, 22, 41, 29, tzinfo=timezone.utc),
+                        decision_type="buy",
+                        reason_code="validated_buy_setup",
+                        decision_payload='{"current_close": 137.51}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="PLTR",
+                        decision_ts=datetime(2026, 4, 29, 22, 41, 32, tzinfo=timezone.utc),
+                        decision_type="sell",
+                        reason_code="active_position_momentum_dies",
+                        decision_payload='{"current_close": 137.51, "entry_price": 137.51}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    DecisionEvent(
+                        ticker="OPK",
+                        decision_ts=datetime(2026, 4, 29, 17, 39, 30, tzinfo=timezone.utc),
+                        decision_type="sell",
+                        reason_code="active_position_momentum_dies",
+                        decision_payload='{"current_close": 1.114}',
+                        candidate_score=0.9,
+                        validation_pass_count=9,
+                        is_second_stream_stale=False,
+                        is_minute_stream_stale=False,
+                    ),
+                    PolygonSecondAggregate(
+                        ticker="PLTR",
+                        second_ts=datetime(2026, 4, 29, 22, 41, 28),
+                        open=137.40,
+                        high=137.52,
+                        low=137.39,
+                        close=137.51,
+                        volume=1000,
+                        vwap=137.49,
+                        transactions=10,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/analytics/decision-events/market-validation",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29", "page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-29"
+        assert body["total"] == 2
+        assert body["summary"]["MATCHED"] == 1
+        assert body["summary"]["NO_PRIOR_BUY"] == 1
+        matched = next(row for row in body["items"] if row["ticker"] == "PLTR")
+        assert matched["match_status"] == "MATCHED"
+        assert matched["buy_price_from_market"] == pytest.approx(137.51)
+        assert matched["sell_price_from_market"] == pytest.approx(137.51)
+        unmatched = next(row for row in body["items"] if row["ticker"] == "OPK")
+        assert unmatched["match_status"] == "NO_PRIOR_BUY"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 

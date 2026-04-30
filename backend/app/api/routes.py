@@ -77,6 +77,8 @@ from app.schemas.ml import (
     DecisionOutcomeByReasonResponse,
     DuplicateBuyAuditResponse,
     SellToBuyChurnAuditResponse,
+    DecisionMarketValidationRowResponse,
+    DecisionMarketValidationPageResponse,
     L2HealthResponse,
     L2SubscriptionStatusResponse,
     SecretReplayRequest,
@@ -261,6 +263,12 @@ def _decision_trade_day_rows(db: Session, *, trade_date: date) -> list[DecisionE
     return [row for row in rows if _decision_trade_day(row.decision_ts) == trade_date]
 
 
+def _normalize_route_ts(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _payload_float(payload_text: str | None, *keys: str) -> float | None:
     try:
         payload = json.loads(payload_text or "{}")
@@ -311,6 +319,104 @@ def _paired_decision_outcomes(rows: list[DecisionEvent]) -> list[dict]:
                 }
             )
     return paired
+
+
+def _nearest_second_bar(
+    db: Session,
+    *,
+    ticker: str,
+    event_ts: datetime,
+    window_seconds: int = 5,
+) -> PolygonSecondAggregate | None:
+    normalized_ts = _normalize_route_ts(event_ts)
+    window_start = normalized_ts - timedelta(seconds=window_seconds)
+    window_end = normalized_ts + timedelta(seconds=window_seconds)
+    candidates = (
+        db.query(PolygonSecondAggregate)
+        .filter(
+            PolygonSecondAggregate.ticker == ticker,
+            PolygonSecondAggregate.second_ts >= window_start,
+            PolygonSecondAggregate.second_ts <= window_end,
+        )
+        .all()
+    )
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda row: (abs((row.second_ts - normalized_ts).total_seconds()), row.second_ts),
+    )
+
+
+def _decision_market_validation_rows(
+    db: Session,
+    *,
+    trade_date: date,
+    reason_code: str | None = None,
+    ticker: str | None = None,
+) -> list[dict]:
+    day_rows = _decision_trade_day_rows(db, trade_date=trade_date)
+    if ticker:
+        day_rows = [row for row in day_rows if row.ticker == ticker.upper()]
+    sells = [row for row in day_rows if row.decision_type == "sell" and (reason_code is None or row.reason_code == reason_code)]
+    buys_by_ticker: dict[str, list[DecisionEvent]] = {}
+    for row in day_rows:
+        if row.decision_type == "buy":
+            buys_by_ticker.setdefault(row.ticker, []).append(row)
+
+    items: list[dict] = []
+    for sell in sorted(sells, key=lambda row: (row.decision_ts, row.ticker, row.id)):
+        prior_buys = buys_by_ticker.get(sell.ticker, [])
+        buy = None
+        normalized_sell_ts = _normalize_route_ts(sell.decision_ts)
+        for candidate in reversed(prior_buys):
+            if _normalize_route_ts(candidate.decision_ts) <= normalized_sell_ts:
+                buy = candidate
+                break
+
+        buy_price_from_event = _payload_float(buy.decision_payload if buy is not None else None, "current_close", "entry_price")
+        sell_price_from_event = _payload_float(sell.decision_payload, "current_close", "entry_price")
+        buy_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
+        sell_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
+
+        if buy is None:
+            match_status = "NO_PRIOR_BUY"
+        elif buy_bar is None:
+            match_status = "BUY_BAR_NOT_FOUND"
+        elif sell_bar is None:
+            match_status = "SELL_BAR_NOT_FOUND"
+        else:
+            match_status = "MATCHED"
+
+        buy_market = float(buy_bar.close) if buy_bar is not None else None
+        sell_market = float(sell_bar.close) if sell_bar is not None else None
+        market_pnl_abs = round(sell_market - buy_market, 4) if buy_market is not None and sell_market is not None else None
+        market_pnl_pct = (
+            round((((sell_market / buy_market) - 1.0) * 100.0), 3)
+            if buy_market not in (None, 0.0) and sell_market is not None
+            else None
+        )
+
+        items.append(
+            {
+                "ticker": sell.ticker,
+                "reason_code": sell.reason_code,
+                "buy_id": buy.id if buy is not None else None,
+                "buy_ts": buy.decision_ts if buy is not None else None,
+                "sell_id": sell.id,
+                "sell_ts": sell.decision_ts,
+                "match_status": match_status,
+                "buy_price_from_event": buy_price_from_event,
+                "sell_price_from_event": sell_price_from_event,
+                "buy_bar_ts": buy_bar.second_ts if buy_bar is not None else None,
+                "buy_price_from_market": buy_market,
+                "sell_bar_ts": sell_bar.second_ts if sell_bar is not None else None,
+                "sell_price_from_market": sell_market,
+                "market_pnl_abs": market_pnl_abs,
+                "market_pnl_pct": market_pnl_pct,
+            }
+        )
+    return items
 
 
 def _under_ten_aggregate_filter(model, *, max_price: float):
@@ -1626,3 +1732,36 @@ def analytics_decision_events_sell_to_buy_churn(
             prev_type = row.decision_type
     items.sort(key=lambda row: (row.ticker, row.decision_ts))
     return items
+
+
+@router.get("/analytics/decision-events/market-validation", response_model=DecisionMarketValidationPageResponse)
+@track_tables("decision_events", "second_aggregates")
+def analytics_decision_events_market_validation(
+    trade_date: date | None = None,
+    reason_code: str | None = None,
+    ticker: str | None = None,
+    page: int = 0,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+):
+    target_trade_date = trade_date or _default_decision_trade_day()
+    rows = _decision_market_validation_rows(
+        db,
+        trade_date=target_trade_date,
+        reason_code=reason_code,
+        ticker=ticker,
+    )
+    total = len(rows)
+    start = max(0, page) * max(1, page_size)
+    end = start + max(1, page_size)
+    items = [DecisionMarketValidationRowResponse(**row) for row in rows[start:end]]
+    summary = Counter(row["match_status"] for row in rows)
+    summary["total"] = total
+    return DecisionMarketValidationPageResponse(
+        trade_date=target_trade_date,
+        total=total,
+        page=max(0, page),
+        page_size=max(1, page_size),
+        summary=dict(summary),
+        items=items,
+    )

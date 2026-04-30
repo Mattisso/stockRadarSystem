@@ -34,3 +34,30 @@ export interface IRetrainResponse {
   samples: number | null;
   metrics: Record<string, unknown> | null;
 }
+
+export interface IDecisionMarketValidationRow {
+  ticker: string;
+  reason_code: string;
+  buy_id: number | null;
+  buy_ts: string | null;
+  sell_id: number;
+  sell_ts: string;
+  match_status: string;
+  buy_price_from_event: number | null;
+  sell_price_from_event: number | null;
+  buy_bar_ts: string | null;
+  buy_price_from_market: number | null;
+  sell_bar_ts: string | null;
+  sell_price_from_market: number | null;
+  market_pnl_abs: number | null;
+  market_pnl_pct: number | null;
+}
+
+export interface IDecisionMarketValidationPage {
+  trade_date: string;
+  total: number;
+  page: number;
+  page_size: number;
+  summary: Record<string, number>;
+  items: IDecisionMarketValidationRow[];
+}
