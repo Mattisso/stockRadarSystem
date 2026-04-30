@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.engine.symbol_trade_state_service import SymbolTradeStateService
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol_state_live import SymbolStateLive
@@ -191,6 +192,10 @@ class AggregateDecisionEngine:
         if decision is None:
             return 0
 
+        decision = self._coerce_for_trade_state(decision)
+        if decision is None:
+            return 0
+
         self._apply_state_transition(state, decision.decision_type)
 
         if dedupe:
@@ -204,23 +209,61 @@ class AggregateDecisionEngine:
                 self.db.flush()
                 return 0
 
-        self.db.add(
-            DecisionEvent(
+        row = DecisionEvent(
+            ticker=decision.ticker,
+            decision_ts=decision.decision_ts,
+            decision_type=decision.decision_type,
+            reason_code=decision.reason_code,
+            decision_payload=json.dumps(decision.payload, sort_keys=True),
+            candidate_score=state.candidate_score,
+            validation_pass_count=state.validation_pass_count,
+            seconds_since_last_trade_bar=state.seconds_since_last_trade_bar,
+            minutes_since_last_trade_bar=state.minutes_since_last_trade_bar,
+            is_second_stream_stale=state.is_second_stream_stale,
+            is_minute_stream_stale=state.is_minute_stream_stale,
+        )
+        self.db.add(row)
+        self.db.flush()
+        self._record_trade_state_transition(row)
+        return 1
+
+    def _coerce_for_trade_state(self, decision: AggregateDecision) -> AggregateDecision | None:
+        if decision.decision_type not in {"buy", "sell"}:
+            return decision
+
+        trade_state_service = SymbolTradeStateService(self.db)
+        trade_state = trade_state_service.get_or_create(ticker=decision.ticker)
+
+        if decision.decision_type == "buy" and trade_state_service.has_open_position(trade_state):
+            return AggregateDecision(
                 ticker=decision.ticker,
                 decision_ts=decision.decision_ts,
-                decision_type=decision.decision_type,
-                reason_code=decision.reason_code,
-                decision_payload=json.dumps(decision.payload, sort_keys=True),
-                candidate_score=state.candidate_score,
-                validation_pass_count=state.validation_pass_count,
-                seconds_since_last_trade_bar=state.seconds_since_last_trade_bar,
-                minutes_since_last_trade_bar=state.minutes_since_last_trade_bar,
-                is_second_stream_stale=state.is_second_stream_stale,
-                is_minute_stream_stale=state.is_minute_stream_stale,
+                decision_type="manage",
+                reason_code="active_position_manage",
+                payload=decision.payload,
             )
-        )
-        self.db.flush()
-        return 1
+        if decision.decision_type == "sell" and not trade_state_service.has_open_position(trade_state):
+            return None
+        return decision
+
+    def _record_trade_state_transition(self, row: DecisionEvent) -> None:
+        if row.decision_type not in {"buy", "sell"}:
+            return
+        payload = json.loads(row.decision_payload or "{}")
+        trade_state_service = SymbolTradeStateService(self.db)
+        trade_state = trade_state_service.get_or_create(ticker=row.ticker)
+        if row.decision_type == "buy":
+            trade_state_service.mark_open(
+                trade_state,
+                decision_event=row,
+                entry_price=payload.get("current_close") or payload.get("entry_price"),
+            )
+        else:
+            trade_state_service.mark_closed(
+                trade_state,
+                decision_event=row,
+                exit_price=payload.get("current_close") or payload.get("entry_price"),
+            )
 
     @staticmethod
     def _payload(

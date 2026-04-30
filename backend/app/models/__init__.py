@@ -14,6 +14,7 @@ from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 from app.models.symbol_state_live import SymbolStateLive
+from app.models.symbol_trade_state import SymbolTradeState
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 
@@ -34,6 +35,7 @@ __all__ = [
     "PolygonSecondAggregate",
     "PolygonSecondAggregateLive",
     "SymbolStateLive",
+    "SymbolTradeState",
     "CandidateEvent",
     "DecisionEvent",
 ]
