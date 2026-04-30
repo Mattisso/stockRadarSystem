@@ -518,6 +518,57 @@ def test_decision_engine_does_not_emit_momentum_dies_below_entry_price(db):
     assert decision.reason_code != "active_position_momentum_dies"
 
 
+def test_decision_engine_ignores_future_buy_context_for_earlier_sell_event(db):
+    service = PolygonAggregateService(db)
+    engine = AggregateDecisionEngine(db)
+    service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 17, tzinfo=timezone.utc), 9.70, 9.70, 9.68, 9.69, 300, 9.69, 1),
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 18, tzinfo=timezone.utc), 9.69, 9.69, 9.67, 9.68, 300, 9.68, 1),
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 19, tzinfo=timezone.utc), 9.68, 9.68, 9.66, 9.67, 300, 9.67, 1),
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 20, tzinfo=timezone.utc), 9.67, 9.67, 9.65, 9.66, 300, 9.66, 1),
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 21, tzinfo=timezone.utc), 9.66, 9.66, 9.64, 9.65, 300, 9.65, 1),
+            PolygonSecondAggregateRecord("NAVI", datetime(2026, 4, 29, 19, 55, 22, tzinfo=timezone.utc), 9.65, 9.65, 9.63, 9.635, 300, 9.635, 1),
+        ]
+    )
+    state = db.query(SymbolStateLive).filter_by(ticker="NAVI").one()
+    state.validation_score = 0.9
+    state.validation_pass_count = 9
+    state.candidate_score = 1.0
+    state.current_minute_high = 9.70
+    state.rolling_second_high = 9.70
+    state.rolling_second_low = 9.63
+    state.candidate_status = "manage"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = False
+    db.add(
+        DecisionEvent(
+            ticker="NAVI",
+            decision_ts=datetime(2026, 4, 29, 19, 58, 50),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+            decision_payload=json.dumps({"current_close": 9.52}),
+            candidate_score=1.0,
+            validation_pass_count=8,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.flush()
+
+    decision = engine.evaluate(
+        ticker="NAVI",
+        event_ts=datetime(2026, 4, 29, 19, 55, 22, tzinfo=timezone.utc),
+        trigger_count=0,
+        state=state,
+    )
+
+    assert decision is not None
+    assert decision.decision_type == "manage"
+    assert decision.reason_code == "active_position_manage"
+    assert "entry_price" not in decision.payload
+
+
 def test_decision_engine_emits_sell_for_no_continuation(db):
     service = PolygonAggregateService(db)
     engine = AggregateDecisionEngine(db)

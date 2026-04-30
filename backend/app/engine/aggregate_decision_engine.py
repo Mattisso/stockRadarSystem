@@ -42,7 +42,7 @@ class AggregateDecisionEngine:
             return None
 
         latest_second = self._latest_second_row(ticker=ticker, event_ts=event_ts)
-        buy_context = self._latest_buy_context(ticker=ticker)
+        buy_context = self._latest_buy_context(ticker=ticker, event_ts=event_ts)
 
         # Preserve a completed same-day round-trip. Once a symbol has bought and sold
         # on the same trading day, do not allow trigger churn to re-open it again.
@@ -423,12 +423,14 @@ class AggregateDecisionEngine:
             .first()
         )
 
-    def _latest_buy_context(self, *, ticker: str) -> dict | None:
+    def _latest_buy_context(self, *, ticker: str, event_ts: datetime) -> dict | None:
+        cutoff_ts = self._normalize_ts(event_ts)
         row = (
             self.db.query(DecisionEvent)
             .filter(
                 DecisionEvent.ticker == ticker.upper(),
                 DecisionEvent.decision_type == "buy",
+                DecisionEvent.decision_ts <= cutoff_ts,
             )
             .order_by(DecisionEvent.decision_ts.desc(), DecisionEvent.id.desc())
             .first()
