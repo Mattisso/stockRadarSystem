@@ -46,6 +46,7 @@ export class DecisionSequenceReportPageComponent {
     'reason_code',
     'ticker',
     'trade_n',
+    'sequence_order',
     'buy_ts',
     'sell_ts',
     'buy_price',
@@ -80,6 +81,10 @@ export class DecisionSequenceReportPageComponent {
 
   trackByRow(_: number, row: IDecisionOutcomeDetail): string {
     return `${row.ticker}-${row.trade_n}-${row.sell_ts}`;
+  }
+
+  isInverted(row: IDecisionOutcomeDetail): boolean {
+    return Date.parse(row.buy_ts) > Date.parse(row.sell_ts);
   }
 
   private defaultTradeDate(): string {

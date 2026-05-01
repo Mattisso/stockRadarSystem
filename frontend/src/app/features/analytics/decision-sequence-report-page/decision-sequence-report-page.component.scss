@@ -80,6 +80,23 @@ table {
   min-width: 70rem;
 }
 
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(12, 84, 96, 0.12);
+  color: #0c5460;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.status-pill--warn {
+  background: rgba(176, 0, 32, 0.12);
+  color: #8e0038;
+}
+
 @media (max-width: 900px) {
   .decision-sequence-report__header {
     flex-direction: column;
