@@ -8,6 +8,7 @@ from app.engine.aggregate_decision_engine import AggregateDecision, AggregateDec
 from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol_trade_state import SymbolTradeState
+from app.models.universe_daily import UniverseDaily
 
 
 def test_decision_engine_emits_candidate_for_validated_state(db):
@@ -701,6 +702,42 @@ def test_decision_engine_blocks_sell_persist_when_open_entry_is_after_sell_ts(db
 
     assert inserted == 0
     assert db.query(DecisionEvent).filter_by(ticker="NAVI", decision_type="sell").count() == 0
+
+
+def test_decision_engine_skips_out_of_universe_ticker(db):
+    db.add(
+        UniverseDaily(
+            trade_date=datetime(2026, 4, 29, 0, 0, 0, tzinfo=timezone.utc).date(),
+            ticker="LCID",
+            open_price=3.2,
+            last_price=3.3,
+            avg_volume=500_000,
+        )
+    )
+    state = SymbolStateLive(
+        ticker="PLTR",
+        candidate_status="validated",
+        validation_score=0.95,
+        validation_pass_count=9,
+        candidate_score=0.9,
+        current_minute_high=137.6,
+        rolling_second_high=137.6,
+        rolling_second_low=137.3,
+        is_second_stream_stale=False,
+        is_minute_stream_stale=False,
+    )
+    db.add(state)
+    db.flush()
+    engine = AggregateDecisionEngine(db)
+
+    decision = engine.evaluate(
+        ticker="PLTR",
+        event_ts=datetime(2026, 4, 29, 18, 41, 29, tzinfo=timezone.utc),
+        trigger_count=1,
+        state=state,
+    )
+
+    assert decision is None
 
 
 def test_decision_engine_coerces_duplicate_buy_to_manage_for_open_trade_state(db):

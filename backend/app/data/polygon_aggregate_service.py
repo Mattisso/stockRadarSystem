@@ -132,10 +132,11 @@ class PolygonAggregateService:
         *,
         allowed_tickers: set[str] | None = None,
     ) -> int:
+        effective_allowed_tickers = self._effective_allowed_tickers(allowed_tickers)
         rows_added = 0
         state_records: list[PolygonMinuteAggregateRecord] = []
         for record in records:
-            if allowed_tickers is not None and record.ticker not in allowed_tickers:
+            if effective_allowed_tickers is not None and record.ticker.upper() not in effective_allowed_tickers:
                 continue
             minute_ts = self._normalize_minute_ts(record.minute_ts)
             _, inserted = self._upsert_minute_row(PolygonMinuteAggregate, record, minute_ts)
@@ -188,10 +189,11 @@ class PolygonAggregateService:
         *,
         allowed_tickers: set[str] | None = None,
     ) -> int:
+        effective_allowed_tickers = self._effective_allowed_tickers(allowed_tickers)
         rows_added = 0
         state_records: list[PolygonSecondAggregateRecord] = []
         for record in records:
-            if allowed_tickers is not None and record.ticker not in allowed_tickers:
+            if effective_allowed_tickers is not None and record.ticker.upper() not in effective_allowed_tickers:
                 continue
             second_ts = self._normalize_second_ts(record.second_ts)
             historical_row, inserted = self._upsert_second_row(PolygonSecondAggregate, record, second_ts)
@@ -260,6 +262,14 @@ class PolygonAggregateService:
     def latest_day_aggregate_date(self) -> date | None:
         row = self.db.query(PolygonDayAggregate.trade_date).order_by(PolygonDayAggregate.trade_date.desc()).first()
         return row[0] if row is not None else None
+
+    def _effective_allowed_tickers(self, allowed_tickers: set[str] | None) -> set[str] | None:
+        if allowed_tickers is not None:
+            return {ticker.upper() for ticker in allowed_tickers}
+        aggregate_tickers = SecretIngredientsService(self.db).select_aggregate_subscription_tickers()
+        if not aggregate_tickers:
+            return None
+        return {ticker.upper() for ticker in aggregate_tickers}
 
     @staticmethod
     def second_records_from_quotes(quotes: list[Quote]) -> list[PolygonSecondAggregateRecord]:

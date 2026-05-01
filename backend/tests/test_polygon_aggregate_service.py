@@ -136,6 +136,54 @@ def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):
     assert live_rows[0].minute_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, tzinfo=timezone.utc)
 
 
+def test_upsert_second_aggregates_defaults_to_current_aggregate_universe(db):
+    service = PolygonAggregateService(db)
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 4, 4),
+            ticker="LCID",
+            open_price=3.2,
+            last_price=3.3,
+            avg_volume=500_000,
+        )
+    )
+    db.commit()
+
+    inserted = service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord(
+                ticker="LCID",
+                second_ts=datetime(2026, 4, 4, 14, 31, 5, tzinfo=timezone.utc),
+                open=3.20,
+                high=3.25,
+                low=3.20,
+                close=3.25,
+                volume=100,
+                vwap=3.225,
+                transactions=2,
+            ),
+            PolygonSecondAggregateRecord(
+                ticker="PLTR",
+                second_ts=datetime(2026, 4, 4, 14, 31, 5, tzinfo=timezone.utc),
+                open=150.0,
+                high=150.2,
+                low=149.9,
+                close=150.1,
+                volume=100,
+                vwap=150.05,
+                transactions=2,
+            ),
+        ]
+    )
+
+    assert inserted == 1
+    assert db.query(PolygonSecondAggregate).count() == 1
+    assert db.query(PolygonSecondAggregate).one().ticker == "LCID"
+    state_rows = db.query(SymbolStateLive).all()
+    assert len(state_rows) == 1
+    assert state_rows[0].ticker == "LCID"
+
+
 def test_upsert_second_aggregates_merges_same_second_rows(db):
     service = PolygonAggregateService(db)
 
