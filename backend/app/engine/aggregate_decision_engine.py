@@ -64,7 +64,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_second_stream_stale",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if active_sell_allowed and state.is_minute_stream_stale:
+        if active_sell_allowed and self._minute_context_is_unusable(state):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -144,7 +144,7 @@ class AggregateDecisionEngine:
                 reason_code="second_stream_stale",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if state.is_minute_stream_stale:
+        if self._minute_context_is_unusable(state):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -327,6 +327,17 @@ class AggregateDecisionEngine:
     @staticmethod
     def _is_active_position(state: SymbolStateLive) -> bool:
         return state.candidate_status in {"buy", "manage"}
+
+    @staticmethod
+    def _minute_context_is_unusable(state: SymbolStateLive) -> bool:
+        if not state.is_minute_stream_stale:
+            return False
+        if state.last_minute_ts is None:
+            return True
+        minute_gap = state.minutes_since_last_trade_bar
+        if minute_gap is None:
+            return True
+        return minute_gap > settings.aggregate_decision_max_minute_gap_minutes
 
     @staticmethod
     def _requires_ongoing_decision(state: SymbolStateLive) -> bool:

@@ -189,6 +189,7 @@ class Settings(BaseSettings):
     aggregate_validation_max_extension_pct: float = 0.08
     aggregate_decision_min_validation_score: float = 0.6
     aggregate_decision_min_validation_pass_count: int = 6
+    aggregate_decision_max_minute_gap_minutes: int = 5
     aggregate_buy_min_validation_score: float = 0.8
     aggregate_buy_min_validation_pass_count: int = 8
     aggregate_buy_min_candidate_score: float = 0.66

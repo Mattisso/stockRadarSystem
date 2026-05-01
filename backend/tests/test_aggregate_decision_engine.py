@@ -167,6 +167,98 @@ def test_decision_engine_rejects_weak_validation(db):
     assert state.candidate_status == "rejected"
 
 
+def test_decision_engine_allows_entry_with_moderately_stale_minute_context(db):
+    service = PolygonAggregateService(db)
+    service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 11, 13, 45, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.28,
+                low=2.99,
+                close=3.24,
+                volume=1200,
+            ),
+        ]
+    )
+    service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 48, 1, tzinfo=timezone.utc), 3.10, 3.18, 3.10, 3.18, 350, 3.17, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 48, 2, tzinfo=timezone.utc), 3.18, 3.24, 3.17, 3.23, 380, 3.22, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 48, 3, tzinfo=timezone.utc), 3.23, 3.30, 3.22, 3.29, 420, 3.28, 1),
+        ]
+    )
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    state.validation_score = 0.7
+    state.validation_pass_count = 7
+    state.candidate_score = 0.6
+    state.current_minute_high = 3.28
+    state.rolling_second_high = 3.30
+    state.rolling_second_low = 3.10
+    state.candidate_status = "validated"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = True
+    state.minutes_since_last_trade_bar = 3
+    engine = AggregateDecisionEngine(db)
+
+    decision = engine.evaluate(
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 11, 13, 48, 3, tzinfo=timezone.utc),
+        trigger_count=1,
+        state=state,
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "validated_candidate"
+
+
+def test_decision_engine_rejects_entry_with_severely_stale_minute_context(db):
+    service = PolygonAggregateService(db)
+    service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 11, 13, 45, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.28,
+                low=2.99,
+                close=3.24,
+                volume=1200,
+            ),
+        ]
+    )
+    service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 51, 1, tzinfo=timezone.utc), 3.10, 3.18, 3.10, 3.18, 350, 3.17, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 51, 2, tzinfo=timezone.utc), 3.18, 3.24, 3.17, 3.23, 380, 3.22, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 11, 13, 51, 3, tzinfo=timezone.utc), 3.23, 3.30, 3.22, 3.29, 420, 3.28, 1),
+        ]
+    )
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    state.validation_score = 0.7
+    state.validation_pass_count = 7
+    state.candidate_score = 0.6
+    state.current_minute_high = 3.28
+    state.rolling_second_high = 3.30
+    state.rolling_second_low = 3.10
+    state.candidate_status = "validated"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = True
+    state.minutes_since_last_trade_bar = 6
+    engine = AggregateDecisionEngine(db)
+
+    decision = engine.evaluate(
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 11, 13, 51, 3, tzinfo=timezone.utc),
+        trigger_count=1,
+        state=state,
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "minute_stream_stale"
+
+
 def test_decision_engine_emits_manage_after_buy_state(db):
     service = PolygonAggregateService(db)
     service.upsert_minute_aggregates(
