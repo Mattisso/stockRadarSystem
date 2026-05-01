@@ -45,12 +45,18 @@ export interface IDecisionMarketValidationRow {
   match_status: string;
   buy_price_from_event: number | null;
   sell_price_from_event: number | null;
-  buy_bar_ts: string | null;
-  buy_price_from_market: number | null;
-  sell_bar_ts: string | null;
-  sell_price_from_market: number | null;
-  market_pnl_abs: number | null;
-  market_pnl_pct: number | null;
+  buy_second_bar_ts: string | null;
+  buy_price_from_second_market: number | null;
+  sell_second_bar_ts: string | null;
+  sell_price_from_second_market: number | null;
+  second_market_pnl_abs: number | null;
+  second_market_pnl_pct: number | null;
+  buy_minute_bar_ts: string | null;
+  buy_price_from_minute_market: number | null;
+  sell_minute_bar_ts: string | null;
+  sell_price_from_minute_market: number | null;
+  minute_market_pnl_abs: number | null;
+  minute_market_pnl_pct: number | null;
 }
 
 export interface IDecisionMarketValidationPage {

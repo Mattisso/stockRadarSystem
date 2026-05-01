@@ -56,9 +56,12 @@ export class DecisionValidationPageComponent {
     'sell_ts',
     'buy_price_from_event',
     'sell_price_from_event',
-    'buy_price_from_market',
-    'sell_price_from_market',
-    'market_pnl_pct',
+    'buy_price_from_second_market',
+    'sell_price_from_second_market',
+    'second_market_pnl_pct',
+    'buy_price_from_minute_market',
+    'sell_price_from_minute_market',
+    'minute_market_pnl_pct',
   ];
   readonly pageSizeOptions = [25, 50, 100];
   readonly matchedCount = computed(() => this.summary()['MATCHED'] ?? 0);

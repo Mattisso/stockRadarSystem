@@ -348,6 +348,33 @@ def _nearest_second_bar(
     )
 
 
+def _nearest_minute_bar(
+    db: Session,
+    *,
+    ticker: str,
+    event_ts: datetime,
+    window_minutes: int = 5,
+) -> PolygonMinuteAggregate | None:
+    normalized_ts = _normalize_route_ts(event_ts)
+    window_start = normalized_ts - timedelta(minutes=window_minutes)
+    window_end = normalized_ts + timedelta(minutes=window_minutes)
+    candidates = (
+        db.query(PolygonMinuteAggregate)
+        .filter(
+            PolygonMinuteAggregate.ticker == ticker,
+            PolygonMinuteAggregate.minute_ts >= window_start,
+            PolygonMinuteAggregate.minute_ts <= window_end,
+        )
+        .all()
+    )
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda row: (abs((row.minute_ts - normalized_ts).total_seconds()), row.minute_ts),
+    )
+
+
 def _decision_market_validation_rows(
     db: Session,
     *,
@@ -376,24 +403,42 @@ def _decision_market_validation_rows(
 
         buy_price_from_event = _payload_float(buy.decision_payload if buy is not None else None, "current_close", "entry_price")
         sell_price_from_event = _payload_float(sell.decision_payload, "current_close", "entry_price")
-        buy_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
-        sell_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
+        buy_second_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
+        sell_second_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
+        buy_minute_bar = _nearest_minute_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
+        sell_minute_bar = _nearest_minute_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
 
         if buy is None:
             match_status = "NO_PRIOR_BUY"
-        elif buy_bar is None:
+        elif buy_second_bar is None:
             match_status = "BUY_BAR_NOT_FOUND"
-        elif sell_bar is None:
+        elif sell_second_bar is None:
             match_status = "SELL_BAR_NOT_FOUND"
         else:
             match_status = "MATCHED"
 
-        buy_market = float(buy_bar.close) if buy_bar is not None else None
-        sell_market = float(sell_bar.close) if sell_bar is not None else None
-        market_pnl_abs = round(sell_market - buy_market, 4) if buy_market is not None and sell_market is not None else None
-        market_pnl_pct = (
-            round((((sell_market / buy_market) - 1.0) * 100.0), 3)
-            if buy_market not in (None, 0.0) and sell_market is not None
+        buy_second_market = float(buy_second_bar.close) if buy_second_bar is not None else None
+        sell_second_market = float(sell_second_bar.close) if sell_second_bar is not None else None
+        second_market_pnl_abs = (
+            round(sell_second_market - buy_second_market, 4)
+            if buy_second_market is not None and sell_second_market is not None
+            else None
+        )
+        second_market_pnl_pct = (
+            round((((sell_second_market / buy_second_market) - 1.0) * 100.0), 3)
+            if buy_second_market not in (None, 0.0) and sell_second_market is not None
+            else None
+        )
+        buy_minute_market = float(buy_minute_bar.close) if buy_minute_bar is not None else None
+        sell_minute_market = float(sell_minute_bar.close) if sell_minute_bar is not None else None
+        minute_market_pnl_abs = (
+            round(sell_minute_market - buy_minute_market, 4)
+            if buy_minute_market is not None and sell_minute_market is not None
+            else None
+        )
+        minute_market_pnl_pct = (
+            round((((sell_minute_market / buy_minute_market) - 1.0) * 100.0), 3)
+            if buy_minute_market not in (None, 0.0) and sell_minute_market is not None
             else None
         )
 
@@ -408,12 +453,18 @@ def _decision_market_validation_rows(
                 "match_status": match_status,
                 "buy_price_from_event": buy_price_from_event,
                 "sell_price_from_event": sell_price_from_event,
-                "buy_bar_ts": buy_bar.second_ts if buy_bar is not None else None,
-                "buy_price_from_market": buy_market,
-                "sell_bar_ts": sell_bar.second_ts if sell_bar is not None else None,
-                "sell_price_from_market": sell_market,
-                "market_pnl_abs": market_pnl_abs,
-                "market_pnl_pct": market_pnl_pct,
+                "buy_second_bar_ts": buy_second_bar.second_ts if buy_second_bar is not None else None,
+                "buy_price_from_second_market": buy_second_market,
+                "sell_second_bar_ts": sell_second_bar.second_ts if sell_second_bar is not None else None,
+                "sell_price_from_second_market": sell_second_market,
+                "second_market_pnl_abs": second_market_pnl_abs,
+                "second_market_pnl_pct": second_market_pnl_pct,
+                "buy_minute_bar_ts": buy_minute_bar.minute_ts if buy_minute_bar is not None else None,
+                "buy_price_from_minute_market": buy_minute_market,
+                "sell_minute_bar_ts": sell_minute_bar.minute_ts if sell_minute_bar is not None else None,
+                "sell_price_from_minute_market": sell_minute_market,
+                "minute_market_pnl_abs": minute_market_pnl_abs,
+                "minute_market_pnl_pct": minute_market_pnl_pct,
             }
         )
     return items

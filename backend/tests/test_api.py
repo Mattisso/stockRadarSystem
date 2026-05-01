@@ -983,6 +983,17 @@ def test_decision_event_market_validation_endpoint(db_engine, auth_headers):
                         vwap=137.49,
                         transactions=10,
                     ),
+                    PolygonMinuteAggregate(
+                        ticker="PLTR",
+                        minute_ts=datetime(2026, 4, 29, 22, 41, 0, tzinfo=timezone.utc),
+                        open=137.20,
+                        high=137.60,
+                        low=137.10,
+                        close=137.45,
+                        volume=5000,
+                        vwap=137.41,
+                        transactions=50,
+                    ),
                 ]
             )
             db.commit()
@@ -1002,8 +1013,12 @@ def test_decision_event_market_validation_endpoint(db_engine, auth_headers):
         assert body["summary"]["NO_PRIOR_BUY"] == 1
         matched = next(row for row in body["items"] if row["ticker"] == "PLTR")
         assert matched["match_status"] == "MATCHED"
-        assert matched["buy_price_from_market"] == pytest.approx(137.51)
-        assert matched["sell_price_from_market"] == pytest.approx(137.51)
+        assert matched["buy_price_from_second_market"] == pytest.approx(137.51)
+        assert matched["sell_price_from_second_market"] == pytest.approx(137.51)
+        assert matched["buy_price_from_minute_market"] == pytest.approx(137.45)
+        assert matched["sell_price_from_minute_market"] == pytest.approx(137.45)
+        assert matched["second_market_pnl_pct"] == pytest.approx(0.0)
+        assert matched["minute_market_pnl_pct"] == pytest.approx(0.0)
         unmatched = next(row for row in body["items"] if row["ticker"] == "OPK")
         assert unmatched["match_status"] == "NO_PRIOR_BUY"
     finally:

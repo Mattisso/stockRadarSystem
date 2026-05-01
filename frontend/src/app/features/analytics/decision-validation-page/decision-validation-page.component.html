@@ -2,7 +2,7 @@
   <div class="decision-validation__header">
     <div>
       <h1>Trade Validation</h1>
-      <p>Validate buy and sell events against stored Polygon second bars for the selected New York trading day.</p>
+      <p>Validate buy and sell events against stored Polygon second and minute bars for the selected New York trading day.</p>
     </div>
     <a mat-stroked-button routerLink="/analytics">Back To Analytics</a>
   </div>
@@ -122,33 +122,66 @@
             </td>
           </ng-container>
 
-          <ng-container matColumnDef="buy_price_from_market">
-            <th mat-header-cell *matHeaderCellDef>Buy Market</th>
+          <ng-container matColumnDef="buy_price_from_second_market">
+            <th mat-header-cell *matHeaderCellDef>Buy Second</th>
             <td mat-cell *matCellDef="let row">
-              @if (row.buy_price_from_market !== null) {
-                {{ row.buy_price_from_market | number: '1.2-4' }}
+              @if (row.buy_price_from_second_market !== null) {
+                {{ row.buy_price_from_second_market | number: '1.2-4' }}
               } @else {
                 —
               }
             </td>
           </ng-container>
 
-          <ng-container matColumnDef="sell_price_from_market">
-            <th mat-header-cell *matHeaderCellDef>Sell Market</th>
+          <ng-container matColumnDef="sell_price_from_second_market">
+            <th mat-header-cell *matHeaderCellDef>Sell Second</th>
             <td mat-cell *matCellDef="let row">
-              @if (row.sell_price_from_market !== null) {
-                {{ row.sell_price_from_market | number: '1.2-4' }}
+              @if (row.sell_price_from_second_market !== null) {
+                {{ row.sell_price_from_second_market | number: '1.2-4' }}
               } @else {
                 —
               }
             </td>
           </ng-container>
 
-          <ng-container matColumnDef="market_pnl_pct">
-            <th mat-header-cell *matHeaderCellDef>Market PnL %</th>
+          <ng-container matColumnDef="second_market_pnl_pct">
+            <th mat-header-cell *matHeaderCellDef>Second PnL %</th>
             <td mat-cell *matCellDef="let row">
-              @if (row.market_pnl_pct !== null) {
-                {{ row.market_pnl_pct | number: '1.2-3' }}
+              @if (row.second_market_pnl_pct !== null) {
+                {{ row.second_market_pnl_pct | number: '1.2-3' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_price_from_minute_market">
+            <th mat-header-cell *matHeaderCellDef>Buy Minute</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.buy_price_from_minute_market !== null) {
+                {{ row.buy_price_from_minute_market | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_price_from_minute_market">
+            <th mat-header-cell *matHeaderCellDef>Sell Minute</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.sell_price_from_minute_market !== null) {
+                {{ row.sell_price_from_minute_market | number: '1.2-4' }}
+              } @else {
+                —
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="minute_market_pnl_pct">
+            <th mat-header-cell *matHeaderCellDef>Minute PnL %</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.minute_market_pnl_pct !== null) {
+                {{ row.minute_market_pnl_pct | number: '1.2-3' }}
               } @else {
                 —
               }

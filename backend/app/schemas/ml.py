@@ -482,12 +482,18 @@ class DecisionMarketValidationRowResponse(ApiResponseModel):
     match_status: str
     buy_price_from_event: float | None = None
     sell_price_from_event: float | None = None
-    buy_bar_ts: datetime | None = None
-    buy_price_from_market: float | None = None
-    sell_bar_ts: datetime | None = None
-    sell_price_from_market: float | None = None
-    market_pnl_abs: float | None = None
-    market_pnl_pct: float | None = None
+    buy_second_bar_ts: datetime | None = None
+    buy_price_from_second_market: float | None = None
+    sell_second_bar_ts: datetime | None = None
+    sell_price_from_second_market: float | None = None
+    second_market_pnl_abs: float | None = None
+    second_market_pnl_pct: float | None = None
+    buy_minute_bar_ts: datetime | None = None
+    buy_price_from_minute_market: float | None = None
+    sell_minute_bar_ts: datetime | None = None
+    sell_price_from_minute_market: float | None = None
+    minute_market_pnl_abs: float | None = None
+    minute_market_pnl_pct: float | None = None
 
 
 class DecisionMarketValidationPageResponse(ApiResponseModel):
