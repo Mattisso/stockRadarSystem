@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,6 +15,8 @@ from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
 from app.models.symbol_state_live import SymbolStateLive
+
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass(slots=True)
@@ -94,13 +98,18 @@ class AggregateRuntimeService:
         decision_engine: AggregateDecisionEngine,
         as_of: datetime,
     ) -> tuple[int, int]:
+        reference_trade_day = self._trade_day_for_ts(as_of)
         rows = (
             self.db.query(CandidateEvent)
             .filter(
                 CandidateEvent.processed_at.is_(None),
-                CandidateEvent.event_ts <= as_of,
+                or_(
+                    CandidateEvent.last_second_ts <= as_of,
+                    CandidateEvent.event_ts <= as_of,
+                    CandidateEvent.created_at <= as_of,
+                ),
             )
-            .order_by(CandidateEvent.event_ts.asc(), CandidateEvent.id.asc())
+            .order_by(CandidateEvent.created_at.asc(), CandidateEvent.id.asc())
             .limit(1000)
             .all()
         )
@@ -121,12 +130,19 @@ class AggregateRuntimeService:
                 batch.append(row)
                 idx += 1
 
+            effective_event_ts = self._effective_event_ts(batch_start)
+            if self._trade_day_for_ts(effective_event_ts) != reference_trade_day:
+                for row in batch:
+                    row.processed_at = as_of
+                processed_count += len(batch)
+                continue
+
             state = self.db.query(SymbolStateLive).filter_by(ticker=batch_start.ticker).one_or_none()
-            if state is not None and is_regular_us_market_hours(batch_start.event_ts):
+            if state is not None and is_regular_us_market_hours(effective_event_ts):
                 self._apply_candidate_batch_to_state(state, batch)
                 decision = decision_engine.evaluate(
                     ticker=batch_start.ticker,
-                    event_ts=batch_start.event_ts,
+                    event_ts=effective_event_ts,
                     trigger_count=len(batch),
                     state=state,
                 )
@@ -173,6 +189,15 @@ class AggregateRuntimeService:
         state.candidate_score = trigger_score or state.candidate_score
         if state.candidate_status not in {"buy", "manage", "sold"}:
             state.candidate_status = "candidate"
+
+    def _effective_event_ts(self, row: CandidateEvent) -> datetime:
+        return self._normalize_ts(row.last_second_ts or row.event_ts)
+
+    @staticmethod
+    def _trade_day_for_ts(value: datetime) -> datetime.date:
+        normalized = AggregateRuntimeService._normalize_ts(value)
+        aware = normalized.replace(tzinfo=timezone.utc)
+        return aware.astimezone(NEW_YORK_TZ).date()
 
     @staticmethod
     def _normalize_ts(value: datetime) -> datetime:

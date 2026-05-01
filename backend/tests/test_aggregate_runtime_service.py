@@ -245,3 +245,44 @@ def test_aggregate_runtime_service_processes_candidate_events_promptly(db):
     decisions = db.query(DecisionEvent).filter_by(ticker="LCID").all()
     assert len(decisions) >= 1
     assert all(event.processed_at is not None for event in candidate_events)
+
+
+def test_aggregate_runtime_service_processes_candidate_events_when_event_ts_is_skewed(db):
+    aggregate_service = PolygonAggregateService(db)
+    aggregate_service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 10, 13, 45, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.30,
+                low=2.99,
+                close=3.26,
+                volume=1800,
+            )
+        ]
+    )
+    aggregate_service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 1, tzinfo=timezone.utc), 3.10, 3.16, 3.10, 3.15, 350, 3.14, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 2, tzinfo=timezone.utc), 3.15, 3.21, 3.14, 3.20, 380, 3.19, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc), 3.20, 3.27, 3.19, 3.26, 420, 3.25, 1),
+        ]
+    )
+    db.commit()
+
+    candidate_events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
+    assert len(candidate_events) >= 1
+    for event in candidate_events:
+        event.event_ts = datetime(2026, 4, 10, 17, 45, 3)
+    db.commit()
+
+    result = AggregateRuntimeService(db).refresh_validation_and_decisions(
+        as_of=datetime(2026, 4, 10, 13, 45, 4, tzinfo=timezone.utc)
+    )
+    db.commit()
+
+    assert result.processed_candidate_event_count >= 1
+    assert result.persisted_decision_count >= 1
+    refreshed = db.query(CandidateEvent).filter_by(ticker="LCID").all()
+    assert all(event.processed_at is not None for event in refreshed)
