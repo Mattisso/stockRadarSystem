@@ -113,7 +113,7 @@ api:
     dayAggregateIngestionEnabled: "true"
     dayAggregateRefreshMinutes: "15"
     minuteAggregateIngestionEnabled: "true"
-    minuteAggregateRefreshMinutes: "15"
+    minuteAggregateRefreshMinutes: "1"
 
 frontend:
   image:
