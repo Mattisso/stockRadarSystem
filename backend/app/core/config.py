@@ -154,6 +154,7 @@ class Settings(BaseSettings):
     polygon_live_minute_aggregates_retention_hours: int = 8
     polygon_live_second_aggregates_retention_hours: int = 8
     aggregate_rolling_refresh_seconds: int = 1
+    aggregate_candidate_event_max_age_seconds: int = 15
     aggregate_history_export_enabled: bool = False
     aggregate_history_export_interval_minutes: int = 60
     aggregate_history_export_min_age_minutes: int = 30

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 from zoneinfo import ZoneInfo
 
@@ -99,6 +99,12 @@ class AggregateRuntimeService:
         as_of: datetime,
     ) -> tuple[int, int]:
         reference_trade_day = self._trade_day_for_ts(as_of)
+        allow_live_decisions = is_regular_us_market_hours(as_of)
+        order_by = (
+            (CandidateEvent.created_at.desc(), CandidateEvent.id.desc())
+            if allow_live_decisions
+            else (CandidateEvent.created_at.asc(), CandidateEvent.id.asc())
+        )
         rows = (
             self.db.query(CandidateEvent)
             .filter(
@@ -109,7 +115,7 @@ class AggregateRuntimeService:
                     CandidateEvent.created_at <= as_of,
                 ),
             )
-            .order_by(CandidateEvent.created_at.asc(), CandidateEvent.id.asc())
+            .order_by(*order_by)
             .limit(1000)
             .all()
         )
@@ -132,6 +138,15 @@ class AggregateRuntimeService:
 
             effective_event_ts = self._effective_event_ts(batch_start)
             if self._trade_day_for_ts(effective_event_ts) != reference_trade_day:
+                for row in batch:
+                    row.processed_at = as_of
+                processed_count += len(batch)
+                continue
+
+            if allow_live_decisions and not self._is_candidate_event_fresh(
+                event_ts=effective_event_ts,
+                as_of=as_of,
+            ):
                 for row in batch:
                     row.processed_at = as_of
                 processed_count += len(batch)
@@ -192,6 +207,11 @@ class AggregateRuntimeService:
 
     def _effective_event_ts(self, row: CandidateEvent) -> datetime:
         return self._normalize_ts(row.last_second_ts or row.event_ts)
+
+    @staticmethod
+    def _is_candidate_event_fresh(*, event_ts: datetime, as_of: datetime) -> bool:
+        max_age_seconds = max(settings.aggregate_candidate_event_max_age_seconds, 0)
+        return (as_of - event_ts).total_seconds() <= max_age_seconds
 
     @staticmethod
     def _trade_day_for_ts(value: datetime) -> datetime.date:
