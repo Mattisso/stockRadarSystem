@@ -16,5 +16,6 @@ export const APP_MENU: MenuItem[] = [
   { label: 'Trades', icon: 'swap_horiz', route: '/trades', section: 'Trading' },
   { label: 'Analytics', icon: 'analytics', route: '/analytics' },
   { label: 'Trade Validation', icon: 'fact_check', route: '/analytics/decision-validation' },
+  { label: 'Sequence Outcomes', icon: 'table_view', route: '/analytics/decision-sequence-report' },
   { label: 'Settings', icon: 'settings', route: '/settings', section: 'System' },
 ];

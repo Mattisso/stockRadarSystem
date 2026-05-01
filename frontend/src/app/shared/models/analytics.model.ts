@@ -61,3 +61,15 @@ export interface IDecisionMarketValidationPage {
   summary: Record<string, number>;
   items: IDecisionMarketValidationRow[];
 }
+
+export interface IDecisionOutcomeDetail {
+  reason_code: string;
+  ticker: string;
+  trade_n: number;
+  buy_ts: string;
+  sell_ts: string;
+  buy_price: number;
+  sell_price: number;
+  pnl_abs: number;
+  pnl_pct: number;
+}

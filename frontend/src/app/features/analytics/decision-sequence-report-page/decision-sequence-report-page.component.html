@@ -1,0 +1,113 @@
+<div class="decision-sequence-report">
+  <div class="decision-sequence-report__header">
+    <div>
+      <h1>Sequence Paired Outcomes</h1>
+      <p>
+        Analytical view that pairs the first buy with the first sell for each ticker, then the second with the second.
+        Use this for outcome reporting, not strict lifecycle validation.
+      </p>
+    </div>
+    <div class="decision-sequence-report__links">
+      <a mat-stroked-button routerLink="/analytics/decision-validation">Open Lifecycle Validation</a>
+      <a mat-stroked-button routerLink="/analytics">Back To Analytics</a>
+    </div>
+  </div>
+
+  <mat-card class="decision-sequence-report__note">
+    <strong>Important:</strong> This report can show a buy timestamp later than the paired sell timestamp when event
+    ordering is inconsistent. In those cases, use <a routerLink="/analytics/decision-validation">Trade Validation</a>
+    as the authoritative lifecycle view.
+  </mat-card>
+
+  <mat-card class="decision-sequence-report__filters">
+    <div class="decision-sequence-report__filter-grid">
+      <mat-form-field appearance="outline">
+        <mat-label>Trade Date</mat-label>
+        <input matInput type="date" [ngModel]="tradeDate()" (ngModelChange)="tradeDate.set($event)" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Ticker</mat-label>
+        <input matInput [ngModel]="ticker()" (ngModelChange)="ticker.set($event)" placeholder="Optional" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Reason Code</mat-label>
+        <input
+          matInput
+          [ngModel]="reasonCode()"
+          (ngModelChange)="reasonCode.set($event)"
+          placeholder="Optional" />
+      </mat-form-field>
+
+      <div class="decision-sequence-report__actions">
+        <button mat-flat-button color="primary" (click)="reload()">Load Sequence Report</button>
+      </div>
+    </div>
+  </mat-card>
+
+  @if (loading()) {
+    <app-loading />
+  } @else if (error()) {
+    <div class="decision-sequence-report__error">{{ error() }}</div>
+  } @else {
+    <mat-card class="decision-sequence-report__summary">
+      <div class="decision-sequence-report__summary-label">Rows</div>
+      <div class="decision-sequence-report__summary-value">{{ total() }}</div>
+    </mat-card>
+
+    <mat-card class="decision-sequence-report__table-card">
+      <div class="decision-sequence-report__table-wrap">
+        <table mat-table [dataSource]="rows()" [trackBy]="trackByRow">
+          <ng-container matColumnDef="reason_code">
+            <th mat-header-cell *matHeaderCellDef>Reason</th>
+            <td mat-cell *matCellDef="let row">{{ row.reason_code }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="ticker">
+            <th mat-header-cell *matHeaderCellDef>Ticker</th>
+            <td mat-cell *matCellDef="let row">{{ row.ticker }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="trade_n">
+            <th mat-header-cell *matHeaderCellDef>Trade #</th>
+            <td mat-cell *matCellDef="let row">{{ row.trade_n }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_ts">
+            <th mat-header-cell *matHeaderCellDef>Buy TS</th>
+            <td mat-cell *matCellDef="let row">{{ row.buy_ts | date: 'yyyy-MM-dd HH:mm:ss':'UTC' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_ts">
+            <th mat-header-cell *matHeaderCellDef>Sell TS</th>
+            <td mat-cell *matCellDef="let row">{{ row.sell_ts | date: 'yyyy-MM-dd HH:mm:ss':'UTC' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="buy_price">
+            <th mat-header-cell *matHeaderCellDef>Buy Price</th>
+            <td mat-cell *matCellDef="let row">{{ row.buy_price | number: '1.2-4' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="sell_price">
+            <th mat-header-cell *matHeaderCellDef>Sell Price</th>
+            <td mat-cell *matCellDef="let row">{{ row.sell_price | number: '1.2-4' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="pnl_abs">
+            <th mat-header-cell *matHeaderCellDef>PnL Abs</th>
+            <td mat-cell *matCellDef="let row">{{ row.pnl_abs | number: '1.2-4' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="pnl_pct">
+            <th mat-header-cell *matHeaderCellDef>PnL %</th>
+            <td mat-cell *matCellDef="let row">{{ row.pnl_pct | number: '1.2-3' }}</td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="columns"></tr>
+          <tr mat-row *matRowDef="let row; columns: columns"></tr>
+        </table>
+      </div>
+    </mat-card>
+  }
+</div>

@@ -16,4 +16,11 @@ export const ANALYTICS_ROUTES: Routes = [
         m => m.DecisionValidationPageComponent,
       ),
   },
+  {
+    path: 'decision-sequence-report',
+    loadComponent: () =>
+      import('./decision-sequence-report-page/decision-sequence-report-page.component').then(
+        m => m.DecisionSequenceReportPageComponent,
+      ),
+  },
 ];

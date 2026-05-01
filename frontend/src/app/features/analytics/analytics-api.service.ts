@@ -6,6 +6,7 @@ import {
   IMlStatus,
   ISignalAccuracyBucket,
   IRetrainResponse,
+  IDecisionOutcomeDetail,
   IDecisionMarketValidationPage,
 } from '../../shared/models';
 
@@ -49,5 +50,20 @@ export class AnalyticsApiService {
       params = params.set('reason_code', reasonCode.trim());
     }
     return this.http.get<IDecisionMarketValidationPage>('/api/analytics/decision-events/market-validation', { params });
+  }
+
+  loadDecisionOutcomeDetails(
+    tradeDate: string,
+    ticker?: string,
+    reasonCode?: string,
+  ): Observable<IDecisionOutcomeDetail[]> {
+    let params = new HttpParams().set('trade_date', tradeDate);
+    if (ticker?.trim()) {
+      params = params.set('ticker', ticker.trim().toUpperCase());
+    }
+    if (reasonCode?.trim()) {
+      params = params.set('reason_code', reasonCode.trim());
+    }
+    return this.http.get<IDecisionOutcomeDetail[]>('/api/analytics/decision-events/details', { params });
   }
 }
