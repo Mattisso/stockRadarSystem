@@ -50,7 +50,9 @@ class AggregateDecisionEngine:
         if state.candidate_status == "sold" and self._has_buy_on_trade_day(ticker=ticker, event_ts=event_ts):
             return None
 
-        if self._is_active_position(state) and state.is_second_stream_stale:
+        active_sell_allowed = self._is_active_position(state) and buy_context is not None
+
+        if active_sell_allowed and state.is_second_stream_stale:
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -58,7 +60,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_second_stream_stale",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and state.is_minute_stream_stale:
+        if active_sell_allowed and state.is_minute_stream_stale:
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -66,7 +68,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_minute_stream_stale",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_stop_loss(latest_second, buy_context):
+        if active_sell_allowed and self._should_sell_stop_loss(latest_second, buy_context):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -74,7 +76,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_stop_loss",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_momentum_dies(
+        if active_sell_allowed and self._should_sell_momentum_dies(
             ticker=ticker,
             event_ts=event_ts,
             latest_second=latest_second,
@@ -87,7 +89,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_momentum_dies",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_quick_profit_spike(
+        if active_sell_allowed and self._should_sell_quick_profit_spike(
             ticker=ticker,
             event_ts=event_ts,
             latest_second=latest_second,
@@ -100,7 +102,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_quick_profit_spike",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_sharp_reversal(state=state, latest_second=latest_second):
+        if active_sell_allowed and self._should_sell_sharp_reversal(state=state, latest_second=latest_second):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -108,7 +110,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_sharp_reversal",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_no_continuation(
+        if active_sell_allowed and self._should_sell_no_continuation(
             ticker=ticker,
             event_ts=event_ts,
             state=state,
@@ -121,7 +123,7 @@ class AggregateDecisionEngine:
                 reason_code="active_position_no_continuation",
                 payload=self._payload(state, trigger_count, latest_second=latest_second, buy_context=buy_context),
             )
-        if self._is_active_position(state) and self._should_sell_on_breakdown(state):
+        if active_sell_allowed and self._should_sell_on_breakdown(state):
             return AggregateDecision(
                 ticker=ticker.upper(),
                 decision_ts=event_ts,
@@ -242,8 +244,14 @@ class AggregateDecisionEngine:
                 reason_code="active_position_manage",
                 payload=decision.payload,
             )
-        if decision.decision_type == "sell" and not trade_state_service.has_open_position(trade_state):
-            return None
+        if decision.decision_type == "sell":
+            if not trade_state_service.has_open_position(trade_state):
+                return None
+            if (
+                trade_state.entry_ts is None
+                or self._normalize_ts(trade_state.entry_ts) > self._normalize_ts(decision.decision_ts)
+            ):
+                return None
         return decision
 
     def _record_trade_state_transition(self, row: DecisionEvent) -> None:

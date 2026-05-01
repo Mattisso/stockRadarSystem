@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonMinuteAggregateRecord, PolygonSecondAggregateRecord
-from app.engine.aggregate_decision_engine import AggregateDecisionEngine
+from app.engine.aggregate_decision_engine import AggregateDecision, AggregateDecisionEngine
 from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol_trade_state import SymbolTradeState
@@ -198,6 +198,20 @@ def test_decision_engine_emits_manage_after_buy_state(db):
     state.candidate_status = "buy"
     state.is_second_stream_stale = False
     state.is_minute_stream_stale = False
+    db.add(
+        DecisionEvent(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 11, 14, 6, 0),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+            decision_payload=json.dumps({"current_close": 3.19}),
+            candidate_score=0.84,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.flush()
     engine = AggregateDecisionEngine(db)
 
     decision = engine.evaluate(
@@ -248,7 +262,7 @@ def test_decision_engine_emits_sell_for_active_position_breakdown(db):
     state.validation_pass_count = 9
     state.candidate_score = 0.83
     state.current_minute_high = 3.30
-    state.rolling_second_high = 3.19
+    state.rolling_second_high = 3.05
     state.rolling_second_low = 3.00
     state.candidate_status = "manage"
     db.add(
@@ -258,7 +272,20 @@ def test_decision_engine_emits_sell_for_active_position_breakdown(db):
             trade_date=datetime(2026, 4, 11, 14, 5, 0, tzinfo=timezone.utc).date(),
             entry_decision_id=11,
             entry_ts=datetime(2026, 4, 11, 14, 5, 0),
-            entry_price=3.25,
+            entry_price=3.00,
+        )
+    )
+    db.add(
+        DecisionEvent(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 11, 14, 5, 0),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+                decision_payload=json.dumps({"current_close": 3.09}),
+            candidate_score=0.83,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
         )
     )
     db.flush()
@@ -281,7 +308,7 @@ def test_decision_engine_emits_sell_for_active_position_breakdown(db):
     )
     assert row is not None
     assert row.decision_type == "sell"
-    assert row.reason_code == "active_position_sharp_reversal"
+    assert row.reason_code == "active_position_breakdown"
     assert state.candidate_status == "sold"
 
 
@@ -373,6 +400,19 @@ def test_decision_engine_emits_sell_for_active_position_stale_stream(db):
             entry_decision_id=12,
             entry_ts=datetime(2026, 4, 11, 14, 7, 0),
             entry_price=3.19,
+        )
+    )
+    db.add(
+        DecisionEvent(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 11, 14, 7, 0),
+            decision_type="buy",
+            reason_code="validated_buy_setup",
+            decision_payload=json.dumps({"current_close": 3.19}),
+            candidate_score=0.82,
+            validation_pass_count=9,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
         )
     )
     db.flush()
@@ -590,6 +630,77 @@ def test_decision_engine_ignores_future_buy_context_for_earlier_sell_event(db):
     assert decision.decision_type == "manage"
     assert decision.reason_code == "active_position_manage"
     assert "entry_price" not in decision.payload
+
+
+def test_decision_engine_blocks_sell_when_active_state_has_no_prior_buy_context(db):
+    service = PolygonAggregateService(db)
+    engine = AggregateDecisionEngine(db)
+    service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("UVIX", datetime(2026, 4, 29, 17, 54, 21, tzinfo=timezone.utc), 5.45, 5.45, 5.43, 5.4402, 300, 5.44, 1),
+        ]
+    )
+    state = db.query(SymbolStateLive).filter_by(ticker="UVIX").one()
+    state.validation_score = 0.9
+    state.validation_pass_count = 9
+    state.candidate_score = 1.0
+    state.current_minute_high = 5.45
+    state.rolling_second_high = 5.45
+    state.rolling_second_low = 5.43
+    state.candidate_status = "manage"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = False
+    db.flush()
+
+    decision = engine.evaluate(
+        ticker="UVIX",
+        event_ts=datetime(2026, 4, 29, 17, 54, 21, tzinfo=timezone.utc),
+        trigger_count=0,
+        state=state,
+    )
+
+    assert decision is not None
+    assert decision.decision_type == "manage"
+    assert decision.reason_code == "active_position_manage"
+
+
+def test_decision_engine_blocks_sell_persist_when_open_entry_is_after_sell_ts(db):
+    state = SymbolStateLive(
+        ticker="NAVI",
+        candidate_status="manage",
+        validation_score=0.9,
+        validation_pass_count=9,
+        candidate_score=1.0,
+        is_second_stream_stale=False,
+        is_minute_stream_stale=False,
+    )
+    db.add(state)
+    db.add(
+        SymbolTradeState(
+            ticker="NAVI",
+            position_status="open",
+            trade_date=datetime(2026, 4, 29, 19, 58, 50, tzinfo=timezone.utc).date(),
+            entry_decision_id=501,
+            entry_ts=datetime(2026, 4, 29, 19, 58, 50),
+            entry_price=9.52,
+        )
+    )
+    db.flush()
+    engine = AggregateDecisionEngine(db)
+
+    inserted = engine.persist(
+        AggregateDecision(
+            ticker="NAVI",
+            decision_ts=datetime(2026, 4, 29, 19, 55, 22, tzinfo=timezone.utc),
+            decision_type="sell",
+            reason_code="active_position_momentum_dies",
+            payload={"current_close": 9.635, "entry_price": 9.52},
+        ),
+        state,
+    )
+
+    assert inserted == 0
+    assert db.query(DecisionEvent).filter_by(ticker="NAVI", decision_type="sell").count() == 0
 
 
 def test_decision_engine_coerces_duplicate_buy_to_manage_for_open_trade_state(db):
