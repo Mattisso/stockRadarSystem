@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     polygon_live_ticks_retention_hours: int = 8
     polygon_live_minute_aggregates_retention_hours: int = 8
     polygon_live_second_aggregates_retention_hours: int = 8
+    polygon_scope_cleanup_enabled: bool = True
+    polygon_scope_cleanup_session_start_et: str = "09:30:00"
+    polygon_scope_cleanup_session_end_et: str = "16:00:00"
     aggregate_rolling_refresh_seconds: int = 1
     aggregate_candidate_event_max_age_seconds: int = 15
     aggregate_history_export_enabled: bool = False
