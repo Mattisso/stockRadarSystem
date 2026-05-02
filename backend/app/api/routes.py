@@ -1,6 +1,7 @@
 """REST API routes for Stock Radar System."""
 
 from collections import Counter
+from contextlib import suppress
 from dataclasses import asdict
 import json
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -8,6 +9,7 @@ from statistics import median
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.api.observability import track_tables
+from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.ml.analytics import TradeAnalytics
 from app.ml.backtest import BacktestConfig, SignalBacktester
 from app.engine.secret_candidate_scorer import SecretCandidateScorer
@@ -157,6 +160,7 @@ async def contract_metadata():
             "/api/secret-sauce/status",
             "/api/secret-sauce/replay",
             "/api/secret-sauce/universe-daily",
+            "/api/secret-sauce/flatfile-download",
             "/api/secret-sauce/l1-candidates",
             "/api/secret-sauce/l1-to-l2-events",
             "/api/secret-sauce/funnel",
@@ -763,6 +767,52 @@ def get_secret_universe_daily(
         .limit(limit)
         .all()
     )
+
+
+@router.get("/secret-sauce/flatfile-download")
+def download_secret_universe_flatfile(
+    trade_date: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        selected_trade_date = date.fromisoformat(trade_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid trade_date") from exc
+
+    loader = PolygonFlatFileUniverseLoader(db)
+    try:
+        response = loader.fetch_day_aggregate_object(selected_trade_date)
+    except Exception as exc:
+        if loader._is_missing_object_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No Polygon flatfile found for trade_date={selected_trade_date.isoformat()}",
+            ) from exc
+        raise
+
+    body = response["Body"]
+    filename = PolygonFlatFileUniverseLoader.build_day_aggregate_filename(selected_trade_date)
+    content_length = response.get("ContentLength")
+    media_type = response.get("ContentType") or "application/gzip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
+
+    def stream_bytes():
+        try:
+            while True:
+                chunk = body.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            with suppress(Exception):
+                body.close()
+
+    return StreamingResponse(stream_bytes(), media_type=media_type, headers=headers)
 
 
 @router.get("/secret-sauce/l1-candidates", response_model=list[SecretL1CandidateResponse])

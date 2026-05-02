@@ -116,12 +116,20 @@ class PolygonFlatFileUniverseLoader:
                 stats.filtered_rows += 1
         return records, stats
 
+    @classmethod
+    def build_day_aggregate_filename(cls, trade_date: date) -> str:
+        return cls._build_day_aggregate_key(trade_date).rsplit("/", 1)[-1]
+
     @staticmethod
     def _build_day_aggregate_key(trade_date: date) -> str:
         return (
             f"{settings.polygon_day_aggregate_prefix}/"
             f"{trade_date.year:04d}/{trade_date.month:02d}/{trade_date.isoformat()}.csv.gz"
         )
+
+    def fetch_day_aggregate_object(self, trade_date: date) -> dict:
+        key = self._build_day_aggregate_key(trade_date)
+        return self._get_s3_client().get_object(Bucket=settings.polygon_flatfiles_bucket, Key=key)
 
     def _fetch_day_records_from_s3(
         self,
@@ -130,8 +138,7 @@ class PolygonFlatFileUniverseLoader:
         max_close: float,
         min_close: float | None = None,
     ) -> tuple[list[PolygonDayAggregateRecord], UniverseLoadStats]:
-        key = self._build_day_aggregate_key(trade_date)
-        response = self._get_s3_client().get_object(Bucket=settings.polygon_flatfiles_bucket, Key=key)
+        response = self.fetch_day_aggregate_object(trade_date)
         body = response["Body"]
         return self.parse_day_aggregate_stream(
             body,

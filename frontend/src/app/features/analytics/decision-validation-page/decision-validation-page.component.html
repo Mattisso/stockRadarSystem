@@ -62,14 +62,14 @@
           <div class="summary-card__status">{{ kpiStatusLabel('decisions') }}</div>
         </mat-card>
         <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('entries') === 'ok'" [class.summary-card--warn]="kpiSeverity('entries') === 'warn'" [class.summary-card--bad]="kpiSeverity('entries') === 'bad'">
-          <div class="summary-card__label">Candidate/Buy/Manage</div>
+          <div class="summary-card__label">Candidate / Buy / Manage</div>
           <div class="summary-card__value">
             {{ runtime.candidate_decision_count }}/{{ runtime.buy_decision_count }}/{{ runtime.manage_decision_count }}
           </div>
           <div class="summary-card__status">{{ kpiStatusLabel('entries') }}</div>
         </mat-card>
         <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('stale_rejects') === 'ok'" [class.summary-card--warn]="kpiSeverity('stale_rejects') === 'warn'" [class.summary-card--bad]="kpiSeverity('stale_rejects') === 'bad'">
-          <div class="summary-card__label">Rejects S/M</div>
+          <div class="summary-card__label">Rejects Second / Minute</div>
           <div class="summary-card__value">
             {{ runtime.second_stream_stale_reject_count }}/{{ runtime.minute_stream_stale_reject_count }}
           </div>
