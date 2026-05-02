@@ -79,6 +79,7 @@ from app.schemas.ml import (
     SellToBuyChurnAuditResponse,
     DecisionMarketValidationRowResponse,
     DecisionMarketValidationPageResponse,
+    DecisionRuntimeKpiResponse,
     L2HealthResponse,
     L2SubscriptionStatusResponse,
     SecretReplayRequest,
@@ -1643,6 +1644,92 @@ def ml_backtest(body: BacktestRequest, db: Session = Depends(get_db)):
 def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
     """Get trading KPIs for the last N days."""
     return TradeAnalytics(db).compute_kpis(days=days)
+
+
+@router.get("/analytics/runtime-kpis", response_model=DecisionRuntimeKpiResponse)
+@track_tables("candidate_events", "decision_events", "symbol_state_live")
+def analytics_runtime_kpis(window_minutes: int = 10, db: Session = Depends(get_db)):
+    window_minutes = max(1, min(window_minutes, 240))
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    window_start = now_utc - timedelta(minutes=window_minutes)
+
+    candidate_events_window_count = (
+        db.query(func.count(CandidateEvent.id))
+        .filter(CandidateEvent.created_at >= window_start)
+        .scalar()
+        or 0
+    )
+    processed_candidate_events_window_count = (
+        db.query(func.count(CandidateEvent.id))
+        .filter(
+            CandidateEvent.created_at >= window_start,
+            CandidateEvent.processed_at.is_not(None),
+        )
+        .scalar()
+        or 0
+    )
+    unprocessed_candidate_events_window_count = (
+        db.query(func.count(CandidateEvent.id))
+        .filter(
+            CandidateEvent.created_at >= window_start,
+            CandidateEvent.processed_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+
+    decision_counts = {
+        row[0]: row[1]
+        for row in (
+            db.query(DecisionEvent.decision_type, func.count(DecisionEvent.id))
+            .filter(DecisionEvent.created_at >= window_start)
+            .group_by(DecisionEvent.decision_type)
+            .all()
+        )
+    }
+    stale_reject_counts = {
+        row[0]: row[1]
+        for row in (
+            db.query(DecisionEvent.reason_code, func.count(DecisionEvent.id))
+            .filter(
+                DecisionEvent.created_at >= window_start,
+                DecisionEvent.decision_type == "reject",
+                DecisionEvent.reason_code.in_(("second_stream_stale", "minute_stream_stale")),
+            )
+            .group_by(DecisionEvent.reason_code)
+            .all()
+        )
+    }
+    second_stale_symbols_count = (
+        db.query(func.count(SymbolStateLive.ticker))
+        .filter(SymbolStateLive.is_second_stream_stale.is_(True))
+        .scalar()
+        or 0
+    )
+    minute_stale_symbols_count = (
+        db.query(func.count(SymbolStateLive.ticker))
+        .filter(SymbolStateLive.is_minute_stream_stale.is_(True))
+        .scalar()
+        or 0
+    )
+
+    return DecisionRuntimeKpiResponse(
+        generated_at=now_utc,
+        window_minutes=window_minutes,
+        candidate_events_window_count=candidate_events_window_count,
+        processed_candidate_events_window_count=processed_candidate_events_window_count,
+        unprocessed_candidate_events_window_count=unprocessed_candidate_events_window_count,
+        decision_events_window_count=sum(decision_counts.values()),
+        candidate_decision_count=decision_counts.get("candidate", 0),
+        buy_decision_count=decision_counts.get("buy", 0),
+        manage_decision_count=decision_counts.get("manage", 0),
+        sell_decision_count=decision_counts.get("sell", 0),
+        reject_decision_count=decision_counts.get("reject", 0),
+        second_stream_stale_reject_count=stale_reject_counts.get("second_stream_stale", 0),
+        minute_stream_stale_reject_count=stale_reject_counts.get("minute_stream_stale", 0),
+        second_stale_symbols_count=second_stale_symbols_count,
+        minute_stale_symbols_count=minute_stale_symbols_count,
+    )
 
 
 @router.get("/analytics/signal-accuracy", response_model=list[SignalAccuracyBucketResponse])

@@ -79,3 +79,21 @@ export interface IDecisionOutcomeDetail {
   pnl_abs: number;
   pnl_pct: number;
 }
+
+export interface IDecisionRuntimeKpis {
+  generated_at: string;
+  window_minutes: number;
+  candidate_events_window_count: number;
+  processed_candidate_events_window_count: number;
+  unprocessed_candidate_events_window_count: number;
+  decision_events_window_count: number;
+  candidate_decision_count: number;
+  buy_decision_count: number;
+  manage_decision_count: number;
+  sell_decision_count: number;
+  reject_decision_count: number;
+  second_stream_stale_reject_count: number;
+  minute_stream_stale_reject_count: number;
+  second_stale_symbols_count: number;
+  minute_stale_symbols_count: number;
+}

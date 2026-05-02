@@ -39,6 +39,55 @@
   } @else if (error()) {
     <div class="decision-validation__error">{{ error() }}</div>
   } @else {
+    @if (runtimeKpis(); as runtime) {
+      <div class="decision-validation__summary-grid">
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('triggers') === 'ok'" [class.summary-card--warn]="kpiSeverity('triggers') === 'warn'" [class.summary-card--bad]="kpiSeverity('triggers') === 'bad'">
+          <div class="summary-card__label">Triggers {{ runtime.window_minutes }}m</div>
+          <div class="summary-card__value">{{ runtime.candidate_events_window_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('triggers') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('processed') === 'ok'" [class.summary-card--warn]="kpiSeverity('processed') === 'warn'" [class.summary-card--bad]="kpiSeverity('processed') === 'bad'">
+          <div class="summary-card__label">Processed {{ runtime.window_minutes }}m</div>
+          <div class="summary-card__value">{{ runtime.processed_candidate_events_window_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('processed') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('unprocessed') === 'ok'" [class.summary-card--warn]="kpiSeverity('unprocessed') === 'warn'" [class.summary-card--bad]="kpiSeverity('unprocessed') === 'bad'">
+          <div class="summary-card__label">Unprocessed {{ runtime.window_minutes }}m</div>
+          <div class="summary-card__value">{{ runtime.unprocessed_candidate_events_window_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('unprocessed') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('decisions') === 'ok'" [class.summary-card--warn]="kpiSeverity('decisions') === 'warn'" [class.summary-card--bad]="kpiSeverity('decisions') === 'bad'">
+          <div class="summary-card__label">Decisions {{ runtime.window_minutes }}m</div>
+          <div class="summary-card__value">{{ runtime.decision_events_window_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('decisions') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('entries') === 'ok'" [class.summary-card--warn]="kpiSeverity('entries') === 'warn'" [class.summary-card--bad]="kpiSeverity('entries') === 'bad'">
+          <div class="summary-card__label">Candidate/Buy/Manage</div>
+          <div class="summary-card__value">
+            {{ runtime.candidate_decision_count }}/{{ runtime.buy_decision_count }}/{{ runtime.manage_decision_count }}
+          </div>
+          <div class="summary-card__status">{{ kpiStatusLabel('entries') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('stale_rejects') === 'ok'" [class.summary-card--warn]="kpiSeverity('stale_rejects') === 'warn'" [class.summary-card--bad]="kpiSeverity('stale_rejects') === 'bad'">
+          <div class="summary-card__label">Rejects S/M</div>
+          <div class="summary-card__value">
+            {{ runtime.second_stream_stale_reject_count }}/{{ runtime.minute_stream_stale_reject_count }}
+          </div>
+          <div class="summary-card__status">{{ kpiStatusLabel('stale_rejects') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('second_stale') === 'ok'" [class.summary-card--warn]="kpiSeverity('second_stale') === 'warn'" [class.summary-card--bad]="kpiSeverity('second_stale') === 'bad'">
+          <div class="summary-card__label">Second Stale Symbols</div>
+          <div class="summary-card__value">{{ runtime.second_stale_symbols_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('second_stale') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('minute_stale') === 'ok'" [class.summary-card--warn]="kpiSeverity('minute_stale') === 'warn'" [class.summary-card--bad]="kpiSeverity('minute_stale') === 'bad'">
+          <div class="summary-card__label">Minute Stale Symbols</div>
+          <div class="summary-card__value">{{ runtime.minute_stale_symbols_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('minute_stale') }}</div>
+        </mat-card>
+      </div>
+    }
+
     <div class="decision-validation__summary-grid">
       <mat-card class="summary-card">
         <div class="summary-card__label">Total</div>

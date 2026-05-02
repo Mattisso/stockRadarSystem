@@ -61,8 +61,42 @@
   font-weight: 700;
 }
 
-.summary-card--warn .summary-card__value {
-  color: #ffb74d;
+.summary-card__status {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.summary-card--ok {
+  border: 1px solid rgba(129, 199, 132, 0.45);
+  background: rgba(27, 94, 32, 0.16);
+}
+
+.summary-card--ok .summary-card__value,
+.summary-card--ok .summary-card__status {
+  color: #9be7a7;
+}
+
+.summary-card--warn {
+  border: 1px solid rgba(255, 183, 77, 0.45);
+  background: rgba(138, 75, 0, 0.16);
+}
+
+.summary-card--warn .summary-card__value,
+.summary-card--warn .summary-card__status {
+  color: #ffca7a;
+}
+
+.summary-card--bad {
+  border: 1px solid rgba(239, 83, 80, 0.45);
+  background: rgba(183, 28, 28, 0.18);
+}
+
+.summary-card--bad .summary-card__value,
+.summary-card--bad .summary-card__status {
+  color: #ff9b97;
 }
 
 .decision-validation__error {

@@ -505,6 +505,24 @@ class DecisionMarketValidationPageResponse(ApiResponseModel):
     items: list[DecisionMarketValidationRowResponse]
 
 
+class DecisionRuntimeKpiResponse(ApiResponseModel):
+    generated_at: datetime
+    window_minutes: int
+    candidate_events_window_count: int
+    processed_candidate_events_window_count: int
+    unprocessed_candidate_events_window_count: int
+    decision_events_window_count: int
+    candidate_decision_count: int
+    buy_decision_count: int
+    manage_decision_count: int
+    sell_decision_count: int
+    reject_decision_count: int
+    second_stream_stale_reject_count: int
+    minute_stream_stale_reject_count: int
+    second_stale_symbols_count: int
+    minute_stale_symbols_count: int
+
+
 class L2SubscriptionStatusResponse(ApiResponseModel):
     ticker: str
     confirmed: bool

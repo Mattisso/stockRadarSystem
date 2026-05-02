@@ -10,8 +10,10 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatTableModule } from '@angular/material/table';
 import { RouterLink } from '@angular/router';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
-import { IDecisionMarketValidationRow } from '../../../shared/models';
+import { IDecisionMarketValidationRow, IDecisionRuntimeKpis } from '../../../shared/models';
 import { AnalyticsApiService } from '../analytics-api.service';
+
+type KpiSeverity = 'ok' | 'warn' | 'bad';
 
 @Component({
   selector: 'app-decision-validation-page',
@@ -47,6 +49,7 @@ export class DecisionValidationPageComponent {
   readonly error = signal<string | null>(null);
   readonly summary = signal<Record<string, number>>({});
   readonly rows = signal<IDecisionMarketValidationRow[]>([]);
+  readonly runtimeKpis = signal<IDecisionRuntimeKpis | null>(null);
 
   readonly columns = [
     'ticker',
@@ -70,11 +73,13 @@ export class DecisionValidationPageComponent {
   readonly sellBarNotFoundCount = computed(() => this.summary()['SELL_BAR_NOT_FOUND'] ?? 0);
 
   constructor() {
+    this.loadRuntimeKpis();
     this.reload();
   }
 
   reload(): void {
     this.pageIndex.set(0);
+    this.loadRuntimeKpis();
     this.fetchPage(0, this.pageSize());
   }
 
@@ -113,8 +118,82 @@ export class DecisionValidationPageComponent {
       });
   }
 
+  private loadRuntimeKpis(): void {
+    this.api
+      .loadDecisionRuntimeKpis(10)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: response => this.runtimeKpis.set(response),
+        error: () => this.runtimeKpis.set(null),
+      });
+  }
+
   trackByRow(_: number, row: IDecisionMarketValidationRow): string {
     return `${row.ticker}-${row.sell_id}`;
+  }
+
+  kpiSeverity(name: string): KpiSeverity {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return 'warn';
+    }
+    switch (name) {
+      case 'triggers':
+        return runtime.candidate_events_window_count > 0 ? 'ok' : 'warn';
+      case 'processed':
+        return runtime.unprocessed_candidate_events_window_count === 0 ? 'ok' : 'warn';
+      case 'unprocessed':
+        if (runtime.unprocessed_candidate_events_window_count === 0) {
+          return 'ok';
+        }
+        if (runtime.unprocessed_candidate_events_window_count <= 10) {
+          return 'warn';
+        }
+        return 'bad';
+      case 'decisions':
+        return runtime.decision_events_window_count > 0 ? 'ok' : 'warn';
+      case 'entries':
+        return (runtime.candidate_decision_count + runtime.buy_decision_count + runtime.manage_decision_count) > 0
+          ? 'ok'
+          : 'warn';
+      case 'stale_rejects':
+        if (runtime.second_stream_stale_reject_count === 0 && runtime.minute_stream_stale_reject_count === 0) {
+          return 'ok';
+        }
+        if (runtime.minute_stream_stale_reject_count <= 5 && runtime.second_stream_stale_reject_count <= 2) {
+          return 'warn';
+        }
+        return 'bad';
+      case 'second_stale':
+        if (runtime.second_stale_symbols_count === 0) {
+          return 'ok';
+        }
+        if (runtime.second_stale_symbols_count <= 10) {
+          return 'warn';
+        }
+        return 'bad';
+      case 'minute_stale':
+        if (runtime.minute_stale_symbols_count === 0) {
+          return 'ok';
+        }
+        if (runtime.minute_stale_symbols_count <= 25) {
+          return 'warn';
+        }
+        return 'bad';
+      default:
+        return 'warn';
+    }
+  }
+
+  kpiStatusLabel(name: string): string {
+    const severity = this.kpiSeverity(name);
+    if (severity === 'ok') {
+      return 'Healthy';
+    }
+    if (severity === 'warn') {
+      return 'Watch';
+    }
+    return 'Blocked';
   }
 
   private defaultTradeDate(): string {

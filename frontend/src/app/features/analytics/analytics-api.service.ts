@@ -8,6 +8,7 @@ import {
   IRetrainResponse,
   IDecisionOutcomeDetail,
   IDecisionMarketValidationPage,
+  IDecisionRuntimeKpis,
 } from '../../shared/models';
 
 export interface AnalyticsData {
@@ -65,5 +66,11 @@ export class AnalyticsApiService {
       params = params.set('reason_code', reasonCode.trim());
     }
     return this.http.get<IDecisionOutcomeDetail[]>('/api/analytics/decision-events/details', { params });
+  }
+
+  loadDecisionRuntimeKpis(windowMinutes = 10): Observable<IDecisionRuntimeKpis> {
+    return this.http.get<IDecisionRuntimeKpis>('/api/analytics/runtime-kpis', {
+      params: { window_minutes: String(windowMinutes) },
+    });
   }
 }
