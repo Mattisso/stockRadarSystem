@@ -41,37 +41,37 @@ class PolygonLiveRetentionService:
             delete from stock_radar.polygon_ticks
             where greatest(coalesce(bid, 0), coalesce(ask, 0), coalesce(last, 0)) > :max_price
                or timezone('America/New_York', tick_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', tick_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', tick_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
         "polygon_ticks_live": """
             delete from stock_radar.polygon_ticks_live
             where greatest(coalesce(bid, 0), coalesce(ask, 0), coalesce(last, 0)) > :max_price
                or timezone('America/New_York', tick_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', tick_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', tick_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
         "polygon_minute_aggregates": """
             delete from stock_radar.polygon_minute_aggregates
             where greatest(coalesce(open, 0), coalesce(high, 0), coalesce(low, 0), coalesce(close, 0)) > :max_price
                or timezone('America/New_York', minute_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', minute_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', minute_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
         "minute_aggregates_live": """
             delete from stock_radar.minute_aggregates_live
             where greatest(coalesce(open, 0), coalesce(high, 0), coalesce(low, 0), coalesce(close, 0)) > :max_price
                or timezone('America/New_York', minute_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', minute_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', minute_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
         "second_aggregates": """
             delete from stock_radar.second_aggregates
             where greatest(coalesce(open, 0), coalesce(high, 0), coalesce(low, 0), coalesce(close, 0)) > :max_price
                or timezone('America/New_York', second_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', second_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', second_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
         "second_aggregates_live": """
             delete from stock_radar.second_aggregates_live
             where greatest(coalesce(open, 0), coalesce(high, 0), coalesce(low, 0), coalesce(close, 0)) > :max_price
                or timezone('America/New_York', second_ts at time zone 'UTC')::time < cast(:session_start_et as time)
-               or timezone('America/New_York', second_ts at time zone 'UTC')::time >= cast(:session_end_et as time)
+               or timezone('America/New_York', second_ts at time zone 'UTC')::time > cast(:session_end_et as time)
         """,
     }
 
@@ -288,4 +288,4 @@ class PolygonLiveRetentionService:
         else:
             ts = ts.astimezone(timezone.utc)
         et_time = ts.astimezone(NEW_YORK_TZ).time().strftime("%H:%M:%S")
-        return et_time < session_start_et or et_time >= session_end_et
+        return et_time < session_start_et or et_time > session_end_et
