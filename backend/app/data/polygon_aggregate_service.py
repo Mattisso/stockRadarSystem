@@ -7,8 +7,6 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.broker.interface import Quote
-from app.core.market_hours import is_regular_us_market_hours
-from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
 from app.models.polygon_day_aggregate import PolygonDayAggregate
@@ -216,13 +214,8 @@ class PolygonAggregateService:
         self.db.flush()
         if state_records:
             state_service = SymbolStateLiveService(self.db)
-            trigger_engine = AggregateTriggerEngine(self.db)
             for state_record in state_records:
-                state = state_service.update_from_second_aggregate(state_record)
-                if not is_regular_us_market_hours(state_record.second_ts):
-                    continue
-                triggers = trigger_engine.evaluate_second_bar(state_record, state)
-                trigger_engine.persist_with_validation(triggers, state, event_ts=state_record.second_ts)
+                state_service.update_from_second_aggregate(state_record)
         return rows_added
 
     def _upsert_second_row(self, model, record: PolygonSecondAggregateRecord, second_ts: datetime):

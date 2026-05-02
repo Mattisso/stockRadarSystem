@@ -10,6 +10,7 @@ from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol import Symbol
@@ -273,7 +274,7 @@ def test_upsert_second_aggregates_skips_decision_processing_outside_regular_hour
     assert state.validation_score is None
 
 
-def test_upsert_second_aggregates_does_not_persist_lifecycle_decisions_during_regular_hours(db):
+def test_upsert_second_aggregates_updates_state_but_does_not_emit_candidates_during_regular_hours(db):
     service = PolygonAggregateService(db)
     service.upsert_minute_aggregates(
         [
@@ -325,10 +326,9 @@ def test_upsert_second_aggregates_does_not_persist_lifecycle_decisions_during_re
     )
 
     assert inserted == 3
+    assert db.query(CandidateEvent).count() == 0
     assert db.query(DecisionEvent).count() == 0
 
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     assert state.last_second_ts.replace(tzinfo=timezone.utc) == datetime(2026, 4, 4, 14, 31, 3, tzinfo=timezone.utc)
-    assert state.candidate_score is not None
-    assert state.validation_score is not None
-    assert state.validation_pass_count >= 0
+    assert state.candidate_score is None

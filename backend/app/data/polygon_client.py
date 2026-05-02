@@ -19,6 +19,8 @@ from app.data.polygon_aggregate_service import (
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
+from app.data.polygon_event_bus import PolygonEventBus
+from app.data.polygon_event_models import PolygonAggregateEvent
 from app.data.polygon_connection import PolygonConnectionManager
 from app.data.polygon_parser import PolygonMessageParser
 
@@ -52,6 +54,7 @@ class PolygonClient:
         enable_quotes: bool = True,
         enable_aggregates: bool = False,
         db_session_factory=None,
+        aggregate_event_bus: PolygonEventBus | None = None,
         parser: PolygonMessageParser | None = None,
         connection_manager: PolygonConnectionManager | None = None,
     ) -> None:
@@ -70,6 +73,7 @@ class PolygonClient:
         self._enable_quotes = enable_quotes
         self._enable_aggregates = enable_aggregates
         self._db_session_factory = db_session_factory
+        self._aggregate_event_bus = aggregate_event_bus
         self._parser = parser or PolygonMessageParser()
         self._aggregate_parser = PolygonAggregateParser()
         self._connection_manager = connection_manager or PolygonConnectionManager(
@@ -80,6 +84,7 @@ class PolygonClient:
         self._task: asyncio.Task | None = None
         self._running = False
         self._subscriptions_paused = False
+        self._subscription_generation_id = 0
         self._session_connected = False
         self._reconnect_count = 0
         self._consecutive_failures = 0
@@ -129,8 +134,11 @@ class PolygonClient:
 
     def update_subscriptions(self, symbols: list[str], *, source: str = "watchlist") -> None:
         """Update the list of symbols to track."""
+        previous_symbols = self.current_symbols()
         self._subscription_sources[source] = list(symbols)
         self._symbols = self.current_symbols()
+        if self._symbols != previous_symbols:
+            self._subscription_generation_id += 1
         if self._mode in {"dev", "sandbox"}:
             log.info(
                 "polygon.subscriptions_updated",
@@ -138,9 +146,15 @@ class PolygonClient:
                 active_count=min(len(self._symbols), self._dev_max_symbols),
                 mode=self._mode,
                 source=source,
+                generation_id=self._subscription_generation_id,
             )
         else:
-            log.info("polygon.subscriptions_updated", count=len(self._symbols), source=source)
+            log.info(
+                "polygon.subscriptions_updated",
+                count=len(self._symbols),
+                source=source,
+                generation_id=self._subscription_generation_id,
+            )
 
         if self._running and self._mode == "websocket" and not self._subscriptions_paused:
             asyncio.create_task(self._resubscribe())
@@ -223,6 +237,7 @@ class PolygonClient:
             "reconnect_count": self._reconnect_count,
             "consecutive_failures": self._consecutive_failures,
             "subscription_count": len(self.current_symbols()),
+            "subscription_generation_id": self._subscription_generation_id,
             "include_trade_wildcard": self._include_trade_wildcard,
             "quotes_enabled": self._enable_quotes,
             "aggregates_enabled": self._enable_aggregates,
@@ -248,6 +263,22 @@ class PolygonClient:
             "persisted_minute_bar_count": self._persisted_minute_bar_count,
             "persisted_second_bar_count": self._persisted_second_bar_count,
         }
+
+    def record_aggregate_persisted(
+        self,
+        minute_count: int,
+        second_count: int,
+        persisted_at: datetime | None = None,
+    ) -> None:
+        persisted_ts = persisted_at or datetime.now(tz=timezone.utc)
+        self._aggregate_batch_count += 1
+        self._persisted_minute_bar_count += minute_count
+        self._persisted_second_bar_count += second_count
+        self._last_aggregate_persisted_at = persisted_ts
+        if minute_count:
+            self._last_minute_persisted_at = persisted_ts
+        if second_count:
+            self._last_second_persisted_at = persisted_ts
 
     async def load_reference_universe(
         self,
@@ -648,7 +679,7 @@ class PolygonClient:
         return tuple(channels)
 
     async def _handle_aggregate_ws_payload(self, payload: str | bytes | dict | list[dict]) -> None:
-        if not self._db_session_factory:
+        if not self._aggregate_event_bus and not self._db_session_factory:
             return
 
         bars = self._aggregate_parser.parse_messages(payload)
@@ -695,6 +726,54 @@ class PolygonClient:
         if not minute_records and not second_records:
             return
 
+        if self._aggregate_event_bus is not None:
+            received_at = datetime.now(tz=timezone.utc)
+            generation_id = getattr(self, "_subscription_generation_id", 0)
+            events: list[PolygonAggregateEvent] = []
+            for record in minute_records:
+                events.append(
+                    PolygonAggregateEvent(
+                        ticker=record.ticker,
+                        event_type="AM",
+                        event_ts=record.minute_ts,
+                        received_at=received_at,
+                        subscription_generation_id=generation_id,
+                        open=record.open,
+                        high=record.high,
+                        low=record.low,
+                        close=record.close,
+                        volume=record.volume,
+                        vwap=record.vwap,
+                        transactions=record.transactions,
+                    )
+                )
+            for record in second_records:
+                events.append(
+                    PolygonAggregateEvent(
+                        ticker=record.ticker,
+                        event_type="A",
+                        event_ts=record.second_ts,
+                        received_at=received_at,
+                        subscription_generation_id=generation_id,
+                        open=record.open,
+                        high=record.high,
+                        low=record.low,
+                        close=record.close,
+                        volume=record.volume,
+                        vwap=record.vwap,
+                        transactions=record.transactions,
+                    )
+                )
+            await self._aggregate_event_bus.publish_many(events)
+            log.info(
+                "polygon.aggregate_events_published",
+                symbols=len(allowed_tickers),
+                minute_count=len(minute_records),
+                second_count=len(second_records),
+                queue_depth=self._aggregate_event_bus.qsize(),
+            )
+            return
+
         db = self._db_session_factory()
         try:
             aggregate_service = PolygonAggregateService(db)
@@ -704,14 +783,7 @@ class PolygonClient:
                 aggregate_service.upsert_second_aggregates(second_records, allowed_tickers=allowed_tickers)
             db.commit()
             persisted_at = datetime.now(tz=timezone.utc)
-            self._aggregate_batch_count += 1
-            self._persisted_minute_bar_count += len(minute_records)
-            self._persisted_second_bar_count += len(second_records)
-            self._last_aggregate_persisted_at = persisted_at
-            if minute_records:
-                self._last_minute_persisted_at = persisted_at
-            if second_records:
-                self._last_second_persisted_at = persisted_at
+            self.record_aggregate_persisted(len(minute_records), len(second_records), persisted_at)
             log.info(
                 "polygon.aggregate_batch_persisted",
                 symbols=len(allowed_tickers),

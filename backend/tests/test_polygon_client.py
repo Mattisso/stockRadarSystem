@@ -9,6 +9,7 @@ import pytest
 from app.broker.interface import Quote
 from app.data.cache import InMemoryCache
 from app.data.polygon_client import PolygonClient
+from app.data.polygon_event_bus import PolygonEventBus
 
 
 @pytest.fixture
@@ -519,3 +520,41 @@ async def test_session_snapshot_reports_quote_and_aggregate_telemetry(cache, que
     assert snapshot["last_second_persisted_at"] is not None
     assert snapshot["quote_age_seconds"] is not None
     assert snapshot["aggregate_persist_age_seconds"] is not None
+
+
+@pytest.mark.asyncio
+async def test_handle_aggregate_ws_payload_publishes_to_event_bus(cache, queue):
+    await cache.connect()
+    event_bus = PolygonEventBus(maxsize=10)
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+        enable_quotes=False,
+        enable_aggregates=True,
+        aggregate_event_bus=event_bus,
+    )
+    client.update_subscriptions(["LCID"], source="secret_universe")
+
+    now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    await client._handle_ws_payload(
+        [
+            {"ev": "AM", "sym": "LCID", "o": 3.40, "h": 3.50, "l": 3.39, "c": 3.48, "v": 1000, "s": now_ms, "e": now_ms + 60000, "av": 3.45, "a": 10},
+            {"ev": "A", "sym": "LCID", "o": 3.47, "h": 3.49, "l": 3.46, "c": 3.48, "v": 100, "s": now_ms, "e": now_ms + 1000, "av": 3.48, "a": 4},
+        ]
+    )
+
+    assert event_bus.qsize() == 2
+    first = event_bus.read_nowait()
+    second = event_bus.read_nowait()
+    assert first.ticker == "LCID"
+    assert first.subscription_generation_id == 1
+    assert first.event_type == "AM"
+    assert second.event_type == "A"
+
+    snapshot = client.session_snapshot()
+    assert snapshot["aggregate_batch_count"] == 0
+    assert snapshot["persisted_minute_bar_count"] == 0
+    assert snapshot["persisted_second_bar_count"] == 0
+    assert snapshot["last_aggregate_received_at"] is not None

@@ -39,11 +39,14 @@ from app.core.metrics import (
 )
 from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
+from app.data.polygon_event_bus import PolygonEventBus
+from app.data.polygon_aggregate_persistence_worker import PolygonAggregatePersistenceWorker
 from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.data.aggregate_history_export_service import AggregateHistoryExportService
 from app.data.polygon_live_retention_service import PolygonLiveRetentionService
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.engine.aggregate_runtime_service import AggregateRuntimeService
+from app.engine.aggregate_trigger_worker import AggregateTriggerWorker
 from app.engine.signal_detector import SignalDetector
 from app.engine.l1_feature_engine import L1FeatureEngine
 from app.engine.l2_promotion_queue import L2PromotionQueue
@@ -165,10 +168,17 @@ async def lifespan(app: FastAPI):
     polygon_client = None
     polygon_queue_consumer = None
     polygon_aggregate_client = None
+    polygon_aggregate_event_bus = None
+    polygon_aggregate_persistence_worker = None
+    polygon_trigger_event_bus = None
+    aggregate_trigger_worker = None
     if should_enable_quote_client() or should_enable_aggregate_client():
         from app.data.polygon_client import PolygonClient
 
         polygon_queue = asyncio.Queue(maxsize=settings.polygon_queue_maxsize)
+        if should_enable_aggregate_client() and settings.polygon_mode == "websocket":
+            polygon_aggregate_event_bus = PolygonEventBus(maxsize=settings.polygon_queue_maxsize)
+            polygon_trigger_event_bus = PolygonEventBus(maxsize=settings.polygon_queue_maxsize)
         polygon_client = PolygonClient(
             api_key=settings.polygon_api_key,
             mode=settings.polygon_mode,
@@ -184,6 +194,7 @@ async def lifespan(app: FastAPI):
             enable_quotes=should_enable_quote_client(),
             enable_aggregates=should_enable_aggregate_client() and settings.polygon_mode == "websocket",
             db_session_factory=SessionLocal if should_enable_aggregate_client() and settings.polygon_mode == "websocket" else None,
+            aggregate_event_bus=polygon_aggregate_event_bus,
         )
 
         # Pre-hydrate subscriptions from database if symbols are already known
@@ -208,6 +219,8 @@ async def lifespan(app: FastAPI):
             db.close()
 
     app.state.polygon_client = polygon_client
+    app.state.polygon_aggregate_event_bus = polygon_aggregate_event_bus
+    app.state.polygon_trigger_event_bus = polygon_trigger_event_bus
     app.state.polygon_aggregate_client = None
     runtime.mark_service(
         "polygon",
@@ -340,9 +353,24 @@ async def lifespan(app: FastAPI):
                 l1_feature_engine=l1_feature_engine,
                 tick_persister=tick_persister,
             )
+        if polygon_aggregate_event_bus is not None:
+            polygon_aggregate_persistence_worker = PolygonAggregatePersistenceWorker(
+                polygon_aggregate_event_bus,
+                SessionLocal,
+                on_batch_persisted=polygon_client.record_aggregate_persisted,
+                trigger_event_bus=polygon_trigger_event_bus,
+            )
+            aggregate_trigger_worker = AggregateTriggerWorker(
+                polygon_trigger_event_bus,
+                SessionLocal,
+            )
         if run_background:
             if settings.polygon_mode == "websocket" and not is_regular_us_market_hours(datetime.now(timezone.utc)):
                 await polygon_client.pause_subscriptions()
+            if polygon_aggregate_persistence_worker is not None:
+                await polygon_aggregate_persistence_worker.start()
+            if aggregate_trigger_worker is not None:
+                await aggregate_trigger_worker.start()
             if polygon_queue_consumer is not None:
                 await polygon_queue_consumer.start()
             await polygon_client.start()
@@ -392,6 +420,8 @@ async def lifespan(app: FastAPI):
     app.state.risk_manager = risk_manager
     app.state.trade_executor = trade_executor
     app.state.polygon_queue_consumer = polygon_queue_consumer
+    app.state.polygon_aggregate_persistence_worker = polygon_aggregate_persistence_worker
+    app.state.aggregate_trigger_worker = aggregate_trigger_worker
     app.state.secret_ingredients = SecretIngredientsService
     runtime.mark_service("state_machine", True)
     runtime.mark_service("agents", True)
@@ -1015,6 +1045,10 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
     if polygon_client:
         await polygon_client.stop()
+    if polygon_aggregate_persistence_worker:
+        await polygon_aggregate_persistence_worker.stop()
+    if aggregate_trigger_worker:
+        await aggregate_trigger_worker.stop()
     if polygon_queue_consumer:
         await polygon_queue_consumer.stop()
     await cache.disconnect()
