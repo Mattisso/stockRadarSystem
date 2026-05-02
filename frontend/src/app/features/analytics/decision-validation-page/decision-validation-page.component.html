@@ -30,9 +30,20 @@
 
       <div class="decision-validation__actions">
         <button mat-flat-button color="primary" (click)="reload()">Load Validation</button>
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="flatfileDownloading()"
+          (click)="downloadFlatfile()">
+          {{ flatfileDownloading() ? 'Downloading…' : 'Download Flatfile' }}
+        </button>
       </div>
     </div>
   </mat-card>
+
+  @if (flatfileError()) {
+    <div class="decision-validation__error">{{ flatfileError() }}</div>
+  }
 
   @if (loading()) {
     <app-loading />

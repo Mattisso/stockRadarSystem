@@ -5,7 +5,6 @@ import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
 import { LoadingComponent } from '../../../shared/components/loading/loading.component';
 import {
   IL2Health,
@@ -29,7 +28,6 @@ import { SecretSauceApiService } from '../secret-sauce-api.service';
     MatTableModule,
     MatFormFieldModule,
     MatInputModule,
-    MatButtonModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './secret-sauce-page.component.html',
@@ -45,19 +43,16 @@ export class SecretSaucePageComponent implements OnInit {
   l1Candidates = signal<ISecretL1Candidate[]>([]);
   l1ToL2Events = signal<ISecretL1ToL2Event[]>([]);
   tickerFilter = signal('');
-  flatfileTradeDate = signal(this.defaultTradeDate());
   readonly funnelLoading = signal(false);
   readonly l2Loading = signal(false);
   readonly universeLoading = signal(false);
   readonly candidatesLoading = signal(false);
   readonly handoffLoading = signal(false);
-  readonly flatfileDownloading = signal(false);
   readonly funnelError = signal<string | null>(null);
   readonly l2Error = signal<string | null>(null);
   readonly universeError = signal<string | null>(null);
   readonly candidatesError = signal<string | null>(null);
   readonly handoffError = signal<string | null>(null);
-  readonly flatfileError = signal<string | null>(null);
   readonly loading = computed(
     () =>
       this.funnelLoading() ||
@@ -116,41 +111,12 @@ export class SecretSaucePageComponent implements OnInit {
     return rows.filter(row => tickerSelector(row).toUpperCase().includes(filter));
   }
 
-  downloadFlatfile(): void {
-    const tradeDate = this.flatfileTradeDate().trim();
-    if (!tradeDate) {
-      this.flatfileError.set('Select a trade date before downloading the flatfile.');
-      return;
-    }
-
-    this.flatfileDownloading.set(true);
-    this.flatfileError.set(null);
-    this.api.downloadFlatfile(tradeDate).subscribe({
-      next: blob => {
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `${tradeDate}.csv.gz`;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        this.flatfileDownloading.set(false);
-      },
-      error: error => {
-        this.flatfileError.set(this.toErrorMessage(error, 'Failed to download Polygon flatfile'));
-        this.flatfileDownloading.set(false);
-      },
-    });
-  }
-
   private loadFunnel(): void {
     this.funnelLoading.set(true);
     this.funnelError.set(null);
     this.api.getFunnel().subscribe({
       next: data => {
         this.funnel.set(data);
-        if (data.trade_date) {
-          this.flatfileTradeDate.set(data.trade_date);
-        }
         this.funnelLoading.set(false);
       },
       error: error => {
@@ -225,11 +191,5 @@ export class SecretSaucePageComponent implements OnInit {
       return error.message;
     }
     return fallback;
-  }
-
-  private defaultTradeDate(): string {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/New_York',
-    }).format(new Date());
   }
 }

@@ -27,13 +27,6 @@ export class SecretSauceApiService {
     });
   }
 
-  downloadFlatfile(tradeDate: string): Observable<Blob> {
-    return this.http.get('/api/secret-sauce/flatfile-download', {
-      params: { trade_date: tradeDate },
-      responseType: 'blob',
-    });
-  }
-
   getL1Candidates(limit = 100): Observable<ISecretL1Candidate[]> {
     return this.http.get<ISecretL1Candidate[]>('/api/secret-sauce/l1-candidates', {
       params: { limit: String(limit) },

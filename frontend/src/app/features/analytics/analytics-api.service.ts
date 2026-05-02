@@ -73,4 +73,11 @@ export class AnalyticsApiService {
       params: { window_minutes: String(windowMinutes) },
     });
   }
+
+  downloadFlatfile(tradeDate: string): Observable<Blob> {
+    return this.http.get('/api/secret-sauce/flatfile-download', {
+      params: { trade_date: tradeDate },
+      responseType: 'blob',
+    });
+  }
 }

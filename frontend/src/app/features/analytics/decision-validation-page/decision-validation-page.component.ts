@@ -47,6 +47,8 @@ export class DecisionValidationPageComponent {
   readonly total = signal(0);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly flatfileError = signal<string | null>(null);
+  readonly flatfileDownloading = signal(false);
   readonly summary = signal<Record<string, number>>({});
   readonly rows = signal<IDecisionMarketValidationRow[]>([]);
   readonly runtimeKpis = signal<IDecisionRuntimeKpis | null>(null);
@@ -87,6 +89,35 @@ export class DecisionValidationPageComponent {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
     this.fetchPage(event.pageIndex, event.pageSize);
+  }
+
+  downloadFlatfile(): void {
+    const tradeDate = this.tradeDate().trim();
+    if (!tradeDate) {
+      this.flatfileError.set('Select a trade date before downloading the flatfile.');
+      return;
+    }
+
+    this.flatfileDownloading.set(true);
+    this.flatfileError.set(null);
+    this.api
+      .downloadFlatfile(tradeDate)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: blob => {
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = `${tradeDate}.csv.gz`;
+          anchor.click();
+          URL.revokeObjectURL(url);
+          this.flatfileDownloading.set(false);
+        },
+        error: () => {
+          this.flatfileDownloading.set(false);
+          this.flatfileError.set('Failed to download Polygon flatfile.');
+        },
+      });
   }
 
   private fetchPage(page: number, pageSize: number): void {
