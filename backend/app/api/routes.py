@@ -21,6 +21,7 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.api.observability import track_tables
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
@@ -93,6 +94,8 @@ from app.schemas.signal import SignalRead
 from app.schemas.symbol import SymbolRead
 from app.schemas.trade import TradeRead
 
+log = get_logger(__name__)
+
 # ── Public routes (no auth) ──────────────────────────────────────────
 
 public_router = APIRouter()
@@ -160,7 +163,7 @@ async def contract_metadata():
             "/api/secret-sauce/status",
             "/api/secret-sauce/replay",
             "/api/secret-sauce/universe-daily",
-            "/api/secret-sauce/flatfile-download",
+            "/api/polygon/flatfiles/day-aggregates/download",
             "/api/secret-sauce/l1-candidates",
             "/api/secret-sauce/l1-to-l2-events",
             "/api/secret-sauce/funnel",
@@ -769,8 +772,8 @@ def get_secret_universe_daily(
     )
 
 
-@router.get("/secret-sauce/flatfile-download")
-def download_secret_universe_flatfile(
+@router.get("/polygon/flatfiles/day-aggregates/download")
+def download_polygon_day_aggregate_flatfile(
     trade_date: str,
     db: Session = Depends(get_db),
 ):
@@ -788,7 +791,21 @@ def download_secret_universe_flatfile(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No Polygon flatfile found for trade_date={selected_trade_date.isoformat()}",
             ) from exc
-        raise
+        upstream_code = None
+        upstream_response = getattr(exc, "response", None)
+        if isinstance(upstream_response, dict):
+            upstream_code = str(upstream_response.get("Error", {}).get("Code", "")).strip() or None
+        log.exception(
+            "secret_sauce.flatfile_download_failed",
+            trade_date=selected_trade_date.isoformat(),
+            upstream_code=upstream_code,
+            bucket=settings.polygon_flatfiles_bucket,
+            endpoint_url=settings.polygon_flatfiles_endpoint_url,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Polygon flatfile fetch failed",
+        ) from exc
 
     body = response["Body"]
     filename = PolygonFlatFileUniverseLoader.build_day_aggregate_filename(selected_trade_date)

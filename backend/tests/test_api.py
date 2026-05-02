@@ -1,6 +1,7 @@
 """Tests for API routes."""
 
 from datetime import date, datetime, timezone
+import io
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.auth import create_access_token
 from app.core.database import get_db
 from app.main import app
+from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
@@ -188,6 +190,34 @@ def test_secret_sauce_status(client, auth_headers):
     assert "polygon_session" in body
     assert "configured_secret_universe_source" in body["runtime"]
     assert "last_secret_universe_source" in body["runtime"]
+
+
+def test_polygon_day_aggregate_flatfile_download(client, auth_headers, monkeypatch):
+    payload = b"test-flatfile-bytes"
+
+    class FakeBody(io.BytesIO):
+        def close(self):
+            super().close()
+
+    def fake_fetch(self, trade_date):
+        assert trade_date.isoformat() == "2026-04-30"
+        return {
+            "Body": FakeBody(payload),
+            "ContentLength": len(payload),
+            "ContentType": "application/gzip",
+        }
+
+    monkeypatch.setattr(PolygonFlatFileUniverseLoader, "fetch_day_aggregate_object", fake_fetch)
+
+    response = client.get(
+        "/api/polygon/flatfiles/day-aggregates/download",
+        params={"trade_date": "2026-04-30"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.content == payload
+    assert response.headers["content-type"] == "application/gzip"
+    assert 'filename="2026-04-30.csv.gz"' in response.headers["content-disposition"]
 
 
 def test_secret_sauce_replay(client, auth_headers):

@@ -75,7 +75,7 @@ export class AnalyticsApiService {
   }
 
   downloadFlatfile(tradeDate: string): Observable<Blob> {
-    return this.http.get('/api/secret-sauce/flatfile-download', {
+    return this.http.get('/api/polygon/flatfiles/day-aggregates/download', {
       params: { trade_date: tradeDate },
       responseType: 'blob',
     });
