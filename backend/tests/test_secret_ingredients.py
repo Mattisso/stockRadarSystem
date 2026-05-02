@@ -1,4 +1,8 @@
+from datetime import datetime, timedelta
+
 from app.engine.secret_ingredients import SecretIngredientsService
+from app.models.symbol_state_live import SymbolStateLive
+from app.models.trade import Trade, TradeSide, TradeStatus
 
 
 def test_select_aggregate_subscription_tickers_uses_aggregate_defaults(monkeypatch):
@@ -88,3 +92,63 @@ def test_select_aggregate_subscription_tickers_returns_full_ranked_set_when_unca
     tickers = service.select_aggregate_subscription_tickers()
 
     assert tickers == ["BBB", "AAA"]
+
+
+def test_select_operational_subscription_tickers_prioritizes_open_trades_and_active_states(
+    db,
+    monkeypatch,
+):
+    now = datetime(2026, 5, 2, 14, 0, 0)
+    monkeypatch.setattr(
+        "app.engine.secret_ingredients.settings.polygon_operational_subscription_max_symbols",
+        3,
+    )
+    monkeypatch.setattr(
+        "app.engine.secret_ingredients.settings.polygon_operational_recent_sold_minutes",
+        30,
+    )
+
+    db.add_all(
+        [
+            Trade(
+                ticker="OPEN1",
+                side=TradeSide.BUY,
+                status=TradeStatus.FILLED,
+                quantity=100,
+                created_at=now - timedelta(minutes=2),
+            ),
+            Trade(
+                ticker="OPEN2",
+                side=TradeSide.BUY,
+                status=TradeStatus.PENDING,
+                quantity=100,
+                created_at=now - timedelta(minutes=1),
+            ),
+            SymbolStateLive(
+                ticker="MANAGE1",
+                candidate_status="manage",
+                updated_at=now - timedelta(minutes=3),
+            ),
+            SymbolStateLive(
+                ticker="CAND1",
+                candidate_status="candidate",
+                updated_at=now - timedelta(minutes=4),
+            ),
+            SymbolStateLive(
+                ticker="SOLD1",
+                candidate_status="sold",
+                updated_at=now - timedelta(minutes=10),
+            ),
+            SymbolStateLive(
+                ticker="SOLD_OLD",
+                candidate_status="sold",
+                updated_at=now - timedelta(minutes=45),
+            ),
+        ]
+    )
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    tickers = service.select_operational_subscription_tickers(now=now)
+
+    assert tickers == ["OPEN2", "OPEN1", "MANAGE1"]

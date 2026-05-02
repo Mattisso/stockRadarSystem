@@ -211,8 +211,15 @@ async def lifespan(app: FastAPI):
 
             if settings.secret_universe_enabled:
                 aggregate_secret_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
+                operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
                 if aggregate_secret_tickers and polygon_client is not None:
                     polygon_client.update_subscriptions(aggregate_secret_tickers, source="secret_universe")
+                if polygon_client is not None:
+                    polygon_client.update_subscriptions(
+                        operational_tickers,
+                        source="operational",
+                        sticky=True,
+                    )
         except Exception:
             log.exception("polygon.pre_hydrate_error")
         finally:
@@ -312,14 +319,39 @@ async def lifespan(app: FastAPI):
 
             aggregate_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
             live_tickers = SecretIngredientsService(db).select_live_subscription_tickers()
+            operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
             if update_subscriptions:
                 if polygon_client:
                     if settings.secret_universe_source == "polygon":
                         polygon_client.update_subscriptions([], source="watchlist")
                     polygon_client.update_subscriptions(aggregate_tickers, source="secret_universe")
+                    polygon_client.update_subscriptions(
+                        operational_tickers,
+                        source="operational",
+                        sticky=True,
+                    )
             SECRET_UNIVERSE_SIZE.set(len(tickers))
             secret_runtime_status.mark_secret_universe_refresh(len(tickers), source=source)
             return source, tickers, live_tickers
+        finally:
+            db.close()
+
+    async def refresh_polygon_operational_subscriptions(_changed_tickers: list[str] | None = None) -> list[str]:
+        if polygon_client is None:
+            return []
+        db = SessionLocal()
+        try:
+            operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
+            polygon_client.update_subscriptions(
+                operational_tickers,
+                source="operational",
+                sticky=True,
+            )
+            log.info(
+                "polygon.operational_subscriptions_refreshed",
+                count=len(operational_tickers),
+            )
+            return operational_tickers
         finally:
             db.close()
 
@@ -363,6 +395,7 @@ async def lifespan(app: FastAPI):
             aggregate_trigger_worker = AggregateTriggerWorker(
                 polygon_trigger_event_bus,
                 SessionLocal,
+                on_candidate_events_persisted=refresh_polygon_operational_subscriptions,
             )
         if run_background:
             if settings.polygon_mode == "websocket" and not is_regular_us_market_hours(datetime.now(timezone.utc)):
@@ -515,6 +548,12 @@ async def lifespan(app: FastAPI):
                 await broker.subscribe_market_data(tickers)
                 if polygon_client:
                     polygon_client.update_subscriptions(tickers, source="watchlist")
+                    operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
+                    polygon_client.update_subscriptions(
+                        operational_tickers,
+                        source="operational",
+                        sticky=True,
+                    )
                 log.info("scheduler.universe_refreshed", count=len(tickers))
             finally:
                 db.close()
@@ -785,6 +824,7 @@ async def lifespan(app: FastAPI):
             if not broker.is_connected():
                 return
             await trade_executor.monitor_positions()
+            await refresh_polygon_operational_subscriptions()
 
             # Broadcast trade + portfolio updates via WebSocket
             if ws_manager.active_count or ws_manager.uses_pubsub:
@@ -884,6 +924,7 @@ async def lifespan(app: FastAPI):
                 )
             finally:
                 db.close()
+            await refresh_polygon_operational_subscriptions()
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="aggregate_rolling_refresh").inc()
             log.exception("scheduler.aggregate_rolling_refresh_error")

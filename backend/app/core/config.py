@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     secret_polygon_live_min_avg_volume: int = 500_000
     aggregate_live_max_symbols: int = 0
     aggregate_live_min_avg_volume: int = 0
+    polygon_operational_subscription_max_symbols: int = 100
+    polygon_operational_recent_sold_minutes: int = 30
 
     # --- Broker ---
     broker_type: str = "mock"  # "mock" | "ibkr"

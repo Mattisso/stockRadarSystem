@@ -26,11 +26,13 @@ class AggregateTriggerWorker:
         *,
         batch_size: int = 100,
         flush_interval_seconds: float = 0.5,
+        on_candidate_events_persisted=None,
     ) -> None:
         self._event_bus = event_bus
         self._db_session_factory = db_session_factory
         self._batch_size = max(1, batch_size)
         self._flush_interval_seconds = max(0.05, flush_interval_seconds)
+        self._on_candidate_events_persisted = on_candidate_events_persisted
         self._task: asyncio.Task | None = None
         self._running = False
 
@@ -66,24 +68,25 @@ class AggregateTriggerWorker:
                 )
                 pending.append(event)
                 if len(pending) >= self._batch_size:
-                    self._process(pending)
+                    await self._process(pending)
                     pending = []
             except TimeoutError:
                 if pending:
-                    self._process(pending)
+                    await self._process(pending)
                     pending = []
             except asyncio.CancelledError:
                 if pending:
-                    self._process(pending)
+                    await self._process(pending)
                 raise
             except Exception:
                 log.exception("aggregate.trigger_worker_error")
 
-    def _process(self, events: list[PolygonAggregateEvent]) -> None:
+    async def _process(self, events: list[PolygonAggregateEvent]) -> None:
         db: Session = self._db_session_factory()
         try:
             trigger_engine = AggregateTriggerEngine(db)
             persisted_candidate_event_count = 0
+            changed_tickers: set[str] = set()
             for event in events:
                 if event.event_type != "A":
                     continue
@@ -109,7 +112,14 @@ class AggregateTriggerWorker:
                     state,
                     event_ts=record.second_ts,
                 )
+                if triggers:
+                    changed_tickers.add(event.ticker.upper())
             db.commit()
+            if (
+                persisted_candidate_event_count > 0
+                and self._on_candidate_events_persisted is not None
+            ):
+                await self._on_candidate_events_persisted(sorted(changed_tickers))
             log.info(
                 "aggregate.trigger_worker_batch_processed",
                 second_event_count=sum(1 for event in events if event.event_type == "A"),

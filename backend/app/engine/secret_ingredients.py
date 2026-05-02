@@ -1,7 +1,7 @@
 """First-sprint Secret Ingredients persistence and handoff helpers."""
 
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 
 from sqlalchemy import desc
@@ -12,6 +12,8 @@ from app.engine.secret_candidate_scorer import SecretCandidateEvent
 from app.models.l1_candidate import L1Candidate
 from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.symbol import Symbol
+from app.models.symbol_state_live import SymbolStateLive
+from app.models.trade import Trade, TradeStatus
 from app.models.universe_daily import UniverseDaily
 
 
@@ -206,6 +208,87 @@ class SecretIngredientsService:
         if target_max <= 0:
             return [ticker for ticker, _avg_volume, _last_price in ranked]
         return [ticker for ticker, _avg_volume, _last_price in ranked[:target_max]]
+
+    def select_operational_subscription_tickers(
+        self,
+        *,
+        max_symbols: int | None = None,
+        recent_sold_minutes: int | None = None,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """Select sticky aggregate subscriptions for active lifecycle symbols.
+
+        This overlay keeps operationally relevant names subscribed even when the
+        broader universe refreshes. Open trades are prioritized first, followed
+        by aggregate lifecycle states such as `buy`, `manage`, `candidate`, and
+        recent `sold`.
+        """
+        target_max = (
+            settings.polygon_operational_subscription_max_symbols
+            if max_symbols is None
+            else max_symbols
+        )
+        sold_window_minutes = (
+            settings.polygon_operational_recent_sold_minutes
+            if recent_sold_minutes is None
+            else recent_sold_minutes
+        )
+        reference_now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+        sold_cutoff = reference_now - timedelta(minutes=max(sold_window_minutes, 0))
+
+        sticky_tickers: list[str] = []
+        seen: set[str] = set()
+
+        open_trade_rows = (
+            self.db.query(Trade)
+            .filter(Trade.status.in_((TradeStatus.PENDING, TradeStatus.PARTIAL, TradeStatus.FILLED)))
+            .order_by(Trade.created_at.desc(), Trade.ticker.asc())
+            .all()
+        )
+        for row in open_trade_rows:
+            if row.ticker in seen:
+                continue
+            seen.add(row.ticker)
+            sticky_tickers.append(row.ticker)
+
+        state_rows = (
+            self.db.query(SymbolStateLive)
+            .filter(
+                (SymbolStateLive.candidate_status.in_(("candidate", "validated", "buy", "manage")))
+                | (
+                    (SymbolStateLive.candidate_status == "sold")
+                    & (SymbolStateLive.updated_at >= sold_cutoff)
+                )
+            )
+            .order_by(SymbolStateLive.updated_at.desc(), SymbolStateLive.ticker.asc())
+            .all()
+        )
+
+        priority = {
+            "buy": 0,
+            "manage": 1,
+            "validated": 2,
+            "candidate": 3,
+            "sold": 4,
+        }
+        ranked_states = sorted(
+            state_rows,
+            key=lambda row: (
+                priority.get(row.candidate_status, 99),
+                -(row.updated_at.timestamp() if row.updated_at is not None else 0.0),
+                row.ticker,
+            ),
+        )
+
+        for row in ranked_states:
+            if row.ticker in seen:
+                continue
+            seen.add(row.ticker)
+            sticky_tickers.append(row.ticker)
+
+        if target_max <= 0:
+            return sticky_tickers
+        return sticky_tickers[:target_max]
 
     def record_candidates(self, events: list[SecretCandidateEvent]) -> list[L1Candidate]:
         records: list[L1Candidate] = []
