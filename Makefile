@@ -186,50 +186,50 @@ public-build-help:
 	@echo "    Deploy using the currently recorded API/frontend image tags."
 
 build-public-api-image:
-	@mkdir -p $(PUBLIC_API_CACHE_DIR)
-	@echo "=== Building public API image ($(PUBLIC_API_IMAGE_TAG)) ==="
-	@start=$$(date +%s); \
-	docker buildx build --load \
+	@echo "=== Building and Pushing public API image ($(PUBLIC_API_IMAGE_TAG)) ==="
+	@set -e; \
+	start=$$(date +%s); \
+	driver=$$(docker buildx inspect 2>/dev/null | awk '/Driver:/ {print $$2; exit}'); \
+	CACHE_ARGS=""; \
+	if [ "$$driver" = "docker-container" ] || [ "$$driver" = "kubernetes" ] || [ "$$driver" = "remote" ]; then \
+		mkdir -p $(PUBLIC_API_CACHE_DIR); \
+		CACHE_ARGS="--cache-from type=local,src=$(PUBLIC_API_CACHE_DIR) --cache-to type=local,dest=$(PUBLIC_API_CACHE_DIR),mode=max"; \
+	fi; \
+	docker buildx build --push \
+		$$CACHE_ARGS \
 		--progress=$(PUBLIC_BUILD_PROGRESS) \
-		--cache-from type=local,src=$(PUBLIC_API_CACHE_DIR) \
-		--cache-to type=local,dest=$(PUBLIC_API_CACHE_DIR).tmp,mode=max \
 		-t $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_API_IMAGE_TAG) \
 		-f backend/Dockerfile_prod backend; \
 	end=$$(date +%s); \
-	echo "API image build completed in $$((end-start))s"
-	@rm -rf $(PUBLIC_API_CACHE_DIR)
-	@mv $(PUBLIC_API_CACHE_DIR).tmp $(PUBLIC_API_CACHE_DIR)
+	echo "API image build & push completed in $$((end-start))s"
 	@printf '%s\n' '$(PUBLIC_API_IMAGE_TAG)' > $(PUBLIC_API_IMAGE_TAG_FILE)
 
 build-public-frontend-image:
-	@mkdir -p $(PUBLIC_FRONTEND_CACHE_DIR)
-	@echo "=== Building public frontend image ($(PUBLIC_FRONTEND_IMAGE_TAG)) ==="
-	@start=$$(date +%s); \
-	docker buildx build --load \
+	@echo "=== Building and Pushing public frontend image ($(PUBLIC_FRONTEND_IMAGE_TAG)) ==="
+	@set -e; \
+	start=$$(date +%s); \
+	driver=$$(docker buildx inspect 2>/dev/null | awk '/Driver:/ {print $$2; exit}'); \
+	CACHE_ARGS=""; \
+	if [ "$$driver" = "docker-container" ] || [ "$$driver" = "kubernetes" ] || [ "$$driver" = "remote" ]; then \
+		mkdir -p $(PUBLIC_FRONTEND_CACHE_DIR); \
+		CACHE_ARGS="--cache-from type=local,src=$(PUBLIC_FRONTEND_CACHE_DIR) --cache-to type=local,dest=$(PUBLIC_FRONTEND_CACHE_DIR),mode=max"; \
+	fi; \
+	docker buildx build --push \
+		$$CACHE_ARGS \
 		--progress=$(PUBLIC_BUILD_PROGRESS) \
-		--cache-from type=local,src=$(PUBLIC_FRONTEND_CACHE_DIR) \
-		--cache-to type=local,dest=$(PUBLIC_FRONTEND_CACHE_DIR).tmp,mode=max \
 		-t $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_FRONTEND_IMAGE_TAG) \
 		-f frontend/Dockerfile_prod frontend; \
 	end=$$(date +%s); \
-	echo "Frontend image build completed in $$((end-start))s"
-	@rm -rf $(PUBLIC_FRONTEND_CACHE_DIR)
-	@mv $(PUBLIC_FRONTEND_CACHE_DIR).tmp $(PUBLIC_FRONTEND_CACHE_DIR)
+	echo "Frontend image build & push completed in $$((end-start))s"
 	@printf '%s\n' '$(PUBLIC_FRONTEND_IMAGE_TAG)' > $(PUBLIC_FRONTEND_IMAGE_TAG_FILE)
 
 push-public-api-image:
-	@start=$$(date +%s); \
-	docker push $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_API_IMAGE_TAG); \
-	end=$$(date +%s); \
-	echo "API image push completed in $$((end-start))s"
+	@echo "Image already pushed during build step."
 
 push-public-frontend-image:
-	@start=$$(date +%s); \
-	docker push $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_FRONTEND_IMAGE_TAG); \
-	end=$$(date +%s); \
-	echo "Frontend image push completed in $$((end-start))s"
+	@echo "Image already pushed during build step."
 
-build-public-images: build-public-api-image build-public-frontend-image push-public-api-image push-public-frontend-image
+build-public-images: build-public-api-image build-public-frontend-image
 	@printf 'api=%s\nfrontend=%s\n' '$(PUBLIC_API_IMAGE_TAG)' '$(PUBLIC_FRONTEND_IMAGE_TAG)' > $(PUBLIC_IMAGE_TAG_FILE)
 	@echo "Recorded public API image tag: $(PUBLIC_API_IMAGE_TAG)"
 	@echo "Recorded public frontend image tag: $(PUBLIC_FRONTEND_IMAGE_TAG)"
