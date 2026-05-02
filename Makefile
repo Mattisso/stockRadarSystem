@@ -5,8 +5,17 @@ PUBLIC_REGISTRY ?= $(REGISTRY)
 HELM_DIR := helm/stock-radar
 HELM_RELEASE := stock-radar
 PUBLIC_HELM_RELEASE := stock-radar-public
-PUBLIC_IMAGE_TAG ?= $(shell printf '%s-%s' "$$(date +%Y%m%d%H%M%S)" "$$(git rev-parse --short=12 HEAD 2>/dev/null || echo manual)")
+PUBLIC_DEFAULT_IMAGE_TAG ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo manual)
+PUBLIC_API_IMAGE_TAG ?= $(PUBLIC_DEFAULT_IMAGE_TAG)
+PUBLIC_FRONTEND_IMAGE_TAG ?= $(PUBLIC_DEFAULT_IMAGE_TAG)
+PUBLIC_API_IMAGE_TAG_FILE := .public-api-image-tag
+PUBLIC_FRONTEND_IMAGE_TAG_FILE := .public-frontend-image-tag
 PUBLIC_IMAGE_TAG_FILE := .public-image-tag
+PUBLIC_BUILD_PROGRESS ?= plain
+PUBLIC_BUILD_DIFF_BASE ?= HEAD~1
+PUBLIC_BUILDX_CACHE_DIR := .buildx-cache
+PUBLIC_API_CACHE_DIR := $(PUBLIC_BUILDX_CACHE_DIR)/public-api
+PUBLIC_FRONTEND_CACHE_DIR := $(PUBLIC_BUILDX_CACHE_DIR)/public-frontend
 CURRENT_USER ?= $(shell id -un)
 export KUBECONFIG ?= $(HOME)/.kube/merged-config
 PF_API_LOG := /tmp/stock-radar-port-forward-api.$(CURRENT_USER).log
@@ -107,7 +116,7 @@ push:
 	docker push $(REGISTRY)/stock-radar-frontend:latest
 
 # ── Helm ────────────────────────────────────────────────────────────
-.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status build-public-images deploy-stockradarx-public public-uninstall show-public-image-tag public-images public-worker-image public-pod-images
+.PHONY: helm-template helm-install helm-upgrade helm-uninstall helm-test deploy-stockradarx deploy-stockradarx-tunnel public-bootstrap public-status public-build-help build-public-images build-public-api-image build-public-frontend-image build-public-changed-images push-public-api-image push-public-frontend-image deploy-stockradarx-public public-uninstall show-public-image-tag public-images public-worker-image public-pod-images
 
 helm-template:
 	helm template stock-radar $(HELM_DIR) \
@@ -159,35 +168,117 @@ public-status:
 	@echo "=== Public Ingress ==="
 	kubectl get ingress -n $(PUBLIC_NAMESPACE)
 
-build-public-images:
-	docker build -t $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG) \
-		-f backend/Dockerfile_prod backend
-	docker build -t $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG) \
-		-f frontend/Dockerfile_prod frontend
-	docker push $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_IMAGE_TAG)
-	docker push $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_IMAGE_TAG)
-	@printf '%s\n' '$(PUBLIC_IMAGE_TAG)' > $(PUBLIC_IMAGE_TAG_FILE)
-	@echo "Recorded public image tag: $(PUBLIC_IMAGE_TAG)"
+public-build-help:
+	@echo "Public image build flows:"
+	@echo "  make build-public-images"
+	@echo "    Build and push both API and frontend images using explicit buildx caches."
+	@echo ""
+	@echo "  make build-public-changed-images"
+	@echo "    Build and push only services changed since PUBLIC_BUILD_DIFF_BASE (default HEAD~1)."
+	@echo ""
+	@echo "  make build-public-api-image push-public-api-image"
+	@echo "    Rebuild and push only the API image."
+	@echo ""
+	@echo "  make build-public-frontend-image push-public-frontend-image"
+	@echo "    Rebuild and push only the frontend image."
+	@echo ""
+	@echo "  make deploy-stockradarx-public"
+	@echo "    Deploy using the currently recorded API/frontend image tags."
+
+build-public-api-image:
+	@mkdir -p $(PUBLIC_API_CACHE_DIR)
+	@echo "=== Building public API image ($(PUBLIC_API_IMAGE_TAG)) ==="
+	@start=$$(date +%s); \
+	docker buildx build --load \
+		--progress=$(PUBLIC_BUILD_PROGRESS) \
+		--cache-from type=local,src=$(PUBLIC_API_CACHE_DIR) \
+		--cache-to type=local,dest=$(PUBLIC_API_CACHE_DIR).tmp,mode=max \
+		-t $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_API_IMAGE_TAG) \
+		-f backend/Dockerfile_prod backend; \
+	end=$$(date +%s); \
+	echo "API image build completed in $$((end-start))s"
+	@rm -rf $(PUBLIC_API_CACHE_DIR)
+	@mv $(PUBLIC_API_CACHE_DIR).tmp $(PUBLIC_API_CACHE_DIR)
+	@printf '%s\n' '$(PUBLIC_API_IMAGE_TAG)' > $(PUBLIC_API_IMAGE_TAG_FILE)
+
+build-public-frontend-image:
+	@mkdir -p $(PUBLIC_FRONTEND_CACHE_DIR)
+	@echo "=== Building public frontend image ($(PUBLIC_FRONTEND_IMAGE_TAG)) ==="
+	@start=$$(date +%s); \
+	docker buildx build --load \
+		--progress=$(PUBLIC_BUILD_PROGRESS) \
+		--cache-from type=local,src=$(PUBLIC_FRONTEND_CACHE_DIR) \
+		--cache-to type=local,dest=$(PUBLIC_FRONTEND_CACHE_DIR).tmp,mode=max \
+		-t $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_FRONTEND_IMAGE_TAG) \
+		-f frontend/Dockerfile_prod frontend; \
+	end=$$(date +%s); \
+	echo "Frontend image build completed in $$((end-start))s"
+	@rm -rf $(PUBLIC_FRONTEND_CACHE_DIR)
+	@mv $(PUBLIC_FRONTEND_CACHE_DIR).tmp $(PUBLIC_FRONTEND_CACHE_DIR)
+	@printf '%s\n' '$(PUBLIC_FRONTEND_IMAGE_TAG)' > $(PUBLIC_FRONTEND_IMAGE_TAG_FILE)
+
+push-public-api-image:
+	@start=$$(date +%s); \
+	docker push $(PUBLIC_REGISTRY)/stock-radar-api:$(PUBLIC_API_IMAGE_TAG); \
+	end=$$(date +%s); \
+	echo "API image push completed in $$((end-start))s"
+
+push-public-frontend-image:
+	@start=$$(date +%s); \
+	docker push $(PUBLIC_REGISTRY)/stock-radar-frontend:$(PUBLIC_FRONTEND_IMAGE_TAG); \
+	end=$$(date +%s); \
+	echo "Frontend image push completed in $$((end-start))s"
+
+build-public-images: build-public-api-image build-public-frontend-image push-public-api-image push-public-frontend-image
+	@printf 'api=%s\nfrontend=%s\n' '$(PUBLIC_API_IMAGE_TAG)' '$(PUBLIC_FRONTEND_IMAGE_TAG)' > $(PUBLIC_IMAGE_TAG_FILE)
+	@echo "Recorded public API image tag: $(PUBLIC_API_IMAGE_TAG)"
+	@echo "Recorded public frontend image tag: $(PUBLIC_FRONTEND_IMAGE_TAG)"
 	@echo "Pushed public images to: $(PUBLIC_REGISTRY)"
 
+build-public-changed-images:
+	@backend_changed=0; \
+	frontend_changed=0; \
+	git diff --quiet $(PUBLIC_BUILD_DIFF_BASE) -- backend || backend_changed=1; \
+	git diff --quiet $(PUBLIC_BUILD_DIFF_BASE) -- frontend || frontend_changed=1; \
+	if [ $$backend_changed -eq 0 ] && [ $$frontend_changed -eq 0 ]; then \
+		echo "No backend/frontend changes detected since $(PUBLIC_BUILD_DIFF_BASE)."; \
+		exit 0; \
+	fi; \
+	if [ $$backend_changed -eq 1 ]; then \
+		$(MAKE) build-public-api-image push-public-api-image; \
+	else \
+		echo "Skipping API image build; no backend changes since $(PUBLIC_BUILD_DIFF_BASE)."; \
+	fi; \
+	if [ $$frontend_changed -eq 1 ]; then \
+		$(MAKE) build-public-frontend-image push-public-frontend-image; \
+	else \
+		echo "Skipping frontend image build; no frontend changes since $(PUBLIC_BUILD_DIFF_BASE)."; \
+	fi; \
+	api_tag=$$(cat $(PUBLIC_API_IMAGE_TAG_FILE) 2>/dev/null || echo ""); \
+	frontend_tag=$$(cat $(PUBLIC_FRONTEND_IMAGE_TAG_FILE) 2>/dev/null || echo ""); \
+	printf 'api=%s\nfrontend=%s\n' "$$api_tag" "$$frontend_tag" > $(PUBLIC_IMAGE_TAG_FILE)
+
 deploy-stockradarx-public:
-	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "Missing $(PUBLIC_IMAGE_TAG_FILE). Run 'make build-public-images' first."; exit 1)
-	@TAG=$$(cat $(PUBLIC_IMAGE_TAG_FILE)); \
+	@test -f $(PUBLIC_API_IMAGE_TAG_FILE) || (echo "Missing $(PUBLIC_API_IMAGE_TAG_FILE). Run 'make build-public-api-image' or 'make build-public-images' first."; exit 1)
+	@test -f $(PUBLIC_FRONTEND_IMAGE_TAG_FILE) || (echo "Missing $(PUBLIC_FRONTEND_IMAGE_TAG_FILE). Run 'make build-public-frontend-image' or 'make build-public-images' first."; exit 1)
+	@API_TAG=$$(cat $(PUBLIC_API_IMAGE_TAG_FILE)); \
+	FRONTEND_TAG=$$(cat $(PUBLIC_FRONTEND_IMAGE_TAG_FILE)); \
 	helm upgrade --install $(PUBLIC_HELM_RELEASE) $(HELM_DIR) \
 		--namespace $(PUBLIC_NAMESPACE) \
 		--create-namespace \
 		--values $(HELM_DIR)/values.yaml \
 		--values $(HELM_DIR)/values.public.yaml \
-		--set-string api.image.tag=$$TAG \
-		--set-string frontend.image.tag=$$TAG \
+		--set-string api.image.tag=$$API_TAG \
+		--set-string frontend.image.tag=$$FRONTEND_TAG \
 		--values $(HELM_DIR)/values.mode.stockradarx-tunnel.yaml
 
 public-uninstall:
 	helm uninstall $(PUBLIC_HELM_RELEASE) --namespace $(PUBLIC_NAMESPACE)
 
 show-public-image-tag:
-	@test -f $(PUBLIC_IMAGE_TAG_FILE) || (echo "No recorded public image tag yet."; exit 1)
-	@cat $(PUBLIC_IMAGE_TAG_FILE)
+	@test -f $(PUBLIC_API_IMAGE_TAG_FILE) || (echo "No recorded public API image tag yet."; exit 1)
+	@test -f $(PUBLIC_FRONTEND_IMAGE_TAG_FILE) || (echo "No recorded public frontend image tag yet."; exit 1)
+	@printf 'api=%s\nfrontend=%s\n' "$$(cat $(PUBLIC_API_IMAGE_TAG_FILE))" "$$(cat $(PUBLIC_FRONTEND_IMAGE_TAG_FILE))"
 
 public-images:
 	kubectl get deploy -n $(PUBLIC_NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.template.spec.containers[0].image}{"\n"}{end}'

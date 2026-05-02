@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     api_enable_day_refresh: bool = True
     api_enable_minute_refresh: bool = True
     cors_allowed_origins: str = (
+        "https://stockradarx.com,"
+        "https://www.stockradarx.com,"
         "http://127.0.0.1:14200,"
         "http://localhost:14200,"
         "http://127.0.0.1:14201,"
