@@ -23,6 +23,11 @@ class MLStatusResponse(ApiResponseModel):
     ml_enabled: bool
     ml_confidence_weight: float
     min_training_samples: int
+    active_model_version: str | None = None
+    active_model_trained_at: datetime | None = None
+    active_model_sample_count: int | None = None
+    active_model_status: str | None = None
+    active_model_artifact_uri: str | None = None
 
 
 class RetrainResponse(ApiResponseModel):

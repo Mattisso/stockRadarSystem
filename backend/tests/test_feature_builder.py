@@ -1,6 +1,7 @@
 """Tests for ML feature builder and training-set labels."""
 
 from app.ml.feature_builder import FeatureBuilder
+from app.ml.training_example_builder import TrainingExampleBuilder
 from app.models.feature_snapshot import FeatureSnapshot
 from app.models.signal import Signal, SignalType
 from app.models.trade import Trade, TradeSide, TradeStatus
@@ -53,7 +54,9 @@ def test_build_training_set_from_feature_snapshots(db):
     )
     db.commit()
 
+    result = TrainingExampleBuilder(db).materialize_pending_examples()
     training_set = FeatureBuilder(db).build_training_set()
+    assert result.created_count == 1
     assert training_set.X.shape == (1, 5)
     assert training_set.y.tolist() == [1]
     assert training_set.rows[0]["pattern_success"] is True
@@ -74,6 +77,8 @@ def test_build_training_set_skips_unlabeled_rows(db):
     )
     db.commit()
 
+    result = TrainingExampleBuilder(db).materialize_pending_examples()
     training_set = FeatureBuilder(db).build_training_set()
+    assert result.created_count == 0
     assert training_set.X.shape == (0, 5)
     assert training_set.y.size == 0

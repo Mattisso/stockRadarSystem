@@ -2,6 +2,8 @@ from app.models.symbol import Symbol
 from app.models.trade import Trade
 from app.models.signal import Signal
 from app.models.feature_snapshot import FeatureSnapshot
+from app.models.ml_model_registry import MLModelRegistry
+from app.models.ml_training_example import MLTrainingExample
 from app.models.performance_metric import PerformanceMetric
 from app.models.universe_daily import UniverseDaily
 from app.models.l1_candidate import L1Candidate
@@ -23,6 +25,8 @@ __all__ = [
     "Trade",
     "Signal",
     "FeatureSnapshot",
+    "MLModelRegistry",
+    "MLTrainingExample",
     "PerformanceMetric",
     "UniverseDaily",
     "L1Candidate",

@@ -3,6 +3,7 @@ from app.main import (
     should_enable_aggregate_rolling_refresh,
     should_enable_aggregate_client,
     should_enable_day_refresh,
+    should_enable_ml_materialization_job,
     should_enable_minute_refresh,
     should_enable_position_monitor_job,
     should_enable_quote_client,
@@ -79,6 +80,22 @@ def test_should_enable_minute_refresh(monkeypatch):
     monkeypatch.setattr("app.main.settings.api_enable_minute_refresh", True)
 
     assert should_enable_minute_refresh() is True
+
+
+def test_should_enable_ml_materialization_job(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_enable_ml_materialization_job", True)
+    monkeypatch.setattr("app.main.settings.ml_materialization_interval_minutes", 15)
+
+    assert should_enable_ml_materialization_job() is True
+
+
+def test_should_disable_ml_materialization_job_with_nonpositive_interval(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_enable_ml_materialization_job", True)
+    monkeypatch.setattr("app.main.settings.ml_materialization_interval_minutes", 0)
+
+    assert should_enable_ml_materialization_job() is False
 
 
 def test_should_interval_refresh_polygon_day_aggregates_enabled(monkeypatch):

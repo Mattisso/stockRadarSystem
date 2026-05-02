@@ -4,8 +4,9 @@ from app.data.data_layer import DataLayer
 from app.core.logging import get_logger
 from app.core.metrics import ML_MODEL_TRAINED, ML_RETRAIN_TOTAL
 from app.ml.feature_builder import FeatureBuilder
-from app.ml.features import extract_training_data
 from app.ml.model import BreakoutClassifier
+from app.ml.model_registry_service import ModelRegistryService
+from app.ml.training_example_builder import TrainingExampleBuilder
 
 log = get_logger(__name__)
 
@@ -22,12 +23,18 @@ class ModelTrainer:
         """Retrain if sufficient labeled signals exist. Returns metrics or None."""
         db = self.db_session_factory()
         try:
+            materialization_result = TrainingExampleBuilder(db).materialize_pending_examples()
             training_set = FeatureBuilder(db).build_training_set()
             X, y = training_set.X, training_set.y
 
             if len(y) < self.min_samples:
                 ML_RETRAIN_TOTAL.labels(status="skipped").inc()
-                log.info("ml.retrain_skipped", samples=len(y), min_required=self.min_samples)
+                log.info(
+                    "ml.retrain_skipped",
+                    samples=len(y),
+                    min_required=self.min_samples,
+                    materialized_examples=materialization_result.created_count,
+                )
                 return None
 
             metrics = self.classifier.train(X, y)
@@ -35,7 +42,8 @@ class ModelTrainer:
             metrics["losses"] = int((y == 0).sum())
             pattern_successes = sum(1 for row in training_set.rows if row["pattern_success"])
             metrics["pattern_success_rate"] = round(pattern_successes / len(training_set.rows), 4)
-            self.classifier.save()
+            metrics["materialized_examples"] = materialization_result.created_count
+            artifact_path = self.classifier.save()
             data_layer = DataLayer(db)
             data_layer.record_performance_metric(
                 "ml_cv_accuracy_mean",
@@ -50,6 +58,12 @@ class ModelTrainer:
                 metric_scope="ml",
                 metric_unit="ratio",
                 window_days=None,
+            )
+            ModelRegistryService(db).register_active_model(
+                artifact_path=artifact_path,
+                sample_count=len(y),
+                class_balance=metrics.get("class_distribution", {}),
+                metrics=metrics,
             )
             db.commit()
             ML_RETRAIN_TOTAL.labels(status="success").inc()

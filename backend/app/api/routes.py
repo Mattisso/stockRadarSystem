@@ -26,6 +26,7 @@ from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.api.observability import track_tables
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.ml.analytics import TradeAnalytics
+from app.ml.model_registry_service import ModelRegistryService
 from app.ml.backtest import BacktestConfig, SignalBacktester
 from app.engine.secret_candidate_scorer import SecretCandidateScorer
 from app.engine.secret_replay_validator import SecretReplayValidator, build_replay_quote
@@ -1648,15 +1649,21 @@ async def replay_secret_sauce(body: SecretReplayRequest):
 
 
 @router.get("/ml/status", response_model=MLStatusResponse)
-async def ml_status(request: Request):
+async def ml_status(request: Request, db: Session = Depends(get_db)):
     """Get ML model status and configuration."""
     classifier = getattr(request.app.state, "classifier", None)
+    active_model = ModelRegistryService(db).active_model()
     return MLStatusResponse(
         model_trained=classifier.is_trained if classifier else False,
         feature_importances=classifier.feature_importances() if classifier and classifier.is_trained else None,
         ml_enabled=settings.ml_enabled,
         ml_confidence_weight=settings.ml_confidence_weight,
         min_training_samples=settings.ml_min_training_samples,
+        active_model_version=active_model.model_version if active_model else None,
+        active_model_trained_at=active_model.trained_at if active_model else None,
+        active_model_sample_count=active_model.training_sample_count if active_model else None,
+        active_model_status=active_model.status if active_model else None,
+        active_model_artifact_uri=active_model.artifact_uri if active_model else None,
     )
 
 

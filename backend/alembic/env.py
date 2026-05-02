@@ -13,6 +13,7 @@ from app.core.database import Base
 from app.models import Signal, Symbol, Trade  # noqa: F401 — ensure models registered
 
 SCHEMA = "stock_radar"
+ML_SCHEMA = "stock_radar_ml"
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
@@ -45,6 +46,7 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         # Create the schema if it doesn't exist
         connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"))
+        connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {ML_SCHEMA}"))
         connection.commit()
 
         context.configure(

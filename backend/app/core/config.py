@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     api_enable_aggregate_rolling_refresh: bool = True
     api_enable_day_refresh: bool = True
     api_enable_minute_refresh: bool = True
+    api_enable_ml_materialization_job: bool = True
     cors_allowed_origins: str = (
         "https://stockradarx.com,"
         "https://www.stockradarx.com,"
@@ -228,6 +229,7 @@ class Settings(BaseSettings):
     ml_retrain_interval_hours: int = 24
     ml_model_dir: str = "models"
     ml_confidence_weight: float = 0.3
+    ml_materialization_interval_minutes: int = 15
 
 
 settings = Settings()

@@ -58,6 +58,7 @@ from app.engine.state_machine import StateMachine
 from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
 from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
+from app.ml.training_example_builder import TrainingExampleBuilder
 from app.models.signal import Signal
 from app.models.trade import Trade
 from app.risk.risk_manager import RiskManager
@@ -98,6 +99,14 @@ def should_enable_day_refresh() -> bool:
 
 def should_enable_minute_refresh() -> bool:
     return should_run_background_jobs() and settings.api_enable_minute_refresh
+
+
+def should_enable_ml_materialization_job() -> bool:
+    return (
+        should_run_background_jobs()
+        and settings.api_enable_ml_materialization_job
+        and settings.ml_materialization_interval_minutes > 0
+    )
 
 
 def should_interval_refresh_polygon_day_aggregates() -> bool:
@@ -860,6 +869,28 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="ml_retrain").observe(time.monotonic() - start)
 
+    async def ml_materialization_job():
+        start = time.monotonic()
+        try:
+            if not should_enable_ml_materialization_job():
+                return
+            db = SessionLocal()
+            try:
+                result = TrainingExampleBuilder(db).materialize_pending_examples()
+                db.commit()
+                log.info(
+                    "scheduler.ml_materialization_completed",
+                    created_count=result.created_count,
+                    skipped_count=result.skipped_count,
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="ml_materialization").inc()
+            log.exception("scheduler.ml_materialization_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="ml_materialization").observe(time.monotonic() - start)
+
     async def polygon_live_retention_job():
         start = time.monotonic()
         try:
@@ -1039,6 +1070,14 @@ async def lifespan(app: FastAPI):
                 max_instances=1,
                 id="aggregate_history_export",
             )
+        if should_enable_ml_materialization_job():
+            scheduler.add_job(
+                ml_materialization_job,
+                "interval",
+                minutes=settings.ml_materialization_interval_minutes,
+                max_instances=1,
+                id="ml_materialization",
+            )
         if settings.api_enable_legacy_scan_job:
             scheduler.add_job(scan_job, "interval", seconds=5, max_instances=1, id="signal_scan")
         if should_enable_position_monitor_job():
@@ -1075,6 +1114,9 @@ async def lifespan(app: FastAPI):
         if should_enable_aggregate_rolling_refresh() and settings.aggregate_history_export_enabled:
             initial_history_export_task = asyncio.create_task(aggregate_history_export_job())
             runtime.register_task("initial_aggregate_history_export", initial_history_export_task)
+        if should_enable_ml_materialization_job():
+            initial_ml_materialization_task = asyncio.create_task(ml_materialization_job())
+            runtime.register_task("initial_ml_materialization", initial_ml_materialization_task)
     else:
         runtime.mark_service("scheduler", True, detail="disabled_for_web_role")
 

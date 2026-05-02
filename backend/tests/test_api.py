@@ -13,6 +13,7 @@ from app.main import app
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
+from app.models.ml_model_registry import MLModelRegistry
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
@@ -131,6 +132,51 @@ def test_signal_accuracy_typed_response(client, auth_headers):
     response = client.get("/api/analytics/signal-accuracy", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_ml_status_includes_active_registry_metadata(client, auth_headers, db_engine):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            MLModelRegistry(
+                model_name="breakout_classifier",
+                model_version="20260502193000-abcdef123456",
+                artifact_uri="models/breakout_classifier.joblib",
+                artifact_sha256="deadbeef",
+                feature_schema_version=1,
+                label_definition_version=1,
+                training_sample_count=99,
+                class_balance_json='{"0": 45, "1": 54}',
+                metrics_json='{"cv_accuracy_mean": 0.72}',
+                trained_at=datetime(2026, 5, 2, 19, 30, 0),
+                git_sha="abcdef123456",
+                is_active=True,
+                status="trained",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/ml/status", headers=auth_headers)
+    app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_model_version"] == "20260502193000-abcdef123456"
+    assert body["active_model_sample_count"] == 99
+    assert body["active_model_status"] == "trained"
+    assert body["active_model_artifact_uri"] == "models/breakout_classifier.joblib"
 
 
 def test_secret_sauce_contract(client, auth_headers):

@@ -9,6 +9,7 @@ from app.core.database import Base
 import app.models  # noqa: F401
 
 SCHEMA = "stock_radar"
+ML_SCHEMA = "stock_radar_ml"
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def db_engine():
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute(f"ATTACH DATABASE ':memory:' AS \"{SCHEMA}\"")
+        cursor.execute(f"ATTACH DATABASE ':memory:' AS \"{ML_SCHEMA}\"")
         cursor.close()
 
     Base.metadata.create_all(engine)

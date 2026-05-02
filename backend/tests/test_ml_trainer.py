@@ -3,6 +3,7 @@
 from app.ml.model import BreakoutClassifier
 from app.ml.trainer import ModelTrainer
 from app.models.feature_snapshot import FeatureSnapshot
+from app.models.ml_model_registry import MLModelRegistry
 from app.models.performance_metric import PerformanceMetric
 from app.models.signal import Signal, SignalType
 from app.models.trade import Trade, TradeSide, TradeStatus
@@ -71,8 +72,12 @@ async def test_trainer_persists_learning_metrics(db_session_factory, tmp_path):
 
     db = db_session_factory()
     stored = db.query(PerformanceMetric).all()
+    registry_rows = db.query(MLModelRegistry).all()
     assert metrics is not None
     assert metrics["samples"] == 12
     assert any(m.metric_name == "pattern_success_rate" for m in stored)
     assert any(m.metric_name == "ml_cv_accuracy_mean" for m in stored)
+    assert len(registry_rows) == 1
+    assert registry_rows[0].is_active is True
+    assert registry_rows[0].training_sample_count == 12
     db.close()
