@@ -49,6 +49,21 @@ async def test_update_subscriptions_unions_multiple_sources(client):
 
 
 @pytest.mark.asyncio
+async def test_update_subscriptions_tracks_sticky_source_metadata(client):
+    client.update_subscriptions(["AAPL", "TSLA"], source="watchlist")
+    client.update_subscriptions(["LCID", "AAPL"], source="operational", sticky=True)
+
+    snapshot = client.session_snapshot()
+    assert snapshot["subscription_count"] == 3
+    assert snapshot["sticky_subscription_count"] == 2
+    assert snapshot["subscription_generation_id"] == 2
+    assert snapshot["subscription_sources"] == [
+        {"source": "watchlist", "count": 2, "sticky": False},
+        {"source": "operational", "count": 2, "sticky": True},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_dispatch_to_cache(client, cache):
     await cache.connect()
     quote = Quote(ticker="LCID", bid=3.47, ask=3.48, last=3.48, volume=100000, timestamp=datetime.now())

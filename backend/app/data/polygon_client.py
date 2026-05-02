@@ -23,6 +23,7 @@ from app.data.polygon_event_bus import PolygonEventBus
 from app.data.polygon_event_models import PolygonAggregateEvent
 from app.data.polygon_connection import PolygonConnectionManager
 from app.data.polygon_parser import PolygonMessageParser
+from app.data.subscription_registry import SubscriptionRegistry
 
 log = get_logger(__name__)
 
@@ -61,7 +62,9 @@ class PolygonClient:
         self._api_key = api_key
         self._mode = mode
         self._symbols = symbols or []
-        self._subscription_sources: dict[str, list[str]] = {"watchlist": list(self._symbols)}
+        self._subscription_registry = SubscriptionRegistry(
+            initial_sources={"watchlist": list(self._symbols)},
+        )
         self._cache = cache
         self._queue = queue
         self._ws_url = ws_url
@@ -84,7 +87,7 @@ class PolygonClient:
         self._task: asyncio.Task | None = None
         self._running = False
         self._subscriptions_paused = False
-        self._subscription_generation_id = 0
+        self._subscription_generation_id = self._subscription_registry.generation_id
         self._session_connected = False
         self._reconnect_count = 0
         self._consecutive_failures = 0
@@ -132,13 +135,19 @@ class PolygonClient:
                 pass
         log.info("polygon.stopped")
 
-    def update_subscriptions(self, symbols: list[str], *, source: str = "watchlist") -> None:
+    def update_subscriptions(
+        self,
+        symbols: list[str],
+        *,
+        source: str = "watchlist",
+        sticky: bool | None = None,
+    ) -> None:
         """Update the list of symbols to track."""
         previous_symbols = self.current_symbols()
-        self._subscription_sources[source] = list(symbols)
+        changed = self._subscription_registry.update_source(source, symbols, sticky=sticky)
         self._symbols = self.current_symbols()
-        if self._symbols != previous_symbols:
-            self._subscription_generation_id += 1
+        if changed:
+            self._subscription_generation_id = self._subscription_registry.generation_id
         if self._mode in {"dev", "sandbox"}:
             log.info(
                 "polygon.subscriptions_updated",
@@ -147,6 +156,7 @@ class PolygonClient:
                 mode=self._mode,
                 source=source,
                 generation_id=self._subscription_generation_id,
+                sticky_count=len(self.sticky_symbols()),
             )
         else:
             log.info(
@@ -154,6 +164,7 @@ class PolygonClient:
                 count=len(self._symbols),
                 source=source,
                 generation_id=self._subscription_generation_id,
+                sticky_count=len(self.sticky_symbols()),
             )
 
         if self._running and self._mode == "websocket" and not self._subscriptions_paused:
@@ -209,15 +220,10 @@ class PolygonClient:
                     log.exception("polygon.resubscribe_error")
 
     def current_symbols(self) -> list[str]:
-        seen: set[str] = set()
-        symbols: list[str] = []
-        for source_symbols in self._subscription_sources.values():
-            for symbol in source_symbols:
-                if symbol in seen:
-                    continue
-                seen.add(symbol)
-                symbols.append(symbol)
-        return symbols
+        return self._subscription_registry.current_symbols()
+
+    def sticky_symbols(self) -> list[str]:
+        return self._subscription_registry.sticky_symbols()
 
     def session_snapshot(self) -> dict:
         now = datetime.now(tz=timezone.utc)
@@ -238,6 +244,15 @@ class PolygonClient:
             "consecutive_failures": self._consecutive_failures,
             "subscription_count": len(self.current_symbols()),
             "subscription_generation_id": self._subscription_generation_id,
+            "sticky_subscription_count": len(self.sticky_symbols()),
+            "subscription_sources": [
+                {
+                    "source": state.source,
+                    "count": len(state.symbols),
+                    "sticky": state.sticky,
+                }
+                for state in self._subscription_registry.source_states()
+            ],
             "include_trade_wildcard": self._include_trade_wildcard,
             "quotes_enabled": self._enable_quotes,
             "aggregates_enabled": self._enable_aggregates,
