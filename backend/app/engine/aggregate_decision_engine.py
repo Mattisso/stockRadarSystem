@@ -527,6 +527,7 @@ class AggregateDecisionEngine:
         )
         return any(self._trade_day_for_ts(row[0]) == trade_day for row in rows)
 
+    @staticmethod
     def _trade_day_for_ts(value: datetime) -> datetime.date:
         if value.tzinfo is None:
             aware = value.replace(tzinfo=timezone.utc)
