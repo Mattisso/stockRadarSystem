@@ -1,5 +1,6 @@
 """REST API routes for Stock Radar System."""
 
+from bisect import bisect_left
 from collections import Counter
 from contextlib import suppress
 from dataclasses import asdict
@@ -278,14 +279,41 @@ def _default_decision_trade_day() -> date:
     return datetime.now(NEW_YORK_TZ).date()
 
 
+def _decision_trade_day_bounds(trade_date: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(trade_date, dt_time.min, tzinfo=NEW_YORK_TZ)
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
 def _decision_trade_day_rows(db: Session, *, trade_date: date) -> list[DecisionEvent]:
-    rows = (
+    start_dt, end_dt = _decision_trade_day_bounds(trade_date)
+    return (
         db.query(DecisionEvent)
-        .filter(DecisionEvent.decision_type.in_(("buy", "sell")))
+        .filter(
+            DecisionEvent.decision_type.in_(("buy", "sell")),
+            DecisionEvent.decision_ts >= start_dt,
+            DecisionEvent.decision_ts < end_dt,
+        )
         .order_by(DecisionEvent.ticker.asc(), DecisionEvent.decision_ts.asc(), DecisionEvent.id.asc())
         .all()
     )
-    return [row for row in rows if _decision_trade_day(row.decision_ts) == trade_date]
+
+
+def _decision_buy_rows(db: Session, *, trade_date: date, ticker: str | None = None) -> list[DecisionEvent]:
+    start_dt, end_dt = _decision_trade_day_bounds(trade_date)
+    query = db.query(DecisionEvent).filter(
+        DecisionEvent.decision_type == "buy",
+        DecisionEvent.decision_ts >= start_dt,
+        DecisionEvent.decision_ts < end_dt,
+    )
+    if ticker:
+        query = query.filter(DecisionEvent.ticker == ticker.upper())
+    return (
+        query.order_by(DecisionEvent.ticker.asc(), DecisionEvent.decision_ts.asc(), DecisionEvent.id.asc()).all()
+    )
 
 
 def _normalize_route_ts(value: datetime) -> datetime:
@@ -400,21 +428,137 @@ def _nearest_minute_bar(
     )
 
 
-def _decision_market_validation_rows(
+def _decision_sell_query(
     db: Session,
     *,
     trade_date: date,
     reason_code: str | None = None,
     ticker: str | None = None,
-) -> list[dict]:
-    day_rows = _decision_trade_day_rows(db, trade_date=trade_date)
+):
+    start_dt, end_dt = _decision_trade_day_bounds(trade_date)
+    query = db.query(DecisionEvent).filter(
+        DecisionEvent.decision_type == "sell",
+        DecisionEvent.decision_ts >= start_dt,
+        DecisionEvent.decision_ts < end_dt,
+    )
+    if reason_code:
+        query = query.filter(DecisionEvent.reason_code == reason_code)
     if ticker:
-        day_rows = [row for row in day_rows if row.ticker == ticker.upper()]
-    sells = [row for row in day_rows if row.decision_type == "sell" and (reason_code is None or row.reason_code == reason_code)]
-    buys_by_ticker: dict[str, list[DecisionEvent]] = {}
-    for row in day_rows:
-        if row.decision_type == "buy":
-            buys_by_ticker.setdefault(row.ticker, []).append(row)
+        query = query.filter(DecisionEvent.ticker == ticker.upper())
+    return query
+
+
+def _prefetch_second_bar_index(
+    db: Session,
+    *,
+    tickers: set[str],
+    event_timestamps: list[datetime],
+    window_seconds: int = 5,
+) -> dict[str, tuple[list[datetime], list[PolygonSecondAggregate]]]:
+    if not tickers or not event_timestamps:
+        return {}
+    normalized = [_normalize_route_ts(value) for value in event_timestamps]
+    start_dt = min(normalized) - timedelta(seconds=window_seconds)
+    end_dt = max(normalized) + timedelta(seconds=window_seconds)
+    rows = (
+        db.query(PolygonSecondAggregate)
+        .filter(
+            PolygonSecondAggregate.ticker.in_(sorted(tickers)),
+            PolygonSecondAggregate.second_ts >= start_dt,
+            PolygonSecondAggregate.second_ts <= end_dt,
+        )
+        .order_by(PolygonSecondAggregate.ticker.asc(), PolygonSecondAggregate.second_ts.asc())
+        .all()
+    )
+    grouped: dict[str, list[PolygonSecondAggregate]] = {}
+    for row in rows:
+        grouped.setdefault(row.ticker, []).append(row)
+    return {
+        ticker: ([row.second_ts for row in group], group)
+        for ticker, group in grouped.items()
+    }
+
+
+def _prefetch_minute_bar_index(
+    db: Session,
+    *,
+    tickers: set[str],
+    event_timestamps: list[datetime],
+    window_minutes: int = 5,
+) -> dict[str, tuple[list[datetime], list[PolygonMinuteAggregate]]]:
+    if not tickers or not event_timestamps:
+        return {}
+    normalized = [_normalize_route_ts(value) for value in event_timestamps]
+    start_dt = min(normalized) - timedelta(minutes=window_minutes)
+    end_dt = max(normalized) + timedelta(minutes=window_minutes)
+    rows = (
+        db.query(PolygonMinuteAggregate)
+        .filter(
+            PolygonMinuteAggregate.ticker.in_(sorted(tickers)),
+            PolygonMinuteAggregate.minute_ts >= start_dt,
+            PolygonMinuteAggregate.minute_ts <= end_dt,
+        )
+        .order_by(PolygonMinuteAggregate.ticker.asc(), PolygonMinuteAggregate.minute_ts.asc())
+        .all()
+    )
+    grouped: dict[str, list[PolygonMinuteAggregate]] = {}
+    for row in rows:
+        grouped.setdefault(row.ticker, []).append(row)
+    return {
+        ticker: ([row.minute_ts for row in group], group)
+        for ticker, group in grouped.items()
+    }
+
+
+def _nearest_from_index(index, *, ticker: str, event_ts: datetime):
+    bucket = index.get(ticker)
+    if bucket is None:
+        return None
+    timestamps, rows = bucket
+    if not rows:
+        return None
+    target = _normalize_route_ts(event_ts)
+    pos = bisect_left(timestamps, target)
+    candidates = []
+    if pos > 0:
+        candidates.append(rows[pos - 1])
+    if pos < len(rows):
+        candidates.append(rows[pos])
+    if pos + 1 < len(rows):
+        candidates.append(rows[pos + 1])
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda row: (
+            abs((_normalize_route_ts(getattr(row, "second_ts", getattr(row, "minute_ts"))) - target).total_seconds()),
+            getattr(row, "second_ts", getattr(row, "minute_ts")),
+        ),
+    )
+
+
+def _build_market_validation_rows(
+    db: Session,
+    *,
+    sells: list[DecisionEvent],
+    buys_by_ticker: dict[str, list[DecisionEvent]],
+) -> list[dict]:
+    if not sells:
+        return []
+
+    relevant_buys: list[DecisionEvent] = []
+    for sell in sells:
+        prior_buys = buys_by_ticker.get(sell.ticker, [])
+        normalized_sell_ts = _normalize_route_ts(sell.decision_ts)
+        for candidate in reversed(prior_buys):
+            if _normalize_route_ts(candidate.decision_ts) <= normalized_sell_ts:
+                relevant_buys.append(candidate)
+                break
+
+    tickers = {row.ticker for row in sells} | {row.ticker for row in relevant_buys}
+    event_timestamps = [row.decision_ts for row in sells] + [row.decision_ts for row in relevant_buys]
+    second_index = _prefetch_second_bar_index(db, tickers=tickers, event_timestamps=event_timestamps)
+    minute_index = _prefetch_minute_bar_index(db, tickers=tickers, event_timestamps=event_timestamps)
 
     items: list[dict] = []
     for sell in sorted(sells, key=lambda row: (row.decision_ts, row.ticker, row.id)):
@@ -428,10 +572,10 @@ def _decision_market_validation_rows(
 
         buy_price_from_event = _payload_float(buy.decision_payload if buy is not None else None, "current_close", "entry_price")
         sell_price_from_event = _payload_float(sell.decision_payload, "current_close", "entry_price")
-        buy_second_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
-        sell_second_bar = _nearest_second_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
-        buy_minute_bar = _nearest_minute_bar(db, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
-        sell_minute_bar = _nearest_minute_bar(db, ticker=sell.ticker, event_ts=sell.decision_ts)
+        buy_second_bar = _nearest_from_index(second_index, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
+        sell_second_bar = _nearest_from_index(second_index, ticker=sell.ticker, event_ts=sell.decision_ts)
+        buy_minute_bar = _nearest_from_index(minute_index, ticker=sell.ticker, event_ts=buy.decision_ts) if buy is not None else None
+        sell_minute_bar = _nearest_from_index(minute_index, ticker=sell.ticker, event_ts=sell.decision_ts)
 
         if buy is None:
             match_status = "NO_PRIOR_BUY"
@@ -493,6 +637,29 @@ def _decision_market_validation_rows(
             }
         )
     return items
+
+
+def _decision_market_validation_rows(
+    db: Session,
+    *,
+    trade_date: date,
+    reason_code: str | None = None,
+    ticker: str | None = None,
+) -> list[dict]:
+    sells = (
+        _decision_sell_query(
+            db,
+            trade_date=trade_date,
+            reason_code=reason_code,
+            ticker=ticker,
+        )
+        .order_by(DecisionEvent.decision_ts.asc(), DecisionEvent.ticker.asc(), DecisionEvent.id.asc())
+        .all()
+    )
+    buys_by_ticker: dict[str, list[DecisionEvent]] = {}
+    for row in _decision_buy_rows(db, trade_date=trade_date, ticker=ticker):
+        buys_by_ticker.setdefault(row.ticker, []).append(row)
+    return _build_market_validation_rows(db, sells=sells, buys_by_ticker=buys_by_ticker)
 
 
 def _under_ten_aggregate_filter(model, *, max_price: float):
@@ -1985,23 +2152,44 @@ def analytics_decision_events_market_validation(
     db: Session = Depends(get_db),
 ):
     target_trade_date = trade_date or _default_decision_trade_day()
-    rows = _decision_market_validation_rows(
+    current_page = max(0, page)
+    current_page_size = max(1, page_size)
+
+    sell_query = _decision_sell_query(
         db,
         trade_date=target_trade_date,
         reason_code=reason_code,
         ticker=ticker,
     )
-    total = len(rows)
-    start = max(0, page) * max(1, page_size)
-    end = start + max(1, page_size)
-    items = [DecisionMarketValidationRowResponse(**row) for row in rows[start:end]]
-    summary = Counter(row["match_status"] for row in rows)
+    total = sell_query.count()
+
+    buys_by_ticker: dict[str, list[DecisionEvent]] = {}
+    for row in _decision_buy_rows(db, trade_date=target_trade_date, ticker=ticker):
+        buys_by_ticker.setdefault(row.ticker, []).append(row)
+
+    paged_sells = (
+        sell_query.order_by(DecisionEvent.decision_ts.asc(), DecisionEvent.ticker.asc(), DecisionEvent.id.asc())
+        .offset(current_page * current_page_size)
+        .limit(current_page_size)
+        .all()
+    )
+    page_rows = _build_market_validation_rows(db, sells=paged_sells, buys_by_ticker=buys_by_ticker)
+    items = [DecisionMarketValidationRowResponse(**row) for row in page_rows]
+
+    summary_rows = _build_market_validation_rows(
+        db,
+        sells=(
+            sell_query.order_by(DecisionEvent.decision_ts.asc(), DecisionEvent.ticker.asc(), DecisionEvent.id.asc()).all()
+        ),
+        buys_by_ticker=buys_by_ticker,
+    )
+    summary = Counter(row["match_status"] for row in summary_rows)
     summary["total"] = total
     return DecisionMarketValidationPageResponse(
         trade_date=target_trade_date,
         total=total,
-        page=max(0, page),
-        page_size=max(1, page_size),
+        page=current_page,
+        page_size=current_page_size,
         summary=dict(summary),
         items=items,
     )

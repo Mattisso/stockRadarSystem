@@ -75,7 +75,6 @@ export class DecisionValidationPageComponent {
   readonly sellBarNotFoundCount = computed(() => this.summary()['SELL_BAR_NOT_FOUND'] ?? 0);
 
   constructor() {
-    this.loadRuntimeKpis();
     this.reload();
   }
 
