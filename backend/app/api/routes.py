@@ -196,22 +196,25 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
-def _latest_universe_tickers(
+def _universe_tickers_for_trade_date(
     db: Session,
     *,
+    trade_date: date | None = None,
     max_price: float | None = None,
     allow_symbol_fallback: bool = True,
 ) -> list[str]:
-    latest_trade_date = (
-        db.query(UniverseDaily.trade_date)
-        .order_by(UniverseDaily.trade_date.desc())
-        .limit(1)
-        .scalar()
-    )
-    if latest_trade_date is None:
+    selected_trade_date = trade_date
+    if selected_trade_date is None:
+        selected_trade_date = (
+            db.query(UniverseDaily.trade_date)
+            .order_by(UniverseDaily.trade_date.desc())
+            .limit(1)
+            .scalar()
+        )
+    if selected_trade_date is None:
         return []
 
-    query = db.query(UniverseDaily).filter(UniverseDaily.trade_date == latest_trade_date)
+    query = db.query(UniverseDaily).filter(UniverseDaily.trade_date == selected_trade_date)
     if max_price is not None:
         query = query.filter(func.coalesce(UniverseDaily.open_price, UniverseDaily.last_price, 0) <= max_price)
     rows = query.order_by(UniverseDaily.ticker.asc()).all()
@@ -224,6 +227,19 @@ def _latest_universe_tickers(
         active_query = active_query.filter(func.coalesce(Symbol.last_price, 0) <= max_price)
     active_rows = active_query.order_by(Symbol.ticker.asc()).all()
     return [row.ticker for row in active_rows]
+
+
+def _latest_universe_tickers(
+    db: Session,
+    *,
+    max_price: float | None = None,
+    allow_symbol_fallback: bool = True,
+) -> list[str]:
+    return _universe_tickers_for_trade_date(
+        db,
+        max_price=max_price,
+        allow_symbol_fallback=allow_symbol_fallback,
+    )
 
 
 def _resolve_canonical_intraday_trade_date(
@@ -1442,7 +1458,11 @@ def get_symbol_state_live(
 ):
     query = db.query(SymbolStateLive)
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _universe_tickers_for_trade_date(
+            db,
+            trade_date=selected_trade_date,
+            max_price=settings.secret_universe_max_price,
+        )
         if not universe_tickers:
             return SymbolStateLivePageResponse(items=[], total=0, page=page, page_size=page_size, summary={})
         query = query.filter(SymbolStateLive.ticker.in_(universe_tickers))
@@ -1506,7 +1526,11 @@ def get_candidate_events(
         if latest_event_ts is not None:
             selected_trade_date = latest_event_ts.date()
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _universe_tickers_for_trade_date(
+            db,
+            trade_date=selected_trade_date,
+            max_price=settings.secret_universe_max_price,
+        )
         if not universe_tickers:
             return CandidateEventPageResponse(
                 items=[],
@@ -1568,7 +1592,11 @@ def get_decision_events(
         if latest_decision_ts is not None:
             selected_trade_date = latest_decision_ts.date()
     if universe_only:
-        universe_tickers = _latest_universe_tickers(db, max_price=settings.secret_universe_max_price)
+        universe_tickers = _universe_tickers_for_trade_date(
+            db,
+            trade_date=selected_trade_date,
+            max_price=settings.secret_universe_max_price,
+        )
         if not universe_tickers:
             return DecisionEventPageResponse(
                 items=[],

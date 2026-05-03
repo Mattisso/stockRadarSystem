@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.engine.secret_ingredients import SecretIngredientsService
 from app.engine.symbol_trade_state_service import SymbolTradeStateService
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
@@ -40,9 +39,6 @@ class AggregateDecisionEngine:
         trigger_count: int,
         state: SymbolStateLive,
     ) -> AggregateDecision | None:
-        if not self._is_ticker_in_current_aggregate_universe(ticker):
-            return None
-
         if trigger_count <= 0 and not self._requires_ongoing_decision(state):
             return None
 
@@ -531,13 +527,6 @@ class AggregateDecisionEngine:
         )
         return any(self._trade_day_for_ts(row[0]) == trade_day for row in rows)
 
-    def _is_ticker_in_current_aggregate_universe(self, ticker: str) -> bool:
-        allowed = SecretIngredientsService(self.db).select_aggregate_subscription_tickers()
-        if not allowed:
-            return True
-        return ticker.upper() in {symbol.upper() for symbol in allowed}
-
-    @staticmethod
     def _trade_day_for_ts(value: datetime) -> datetime.date:
         if value.tzinfo is None:
             aware = value.replace(tzinfo=timezone.utc)

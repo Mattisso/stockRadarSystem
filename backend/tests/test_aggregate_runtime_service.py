@@ -1,14 +1,36 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.data.polygon_aggregate_service import (
     PolygonAggregateService,
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
+from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.aggregate_runtime_service import AggregateRuntimeService
 from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
+from app.models.universe_daily import UniverseDaily
+
+
+def _seed_candidate_events(db, *, ticker: str, event_ts: datetime, o: float, h: float, l: float, c: float, v: int, vw: float):
+    state = db.query(SymbolStateLive).filter_by(ticker=ticker).one()
+    trigger_engine = AggregateTriggerEngine(db)
+    record = PolygonSecondAggregateRecord(
+        ticker=ticker,
+        second_ts=event_ts,
+        open=o,
+        high=h,
+        low=l,
+        close=c,
+        volume=v,
+        vwap=vw,
+        transactions=1,
+    )
+    triggers = trigger_engine.evaluate_second_bar(record, state)
+    assert len(triggers) >= 1
+    trigger_engine.persist_with_validation(triggers, state, event_ts=event_ts)
+    db.commit()
 
 
 def test_aggregate_runtime_service_refreshes_staleness_and_emits_sell_for_active_position(db):
@@ -229,6 +251,17 @@ def test_aggregate_runtime_service_processes_candidate_events_promptly(db):
         ]
     )
     db.commit()
+    _seed_candidate_events(
+        db,
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc),
+        o=3.20,
+        h=3.27,
+        l=3.19,
+        c=3.26,
+        v=420,
+        vw=3.25,
+    )
 
     candidate_events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(candidate_events) >= 1
@@ -270,6 +303,17 @@ def test_aggregate_runtime_service_processes_candidate_events_when_event_ts_is_s
         ]
     )
     db.commit()
+    _seed_candidate_events(
+        db,
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc),
+        o=3.20,
+        h=3.27,
+        l=3.19,
+        c=3.26,
+        v=420,
+        vw=3.25,
+    )
 
     candidate_events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(candidate_events) >= 1
@@ -311,6 +355,17 @@ def test_aggregate_runtime_service_marks_stale_candidate_events_processed_withou
         ]
     )
     db.commit()
+    _seed_candidate_events(
+        db,
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc),
+        o=3.20,
+        h=3.27,
+        l=3.19,
+        c=3.26,
+        v=420,
+        vw=3.25,
+    )
 
     candidate_events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(candidate_events) >= 1
@@ -331,3 +386,63 @@ def test_aggregate_runtime_service_marks_stale_candidate_events_processed_withou
     refreshed = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert all(event.processed_at is not None for event in refreshed)
     assert db.query(DecisionEvent).filter_by(ticker="LCID").count() == 0
+
+
+def test_aggregate_runtime_service_processes_candidates_even_if_latest_universe_changed(db):
+    aggregate_service = PolygonAggregateService(db)
+    aggregate_service.upsert_minute_aggregates(
+        [
+            PolygonMinuteAggregateRecord(
+                ticker="LCID",
+                minute_ts=datetime(2026, 4, 10, 13, 45, 0, tzinfo=timezone.utc),
+                open=3.00,
+                high=3.30,
+                low=2.99,
+                close=3.26,
+                volume=1800,
+            )
+        ]
+    )
+    aggregate_service.upsert_second_aggregates(
+        [
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 1, tzinfo=timezone.utc), 3.10, 3.16, 3.10, 3.15, 350, 3.14, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 2, tzinfo=timezone.utc), 3.15, 3.21, 3.14, 3.20, 380, 3.19, 1),
+            PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc), 3.20, 3.27, 3.19, 3.26, 420, 3.25, 1),
+        ]
+    )
+    db.commit()
+    _seed_candidate_events(
+        db,
+        ticker="LCID",
+        event_ts=datetime(2026, 4, 10, 13, 45, 3, tzinfo=timezone.utc),
+        o=3.20,
+        h=3.27,
+        l=3.19,
+        c=3.26,
+        v=420,
+        vw=3.25,
+    )
+
+    db.query(UniverseDaily).delete()
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 4, 11),
+            ticker="AAPL",
+            open_price=150.0,
+            last_price=151.0,
+            avg_volume=1_000_000,
+        )
+    )
+    db.commit()
+
+    candidate_events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
+    assert len(candidate_events) >= 1
+
+    result = AggregateRuntimeService(db).refresh_validation_and_decisions(
+        as_of=datetime(2026, 4, 10, 13, 45, 4, tzinfo=timezone.utc)
+    )
+    db.commit()
+
+    assert result.processed_candidate_event_count >= 1
+    assert result.persisted_decision_count >= 1
+    assert db.query(DecisionEvent).filter_by(ticker="LCID").count() >= 1
