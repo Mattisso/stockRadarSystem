@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any
 from websockets.exceptions import ConnectionClosed
 
+from app.core.market_hours import is_regular_us_market_time
 from app.core.logging import get_logger
 from app.data.polygon_aggregate_parser import PolygonAggregateParser
 from app.data.polygon_aggregate_service import (
@@ -135,6 +136,8 @@ class PolygonAggregateClient:
 
         for bar in bars:
             if bar.ticker not in allowed_tickers:
+                continue
+            if not is_regular_us_market_time(bar.timestamp):
                 continue
             if bar.event_type == "AM":
                 minute_records.append(

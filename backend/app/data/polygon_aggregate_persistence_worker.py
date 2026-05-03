@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
 
+from app.core.market_hours import is_regular_us_market_time
 from app.core.logging import get_logger
 from app.data.polygon_aggregate_service import (
     PolygonAggregateService,
@@ -88,6 +89,8 @@ class PolygonAggregatePersistenceWorker:
         second_records: list[PolygonSecondAggregateRecord] = []
 
         for event in events:
+            if not is_regular_us_market_time(event.event_ts):
+                continue
             if event.event_type == "AM":
                 minute_records.append(
                     PolygonMinuteAggregateRecord(

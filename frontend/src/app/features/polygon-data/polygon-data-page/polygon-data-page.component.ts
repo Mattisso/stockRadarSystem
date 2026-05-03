@@ -51,7 +51,7 @@ export class PolygonDataPageComponent implements OnInit {
   readonly dataset = signal<PolygonDatasetKey>('day');
   readonly ticker = signal('');
   readonly tradeDate = signal('');
-  readonly sessionStartEt = signal('04:00');
+  readonly sessionStartEt = signal('09:30');
   readonly aggregateSource = signal<PolygonAggregateSource>('live');
   readonly pageJump = signal<string | number>('1');
   readonly pageIndex = signal(0);
@@ -118,11 +118,11 @@ export class PolygonDataPageComponent implements OnInit {
     switch (this.dataset()) {
       case 'minute':
         return this.aggregateSource() === 'live'
-          ? 'Recent operational minute bars for the current under-$10 universe. One page at a time, server-side paged.'
+          ? 'Recent operational minute bars for the current under-$10 universe during the regular U.S. session. One page at a time, server-side paged.'
           : 'Historical minute bars for the current under-$10 universe. One page at a time, server-side paged.';
       case 'second':
         return this.aggregateSource() === 'live'
-          ? 'Recent operational second bars derived from live ticks. Use a ticker filter for the fastest view.'
+          ? 'Recent operational second bars derived from live ticks during the regular U.S. session. Use a ticker filter for the fastest view.'
           : 'Historical second bars. Use a ticker filter for the fastest view.';
       case 'ticks':
         return 'Raw persisted live Polygon ticks for the current under-$10 universe. Use a ticker filter for the fastest view.';
@@ -139,7 +139,7 @@ export class PolygonDataPageComponent implements OnInit {
           ? ` Latest ${this.dataset()} timestamp in ${source}: ${new Date(latestTs).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET.`
           : '';
         const stale = this.sourceIsStale() ? ` ${source} is stale for the selected trading date.` : '';
-        return `Showing rows at or after ${this.sessionStartEt()} ET from ${source}.${freshness}${stale}`;
+        return `Showing regular-session rows from ${this.sessionStartEt()} ET through 16:00 ET from ${source}.${freshness}${stale}`;
       }
     }
     if (this.dataset() === 'second' && !this.requestTicker()) {

@@ -9,6 +9,7 @@ import httpx
 from websockets.exceptions import ConnectionClosed
 
 from app.broker.interface import Quote
+from app.core.market_hours import is_regular_us_market_time
 from app.core.logging import get_logger
 from app.core.metrics import POLYGON_RECONNECT_TOTAL, POLYGON_SESSION_CONNECTED
 from app.data.cache import CacheInterface
@@ -374,10 +375,13 @@ class PolygonClient:
                 timestamp = result.get("t")
                 if timestamp is None:
                     continue
+                minute_ts = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+                if not is_regular_us_market_time(minute_ts):
+                    continue
                 records.append(
                     PolygonMinuteAggregateRecord(
                         ticker=ticker,
-                        minute_ts=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
+                        minute_ts=minute_ts,
                         open=result.get("o", 0.0) or 0.0,
                         high=result.get("h", 0.0) or 0.0,
                         low=result.get("l", 0.0) or 0.0,
@@ -708,6 +712,8 @@ class PolygonClient:
 
         for bar in bars:
             if bar.ticker not in allowed_tickers:
+                continue
+            if not is_regular_us_market_time(bar.timestamp):
                 continue
             if bar.event_type == "AM":
                 minute_records.append(

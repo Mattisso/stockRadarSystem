@@ -23,6 +23,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.core.market_hours import REGULAR_MARKET_CLOSE, REGULAR_MARKET_OPEN
 from app.api.dependencies import get_broker, get_runtime, get_state_machine
 from app.api.observability import track_tables
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
@@ -282,6 +283,20 @@ def _default_decision_trade_day() -> date:
 def _decision_trade_day_bounds(trade_date: date) -> tuple[datetime, datetime]:
     start_local = datetime.combine(trade_date, dt_time.min, tzinfo=NEW_YORK_TZ)
     end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
+def _session_bounds_for_trade_date(
+    trade_date: date,
+    *,
+    session_start_et: dt_time,
+    session_end_et: dt_time,
+) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(trade_date, session_start_et, tzinfo=NEW_YORK_TZ)
+    end_local = datetime.combine(trade_date, session_end_et, tzinfo=NEW_YORK_TZ)
     return (
         start_local.astimezone(timezone.utc).replace(tzinfo=None),
         end_local.astimezone(timezone.utc).replace(tzinfo=None),
@@ -1218,6 +1233,7 @@ def get_polygon_minute_aggregates(
     trade_date: date | None = None,
     ticker: str | None = None,
     session_start_et: dt_time | None = None,
+    session_end_et: dt_time | None = None,
     session_time_et: dt_time | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
@@ -1257,12 +1273,17 @@ def get_polygon_minute_aggregates(
             PolygonMinuteAggregateLive.minute_ts >= start_dt,
             PolygonMinuteAggregateLive.minute_ts < end_dt,
         )
-    requested_session_start = session_start_et or session_time_et
-    if requested_session_start is not None:
+    requested_session_start = session_start_et or session_time_et or REGULAR_MARKET_OPEN
+    requested_session_end = session_end_et or REGULAR_MARKET_CLOSE
+    if selected_trade_date is not None:
+        session_start_utc, session_end_utc = _session_bounds_for_trade_date(
+            selected_trade_date,
+            session_start_et=requested_session_start,
+            session_end_et=requested_session_end,
+        )
         query = query.filter(
-            text(
-                "timezone('America/New_York', minute_ts at time zone 'UTC')::time >= CAST(:session_start_et AS time)"
-            ).bindparams(session_start_et=requested_session_start)
+            PolygonMinuteAggregateLive.minute_ts >= session_start_utc,
+            PolygonMinuteAggregateLive.minute_ts < session_end_utc,
         )
     if ticker:
         query = query.filter(PolygonMinuteAggregateLive.ticker == ticker.upper())
@@ -1356,6 +1377,7 @@ def get_polygon_second_aggregates(
     ticker: str | None = None,
     event_type: str | None = "trade",
     session_start_et: dt_time | None = None,
+    session_end_et: dt_time | None = None,
     session_time_et: dt_time | None = None,
     universe_only: bool = True,
     db: Session = Depends(get_db),
@@ -1392,12 +1414,17 @@ def get_polygon_second_aggregates(
         start_dt = datetime.combine(selected_trade_date, datetime.min.time())
         end_dt = start_dt + timedelta(days=1)
         query = query.filter(PolygonSecondAggregateLive.second_ts >= start_dt, PolygonSecondAggregateLive.second_ts < end_dt)
-    requested_session_start = session_start_et or session_time_et
-    if requested_session_start is not None:
+    requested_session_start = session_start_et or session_time_et or REGULAR_MARKET_OPEN
+    requested_session_end = session_end_et or REGULAR_MARKET_CLOSE
+    if selected_trade_date is not None:
+        session_start_utc, session_end_utc = _session_bounds_for_trade_date(
+            selected_trade_date,
+            session_start_et=requested_session_start,
+            session_end_et=requested_session_end,
+        )
         query = query.filter(
-            text(
-                "timezone('America/New_York', second_ts at time zone 'UTC')::time >= CAST(:session_start_et AS time)"
-            ).bindparams(session_start_et=requested_session_start)
+            PolygonSecondAggregateLive.second_ts >= session_start_utc,
+            PolygonSecondAggregateLive.second_ts < session_end_utc,
         )
     if ticker:
         query = query.filter(PolygonSecondAggregateLive.ticker == ticker.upper())

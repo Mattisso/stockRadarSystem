@@ -432,7 +432,7 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
         body = response.json()
         assert body["trade_date"] == "2026-04-07"
         assert body["total"] is None
-        assert len(body["items"]) == 2
+        assert len(body["items"]) == 1
         assert body["items"][0]["ticker"] == "SIRI"
         assert body["items"][0]["second_ts"].startswith("2026-04-07T13:30:00")
         assert body["items"][0]["open"] == 9.5
