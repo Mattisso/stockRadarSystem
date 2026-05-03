@@ -528,11 +528,17 @@ def _nearest_from_index(index, *, ticker: str, event_ts: datetime):
         candidates.append(rows[pos + 1])
     if not candidates:
         return None
+
+    def _bar_ts(row):
+        if hasattr(row, "second_ts"):
+            return row.second_ts
+        return row.minute_ts
+
     return min(
         candidates,
         key=lambda row: (
-            abs((_normalize_route_ts(getattr(row, "second_ts", getattr(row, "minute_ts"))) - target).total_seconds()),
-            getattr(row, "second_ts", getattr(row, "minute_ts")),
+            abs((_normalize_route_ts(_bar_ts(row)) - target).total_seconds()),
+            _bar_ts(row),
         ),
     )
 
