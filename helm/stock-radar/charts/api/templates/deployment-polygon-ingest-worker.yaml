@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/part-of: stock-radar-system
 spec:
   replicas: {{ .Values.polygonIngestWorker.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       app: stock-radar-polygon-ingest-worker

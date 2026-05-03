@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/part-of: stock-radar-system
 spec:
   replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       app: stock-radar-frontend

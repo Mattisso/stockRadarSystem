@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/part-of: stock-radar-system
 spec:
   replicas: {{ .Values.executionWorker.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       app: stock-radar-execution-worker

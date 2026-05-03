@@ -1,4 +1,5 @@
 webReplicaCount: 1
+revisionHistoryLimit: 5
 
 webResources:
   requests:
