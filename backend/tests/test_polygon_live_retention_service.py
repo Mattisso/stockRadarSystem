@@ -216,3 +216,40 @@ def test_polygon_live_retention_service_purges_out_of_scope_live_and_historical_
     assert db.query(PolygonMinuteAggregateLive).count() == 0
     assert db.query(PolygonSecondAggregate).count() == 1
     assert db.query(PolygonSecondAggregateLive).count() == 0
+
+
+def test_polygon_live_retention_service_purges_historical_ticks_by_age(db):
+    db.add_all(
+        [
+            PolygonTick(
+                ticker="LCID",
+                event_type="quote",
+                bid=3.0,
+                ask=3.01,
+                last=3.005,
+                volume=100,
+                tick_ts=datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc),
+            ),
+            PolygonTick(
+                ticker="LCID",
+                event_type="quote",
+                bid=3.1,
+                ask=3.11,
+                last=3.105,
+                volume=120,
+                tick_ts=datetime(2026, 4, 25, 14, 0, 0, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db.commit()
+
+    result = PolygonLiveRetentionService(db).purge_historical_ticks(
+        retention_days=14,
+        now=datetime(2026, 5, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    db.commit()
+
+    assert result.deleted_historical_tick_rows == 1
+    assert result.historical_tick_cutoff_ts == datetime(2026, 4, 17, 0, 0, 0, tzinfo=timezone.utc)
+    assert db.query(PolygonTick).count() == 1
+    assert db.query(PolygonTick).one().tick_ts == datetime(2026, 4, 25, 14, 0, 0)

@@ -31,6 +31,8 @@ class PolygonLiveRetentionResult:
     deleted_scope_minute_live_rows: int = 0
     deleted_scope_second_rows: int = 0
     deleted_scope_second_live_rows: int = 0
+    deleted_historical_tick_rows: int = 0
+    historical_tick_cutoff_ts: datetime | None = None
 
 
 class PolygonLiveRetentionService:
@@ -237,6 +239,32 @@ class PolygonLiveRetentionService:
             deleted_scope_minute_live_rows=scope_result.deleted_scope_minute_live_rows,
             deleted_scope_second_rows=scope_result.deleted_scope_second_rows,
             deleted_scope_second_live_rows=scope_result.deleted_scope_second_live_rows,
+        )
+
+    def purge_historical_ticks(
+        self,
+        *,
+        retention_days: int,
+        now: datetime | None = None,
+    ) -> PolygonLiveRetentionResult:
+        reference_time = now or datetime.now(timezone.utc)
+        historical_tick_cutoff_ts = reference_time - timedelta(days=max(1, retention_days))
+        deleted_historical_tick_rows = (
+            self.db.query(PolygonTick)
+            .filter(PolygonTick.tick_ts < historical_tick_cutoff_ts)
+            .delete(synchronize_session=False)
+        )
+        self.db.flush()
+
+        return PolygonLiveRetentionResult(
+            deleted_tick_rows=0,
+            deleted_minute_rows=0,
+            deleted_second_rows=0,
+            tick_cutoff_ts=reference_time,
+            minute_cutoff_ts=reference_time,
+            second_cutoff_ts=reference_time,
+            deleted_historical_tick_rows=deleted_historical_tick_rows,
+            historical_tick_cutoff_ts=historical_tick_cutoff_ts,
         )
 
     def _delete_sql(self, key: str, params: dict[str, object]) -> int:

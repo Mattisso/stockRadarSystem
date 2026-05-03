@@ -3,6 +3,7 @@ from app.main import (
     should_enable_aggregate_rolling_refresh,
     should_enable_aggregate_client,
     should_enable_day_refresh,
+    should_defer_nonessential_market_hours_jobs,
     should_enable_ml_materialization_job,
     should_enable_minute_refresh,
     should_enable_position_monitor_job,
@@ -96,6 +97,57 @@ def test_should_disable_ml_materialization_job_with_nonpositive_interval(monkeyp
     monkeypatch.setattr("app.main.settings.ml_materialization_interval_minutes", 0)
 
     assert should_enable_ml_materialization_job() is False
+
+
+def test_should_defer_nonessential_market_hours_jobs(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", True)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_defer_nonessential_market_hours_jobs() is True
+
+
+def test_should_not_defer_nonessential_jobs_outside_market_hours(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", True)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
+
+    assert should_defer_nonessential_market_hours_jobs() is False
+
+
+def test_should_not_defer_nonessential_jobs_when_priority_policy_disabled(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", False)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_defer_nonessential_market_hours_jobs() is False
+
+
+def test_market_hours_priority_policy_does_not_disable_aggregate_rolling_refresh(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_enable_aggregate_rolling_refresh", True)
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", True)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_enable_aggregate_rolling_refresh() is True
+
+
+def test_market_hours_priority_policy_does_not_disable_minute_refresh(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_enable_minute_refresh", True)
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", True)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_enable_minute_refresh() is True
+
+
+def test_market_hours_priority_policy_does_not_disable_position_monitor(monkeypatch):
+    monkeypatch.setattr("app.main.settings.api_runtime_role", "worker")
+    monkeypatch.setattr("app.main.settings.api_enable_position_monitor_job", True)
+    monkeypatch.setattr("app.main.settings.api_prioritize_market_critical_jobs", True)
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_enable_position_monitor_job() is True
 
 
 def test_should_interval_refresh_polygon_day_aggregates_enabled(monkeypatch):

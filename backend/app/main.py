@@ -109,6 +109,13 @@ def should_enable_ml_materialization_job() -> bool:
     )
 
 
+def should_defer_nonessential_market_hours_jobs(now: datetime | None = None) -> bool:
+    if not should_run_background_jobs() or not settings.api_prioritize_market_critical_jobs:
+        return False
+    reference_time = now or datetime.now(timezone.utc)
+    return is_regular_us_market_hours(reference_time)
+
+
 def should_interval_refresh_polygon_day_aggregates() -> bool:
     return (
         settings.secret_universe_enabled
@@ -186,8 +193,20 @@ async def lifespan(app: FastAPI):
 
         polygon_queue = asyncio.Queue(maxsize=settings.polygon_queue_maxsize)
         if should_enable_aggregate_client() and settings.polygon_mode == "websocket":
-            polygon_aggregate_event_bus = PolygonEventBus(maxsize=settings.polygon_queue_maxsize)
-            polygon_trigger_event_bus = PolygonEventBus(maxsize=settings.polygon_queue_maxsize)
+            polygon_aggregate_event_bus = PolygonEventBus(
+                maxsize=settings.polygon_queue_maxsize,
+                redis_url=settings.redis_url or None,
+                stream_name="stockradar:polygon:aggregate",
+                consumer_group="aggregate-persistence",
+                consumer_name="aggregate-persistence",
+            )
+            polygon_trigger_event_bus = PolygonEventBus(
+                maxsize=settings.polygon_queue_maxsize,
+                redis_url=settings.redis_url or None,
+                stream_name="stockradar:polygon:aggregate-trigger",
+                consumer_group="aggregate-trigger",
+                consumer_name="aggregate-trigger",
+            )
         polygon_client = PolygonClient(
             api_key=settings.polygon_api_key,
             mode=settings.polygon_mode,
@@ -409,6 +428,10 @@ async def lifespan(app: FastAPI):
         if run_background:
             if settings.polygon_mode == "websocket" and not is_regular_us_market_hours(datetime.now(timezone.utc)):
                 await polygon_client.pause_subscriptions()
+            if polygon_aggregate_event_bus is not None:
+                await polygon_aggregate_event_bus.connect()
+            if polygon_trigger_event_bus is not None:
+                await polygon_trigger_event_bus.connect()
             if polygon_aggregate_persistence_worker is not None:
                 await polygon_aggregate_persistence_worker.start()
             if aggregate_trigger_worker is not None:
@@ -862,6 +885,9 @@ async def lifespan(app: FastAPI):
     async def retrain_job():
         start = time.monotonic()
         try:
+            if should_defer_nonessential_market_hours_jobs():
+                log.info("scheduler.ml_retrain_deferred_market_hours")
+                return
             await trainer.retrain_if_needed()
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="ml_retrain").inc()
@@ -873,6 +899,9 @@ async def lifespan(app: FastAPI):
         start = time.monotonic()
         try:
             if not should_enable_ml_materialization_job():
+                return
+            if should_defer_nonessential_market_hours_jobs():
+                log.info("scheduler.ml_materialization_deferred_market_hours")
                 return
             db = SessionLocal()
             try:
@@ -936,6 +965,39 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="polygon_live_retention").observe(time.monotonic() - start)
 
+    async def polygon_tick_history_retention_job():
+        start = time.monotonic()
+        try:
+            if not settings.polygon_ticks_history_retention_enabled:
+                return
+            if should_defer_nonessential_market_hours_jobs():
+                log.info("scheduler.polygon_tick_history_retention_deferred_market_hours")
+                return
+            db = SessionLocal()
+            try:
+                result = PolygonLiveRetentionService(db).purge_historical_ticks(
+                    retention_days=settings.polygon_ticks_history_retention_days,
+                )
+                db.commit()
+                log.info(
+                    "scheduler.polygon_tick_history_retention_completed",
+                    deleted_historical_tick_rows=result.deleted_historical_tick_rows,
+                    historical_tick_cutoff_ts=(
+                        result.historical_tick_cutoff_ts.isoformat()
+                        if result.historical_tick_cutoff_ts is not None
+                        else None
+                    ),
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="polygon_tick_history_retention").inc()
+            log.exception("scheduler.polygon_tick_history_retention_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="polygon_tick_history_retention").observe(
+                time.monotonic() - start
+            )
+
     async def aggregate_rolling_refresh_job():
         start = time.monotonic()
         try:
@@ -966,6 +1028,9 @@ async def lifespan(app: FastAPI):
         start = time.monotonic()
         try:
             if not settings.aggregate_history_export_enabled:
+                return
+            if should_defer_nonessential_market_hours_jobs():
+                log.info("scheduler.aggregate_history_export_deferred_market_hours")
                 return
             db = SessionLocal()
             try:
@@ -1047,6 +1112,14 @@ async def lifespan(app: FastAPI):
             max_instances=1,
             id="polygon_live_retention",
         )
+        if settings.polygon_ticks_history_retention_enabled:
+            scheduler.add_job(
+                polygon_tick_history_retention_job,
+                "interval",
+                hours=settings.polygon_ticks_history_cleanup_interval_hours,
+                max_instances=1,
+                id="polygon_tick_history_retention",
+            )
         if polygon_client is not None and settings.polygon_mode == "websocket":
             scheduler.add_job(
                 sync_polygon_market_hours_subscriptions_job,
@@ -1134,6 +1207,10 @@ async def lifespan(app: FastAPI):
         await aggregate_trigger_worker.stop()
     if polygon_queue_consumer:
         await polygon_queue_consumer.stop()
+    if polygon_trigger_event_bus:
+        await polygon_trigger_event_bus.disconnect()
+    if polygon_aggregate_event_bus:
+        await polygon_aggregate_event_bus.disconnect()
     await cache.disconnect()
     await ws_manager.stop()
     runtime.mark_service("cache", False, detail="shutdown")

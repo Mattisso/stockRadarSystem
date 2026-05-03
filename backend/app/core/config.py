@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     api_enable_day_refresh: bool = True
     api_enable_minute_refresh: bool = True
     api_enable_ml_materialization_job: bool = True
+    api_prioritize_market_critical_jobs: bool = True
     cors_allowed_origins: str = (
         "https://stockradarx.com,"
         "https://www.stockradarx.com,"
@@ -161,6 +162,9 @@ class Settings(BaseSettings):
     polygon_scope_cleanup_enabled: bool = True
     polygon_scope_cleanup_session_start_et: str = "09:30:00"
     polygon_scope_cleanup_session_end_et: str = "16:00:00"
+    polygon_ticks_history_retention_enabled: bool = True
+    polygon_ticks_history_retention_days: int = 14
+    polygon_ticks_history_cleanup_interval_hours: int = 24
     aggregate_rolling_refresh_seconds: int = 1
     aggregate_candidate_event_max_age_seconds: int = 15
     aggregate_history_export_enabled: bool = False
