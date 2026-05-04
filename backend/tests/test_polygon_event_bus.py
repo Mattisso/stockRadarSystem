@@ -72,6 +72,37 @@ class _FakeRedisStreamWithEmptyPending(_FakeRedisStream):
         )
 
 
+class _FakeRedisStreamWithStickyPending(_FakeRedisStream):
+    def __init__(self) -> None:
+        super().__init__()
+        self._pending_message: tuple[str, dict[str, str]] | None = None
+        self._fresh_messages: list[tuple[str, dict[str, str]]] = []
+
+    async def xadd(self, stream_name: str, payload: dict[str, str], maxlen: int, approximate: bool) -> str:
+        message_id = str(self._next_id)
+        self._next_id += 1
+        if self._pending_message is None:
+            self._pending_message = (message_id, payload)
+        else:
+            self._fresh_messages.append((message_id, payload))
+        return message_id
+
+    async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+        target = next(iter(streams.values()))
+        if target == "0" and self._pending_message is not None:
+            return [("stream", [self._pending_message])]
+        if target == ">" and self._fresh_messages:
+            message_id, payload = self._fresh_messages.pop(0)
+            return [("stream", [(message_id, payload)])]
+        return []
+
+    async def xack(self, stream_name: str, group_name: str, message_id: str) -> int:
+        self.acked.append(message_id)
+        if self._pending_message is not None and self._pending_message[0] == message_id:
+            self._pending_message = None
+        return 1
+
+
 @pytest.mark.asyncio
 async def test_publish_and_read_single_event():
     bus = PolygonEventBus(maxsize=10)
@@ -217,3 +248,32 @@ async def test_redis_stream_mode_ignores_empty_pending_read_and_reads_fresh_even
     assert result.ticker == "TEST2"
     assert result.event_type == "A"
     assert bus._redis.acked == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_redis_stream_mode_does_not_replay_same_pending_message_while_unacked():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+    )
+    bus._redis = _FakeRedisStreamWithStickyPending()
+    pending_event = _make_event(ticker="PENDING", event_type="A")
+    fresh_event = _make_event(ticker="FRESH", event_type="A")
+
+    await bus.publish(pending_event)
+    await bus.publish(fresh_event)
+
+    first = await bus.read()
+    second = await bus.read()
+
+    assert first.ticker == "PENDING"
+    assert second.ticker == "FRESH"
+
+    bus.task_done()
+    bus.task_done()
+    await asyncio.sleep(0)
+
+    assert bus._redis.acked == ["1", "2"]

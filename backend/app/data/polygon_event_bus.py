@@ -85,15 +85,16 @@ class PolygonEventBus:
 
     async def read(self) -> PolygonAggregateEvent:
         if self._redis is not None:
-            pending = await self._redis.xreadgroup(
-                groupname=self._consumer_group,
-                consumername=self._consumer_name,
-                streams={self._stream_name: "0"},
-                count=1,
-            )
-            pending_event = self._decode_stream_event(pending)
-            if pending_event is not None:
-                return pending_event
+            if not self._pending_ids:
+                pending = await self._redis.xreadgroup(
+                    groupname=self._consumer_group,
+                    consumername=self._consumer_name,
+                    streams={self._stream_name: "0"},
+                    count=1,
+                )
+                pending_event = self._decode_stream_event(pending)
+                if pending_event is not None:
+                    return pending_event
 
             while True:
                 fresh = await self._redis.xreadgroup(
