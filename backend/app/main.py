@@ -61,6 +61,13 @@ from app.engine.universe_filter import UniverseFilterEngine
 from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
 from app.ml.training_example_builder import TrainingExampleBuilder
 from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+)
 from app.models.signal import Signal
 from app.models.trade import Trade
 from app.risk.risk_manager import RiskManager
@@ -135,7 +142,24 @@ def resolve_polygon_minute_refresh_trade_date(db) -> date | None:
     trading day while grouped day aggregates are still only available for the
     previous completed session.
     """
-    latest_universe_trade_date = db.query(func.max(UniverseDaily.trade_date)).scalar()
+    market_sources = (
+        (
+            UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+            UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+        )
+        if settings.secret_universe_source == "polygon"
+        else (
+            UNIVERSE_SOURCE_BROKER_FILTER,
+            UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+        )
+    )
+    latest_universe_trade_date = (
+        db.query(func.max(UniverseDaily.trade_date))
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(market_sources))
+        .scalar()
+    )
     if latest_universe_trade_date is not None:
         return latest_universe_trade_date
 

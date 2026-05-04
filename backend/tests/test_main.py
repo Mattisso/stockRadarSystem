@@ -15,7 +15,13 @@ from app.main import (
     should_run_background_jobs,
 )
 from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonDayAggregateRecord
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UniverseDaily,
+)
 
 
 def test_current_runtime_role_normalizes_case(monkeypatch):
@@ -223,7 +229,8 @@ def test_polygon_ingest_worker_can_enable_aggregate_client_without_rolling_refre
     assert should_enable_aggregate_rolling_refresh() is False
 
 
-def test_resolve_polygon_minute_refresh_trade_date_prefers_latest_universe_snapshot(db):
+def test_resolve_polygon_minute_refresh_trade_date_prefers_latest_universe_snapshot(db, monkeypatch):
+    monkeypatch.setattr("app.main.settings.secret_universe_source", "polygon")
     service = PolygonAggregateService(db)
     service.upsert_day_aggregates(
         [
@@ -242,6 +249,8 @@ def test_resolve_polygon_minute_refresh_trade_date_prefers_latest_universe_snaps
         UniverseDaily(
             trade_date=date(2026, 5, 4),
             ticker="LCID",
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
             open_price=3.2,
             last_price=3.25,
             avg_volume=100_000,
@@ -252,7 +261,8 @@ def test_resolve_polygon_minute_refresh_trade_date_prefers_latest_universe_snaps
     assert resolve_polygon_minute_refresh_trade_date(db) == date(2026, 5, 4)
 
 
-def test_resolve_polygon_minute_refresh_trade_date_falls_back_to_day_aggregate_date(db):
+def test_resolve_polygon_minute_refresh_trade_date_falls_back_to_day_aggregate_date(db, monkeypatch):
+    monkeypatch.setattr("app.main.settings.secret_universe_source", "polygon")
     service = PolygonAggregateService(db)
     service.upsert_day_aggregates(
         [
@@ -266,6 +276,32 @@ def test_resolve_polygon_minute_refresh_trade_date_falls_back_to_day_aggregate_d
                 volume=100_000,
             )
         ]
+    )
+    db.commit()
+
+    assert resolve_polygon_minute_refresh_trade_date(db) == date(2026, 5, 1)
+
+
+def test_resolve_polygon_minute_refresh_trade_date_ignores_newer_operational_snapshot(db, monkeypatch):
+    monkeypatch.setattr("app.main.settings.secret_universe_source", "polygon")
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 5, 4),
+            ticker="LCID",
+            universe_kind=UNIVERSE_KIND_OPERATIONAL,
+            source=UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+        )
+    )
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 5, 1),
+            ticker="LCID",
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            open_price=3.2,
+            last_price=3.25,
+            avg_volume=100_000,
+        )
     )
     db.commit()
 

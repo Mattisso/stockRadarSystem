@@ -7,6 +7,12 @@ from app.broker.interface import BrokerInterface
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.engine.secret_ingredients import SecretIngredientsService
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+)
 from app.models.symbol import Symbol
 
 log = get_logger(__name__)
@@ -54,7 +60,11 @@ class UniverseFilterEngine:
                 )
 
         self.db.commit()
-        SecretIngredientsService(self.db).record_daily_universe(tickers)
+        SecretIngredientsService(self.db).record_daily_universe(
+            tickers,
+            universe_kind=UNIVERSE_KIND_OPERATIONAL,
+            source=UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+        )
         self.db.commit()
         log.info("universe_filter.db_synced", active_count=len(tickers))
         return tickers
@@ -103,7 +113,11 @@ class UniverseFilterEngine:
                 )
 
         self.db.flush()
-        SecretIngredientsService(self.db).record_daily_universe(tickers)
+        SecretIngredientsService(self.db).record_daily_universe(
+            tickers,
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_BROKER_FILTER,
+        )
         self.db.commit()
         log.info("secret_universe.persisted", count=len(tickers))
         return tickers

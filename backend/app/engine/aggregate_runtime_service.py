@@ -8,14 +8,21 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.market_hours import is_regular_us_market_hours
+from app.core.config import settings
 from app.engine.aggregate_decision_engine import AggregateDecisionEngine
 from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
 from app.models.symbol_state_live import SymbolStateLive
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+    UniverseDaily,
+)
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
@@ -199,9 +206,23 @@ class AggregateRuntimeService:
         return persisted_decision_count, processed_count
 
     def _fetch_universe_tickers(self, trade_date: datetime.date) -> set[str]:
+        market_sources = (
+            (
+                UNIVERSE_SOURCE_POLYGON_FLATFILE,
+                UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+                UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+            )
+            if settings.secret_universe_source == "polygon"
+            else (
+                UNIVERSE_SOURCE_BROKER_FILTER,
+                UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+            )
+        )
         rows = (
             self.db.query(UniverseDaily.ticker)
             .filter(UniverseDaily.trade_date == trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(market_sources))
             .all()
         )
         return {row[0].upper() for row in rows}

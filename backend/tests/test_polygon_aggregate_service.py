@@ -14,7 +14,12 @@ from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol import Symbol
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+    UniverseDaily,
+)
 
 
 def test_upsert_day_aggregates_and_build_universe(db):
@@ -56,6 +61,8 @@ def test_upsert_day_aggregates_and_build_universe(db):
     rows = db.query(UniverseDaily).all()
     assert len(rows) == 1
     assert rows[0].ticker == "LCID"
+    assert rows[0].universe_kind == UNIVERSE_KIND_MARKET
+    assert rows[0].source == UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST
     assert rows[0].open_price == 3.25
     assert rows[0].last_price == 3.45
     assert rows[0].avg_volume == 500_000
@@ -143,6 +150,8 @@ def test_upsert_second_aggregates_defaults_to_current_aggregate_universe(db):
         UniverseDaily(
             trade_date=date(2026, 4, 4),
             ticker="LCID",
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
             open_price=3.2,
             last_price=3.3,
             avg_volume=500_000,

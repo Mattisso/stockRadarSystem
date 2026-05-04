@@ -6,7 +6,13 @@ from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UniverseDaily,
+)
 
 
 def test_aggregate_history_export_service_writes_partition_files(db, tmp_path):
@@ -14,10 +20,21 @@ def test_aggregate_history_export_service_writes_partition_files(db, tmp_path):
         UniverseDaily(
             trade_date=date(2026, 4, 13),
             ticker="LCID",
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
             exchange="NASDAQ",
             open_price=3.00,
             last_price=3.10,
             avg_volume=1200,
+        )
+    )
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 4, 13),
+            ticker="LCID",
+            universe_kind=UNIVERSE_KIND_OPERATIONAL,
+            source=UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+            exchange="NASDAQ",
         )
     )
     db.add(
@@ -95,3 +112,5 @@ def test_aggregate_history_export_service_writes_partition_files(db, tmp_path):
     decision_payload = json.loads((tmp_path / "decision_events.jsonl").read_text(encoding="utf-8").strip())
     assert decision_payload["ticker"] == "LCID"
     assert decision_payload["reason_code"] == "validated_candidate"
+    universe_payload = json.loads((tmp_path / "universe_daily.jsonl").read_text(encoding="utf-8").strip())
+    assert universe_payload["universe_kind"] == UNIVERSE_KIND_MARKET

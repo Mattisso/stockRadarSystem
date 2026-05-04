@@ -14,7 +14,15 @@ from app.models.l1_to_l2_event import L1ToL2Event
 from app.models.symbol import Symbol
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.trade import Trade, TradeStatus
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+    UniverseDaily,
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,8 @@ class SecretIngredientsService:
         *,
         trade_date: date | None = None,
         snapshots_by_ticker: dict[str, DailyUniverseSnapshot] | None = None,
+        universe_kind: str = UNIVERSE_KIND_MARKET,
+        source: str = UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
     ) -> int:
         trade_date = trade_date or date.today()
         rows_added = 0
@@ -50,7 +60,7 @@ class SecretIngredientsService:
         for ticker in tickers:
             existing = (
                 self.db.query(UniverseDaily)
-                .filter_by(trade_date=trade_date, ticker=ticker)
+                .filter_by(trade_date=trade_date, ticker=ticker, universe_kind=universe_kind)
                 .first()
             )
             symbol = symbols.get(ticker)
@@ -78,10 +88,13 @@ class SecretIngredientsService:
                 existing.prev_close = prev_close
                 existing.last_price = last_price
                 existing.avg_volume = avg_volume
+                existing.source = source
                 continue
             row = UniverseDaily(
                 trade_date=trade_date,
                 ticker=ticker,
+                universe_kind=universe_kind,
+                source=source,
                 exchange=exchange,
                 open_price=open_price,
                 prev_close=prev_close,
@@ -93,14 +106,41 @@ class SecretIngredientsService:
         self.db.flush()
         return rows_added
 
+    def _market_sources_for_current_config(self) -> tuple[str, ...]:
+        if settings.secret_universe_source == "polygon":
+            return (
+                UNIVERSE_SOURCE_POLYGON_FLATFILE,
+                UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+                UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+            )
+        return (
+            UNIVERSE_SOURCE_BROKER_FILTER,
+            UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+        )
+
+    def _latest_trade_date_for_universe_kind(
+        self,
+        universe_kind: str,
+        *,
+        sources: tuple[str, ...] | None = None,
+    ) -> date | None:
+        query = self.db.query(UniverseDaily.trade_date).filter(UniverseDaily.universe_kind == universe_kind)
+        if sources:
+            query = query.filter(UniverseDaily.source.in_(sources))
+        return query.order_by(desc(UniverseDaily.trade_date)).limit(1).scalar()
+
     def latest_daily_universe_tickers(self) -> list[str]:
         """Return the most recent persisted Secret Ingredients universe snapshot."""
-        latest_trade_date = self.db.query(UniverseDaily.trade_date).order_by(desc(UniverseDaily.trade_date)).limit(1).scalar()
+        latest_trade_date = self._latest_trade_date_for_universe_kind(
+            UNIVERSE_KIND_MARKET,
+            sources=self._market_sources_for_current_config(),
+        )
         if latest_trade_date is None:
             return []
         rows = (
             self.db.query(UniverseDaily)
-            .filter_by(trade_date=latest_trade_date)
+            .filter_by(trade_date=latest_trade_date, universe_kind=UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(self._market_sources_for_current_config()))
             .order_by(UniverseDaily.ticker.asc())
             .all()
         )
@@ -118,11 +158,9 @@ class SecretIngredientsService:
         selector ranks the latest snapshot by liquidity so the live Polygon
         subscriptions stay within a practical operating scope.
         """
-        latest_trade_date = (
-            self.db.query(UniverseDaily.trade_date)
-            .order_by(desc(UniverseDaily.trade_date))
-            .limit(1)
-            .scalar()
+        latest_trade_date = self._latest_trade_date_for_universe_kind(
+            UNIVERSE_KIND_MARKET,
+            sources=self._market_sources_for_current_config(),
         )
         if latest_trade_date is None:
             return []
@@ -136,6 +174,8 @@ class SecretIngredientsService:
             self.db.query(UniverseDaily, Symbol)
             .outerjoin(Symbol, Symbol.ticker == UniverseDaily.ticker)
             .filter(UniverseDaily.trade_date == latest_trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(self._market_sources_for_current_config()))
             .all()
         )
 
@@ -174,11 +214,9 @@ class SecretIngredientsService:
         target_min_avg_volume = (
             settings.aggregate_live_min_avg_volume if min_avg_volume is None else min_avg_volume
         )
-        latest_trade_date = (
-            self.db.query(UniverseDaily.trade_date)
-            .order_by(desc(UniverseDaily.trade_date))
-            .limit(1)
-            .scalar()
+        latest_trade_date = self._latest_trade_date_for_universe_kind(
+            UNIVERSE_KIND_MARKET,
+            sources=self._market_sources_for_current_config(),
         )
         if latest_trade_date is None:
             return []
@@ -187,6 +225,8 @@ class SecretIngredientsService:
             self.db.query(UniverseDaily, Symbol)
             .outerjoin(Symbol, Symbol.ticker == UniverseDaily.ticker)
             .filter(UniverseDaily.trade_date == latest_trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(self._market_sources_for_current_config()))
             .all()
         )
 

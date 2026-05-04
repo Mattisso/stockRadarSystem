@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonDayAggregateRecord
+from app.models.universe_daily import UNIVERSE_SOURCE_POLYGON_FLATFILE
 
 
 @dataclass(slots=True)
@@ -44,6 +45,7 @@ class PolygonFlatFileUniverseLoader:
             trade_date=trade_date,
             max_close=target_max_close,
             min_close=target_min_close,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
         )
 
     def load_latest_universe_from_s3(
@@ -81,6 +83,7 @@ class PolygonFlatFileUniverseLoader:
                 trade_date=trade_date,
                 max_close=target_max_close,
                 min_close=target_min_close,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
             )
             return trade_date, tickers, stats
 

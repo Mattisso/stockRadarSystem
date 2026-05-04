@@ -12,7 +12,10 @@ from app.models.candidate_event import CandidateEvent
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UniverseDaily,
+)
 
 
 @dataclass(slots=True)
@@ -49,6 +52,7 @@ class AggregateHistoryExportService:
         universe_rows = self._export_model(
             export_dir / "universe_daily.jsonl",
             self.db.query(UniverseDaily)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
             .filter(UniverseDaily.trade_date <= cutoff_date)
             .order_by(UniverseDaily.trade_date.asc(), UniverseDaily.ticker.asc())
             .all(),
@@ -112,6 +116,8 @@ class AggregateHistoryExportService:
         return {
             "trade_date": row.trade_date.isoformat(),
             "ticker": row.ticker,
+            "universe_kind": row.universe_kind,
+            "source": row.source,
             "exchange": row.exchange,
             "open_price": row.open_price,
             "prev_close": row.prev_close,

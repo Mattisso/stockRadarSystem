@@ -1,6 +1,13 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from app.engine.secret_ingredients import SecretIngredientsService
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UniverseDaily,
+)
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.trade import Trade, TradeSide, TradeStatus
 
@@ -152,3 +159,43 @@ def test_select_operational_subscription_tickers_prioritizes_open_trades_and_act
     tickers = service.select_operational_subscription_tickers(now=now)
 
     assert tickers == ["OPEN2", "OPEN1", "MANAGE1"]
+
+
+def test_select_aggregate_subscription_tickers_ignores_newer_operational_snapshot(db, monkeypatch):
+    db.add_all(
+        [
+            UniverseDaily(
+                trade_date=date(2026, 5, 1),
+                ticker="LCID",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+                open_price=3.2,
+                last_price=3.3,
+                avg_volume=500_000,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 1),
+                ticker="SOFI",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+                open_price=6.0,
+                last_price=6.1,
+                avg_volume=900_000,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 4),
+                ticker="LCID",
+                universe_kind=UNIVERSE_KIND_OPERATIONAL,
+                source=UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+            ),
+        ]
+    )
+    db.commit()
+
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.secret_universe_source", "polygon")
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.aggregate_live_max_symbols", 0)
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.aggregate_live_min_avg_volume", 0)
+
+    tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
+
+    assert tickers == ["SOFI", "LCID"]

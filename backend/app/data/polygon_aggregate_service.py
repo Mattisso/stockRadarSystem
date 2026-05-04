@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.broker.interface import Quote
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.engine.secret_ingredients import DailyUniverseSnapshot, SecretIngredientsService
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+)
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
 from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
@@ -92,6 +96,7 @@ class PolygonAggregateService:
         trade_date: date,
         max_close: float = 10.0,
         min_close: float | None = None,
+        source: str = UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
     ) -> list[str]:
         rows = (
             self.db.query(PolygonDayAggregate)
@@ -120,6 +125,8 @@ class PolygonAggregateService:
             tickers,
             trade_date=trade_date,
             snapshots_by_ticker=snapshots_by_ticker,
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=source,
         )
         self.db.flush()
         return tickers

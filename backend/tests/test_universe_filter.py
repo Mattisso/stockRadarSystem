@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 from app.broker.interface import Quote
 from app.broker.mock_broker import MockBroker
 from app.engine.universe_filter import UniverseFilterEngine
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_KIND_OPERATIONAL,
+    UNIVERSE_SOURCE_ACTIVE_WATCHLIST,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+    UniverseDaily,
+)
 from app.models.symbol import Symbol
 
 
@@ -31,6 +37,8 @@ async def test_refresh_universe(broker, db: Session):
     assert len(symbols) == len(tickers)
     daily_rows = db.query(UniverseDaily).all()
     assert len(daily_rows) == len(tickers)
+    assert all(row.universe_kind == UNIVERSE_KIND_OPERATIONAL for row in daily_rows)
+    assert all(row.source == UNIVERSE_SOURCE_ACTIVE_WATCHLIST for row in daily_rows)
 
 
 @pytest.mark.asyncio
@@ -85,6 +93,8 @@ async def test_refresh_secret_ingredients_universe_persists_daily_snapshot_witho
     daily_rows = db.query(UniverseDaily).all()
     assert len(daily_rows) == len(tickers)
     assert {row.ticker for row in daily_rows} == set(tickers)
+    assert all(row.universe_kind == UNIVERSE_KIND_MARKET for row in daily_rows)
+    assert all(row.source == UNIVERSE_SOURCE_BROKER_FILTER for row in daily_rows)
 
     aapl = db.query(Symbol).filter_by(ticker="AAPL").first()
     assert aapl is not None

@@ -5,7 +5,11 @@ from datetime import date
 from app.data.universe_loader import PolygonFlatFileUniverseLoader
 from app.models.polygon_day_aggregate import PolygonDayAggregate
 from app.models.symbol import Symbol
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UniverseDaily,
+)
 
 
 class FakeS3Client:
@@ -91,6 +95,8 @@ def test_load_universe_from_s3_persists_only_universe_related_rows(db):
     assert [row.ticker for row in day_rows] == ["F", "LCID"]
     universe_rows = db.query(UniverseDaily).order_by(UniverseDaily.ticker.asc()).all()
     assert [row.ticker for row in universe_rows] == ["F", "LCID"]
+    assert all(row.universe_kind == UNIVERSE_KIND_MARKET for row in universe_rows)
+    assert all(row.source == UNIVERSE_SOURCE_POLYGON_FLATFILE for row in universe_rows)
 
     symbols = db.query(Symbol).order_by(Symbol.ticker.asc()).all()
     assert [symbol.ticker for symbol in symbols] == ["F", "LCID"]

@@ -47,7 +47,14 @@ from app.models.signal import Signal
 from app.models.symbol import Symbol
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.trade import Trade
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_BROKER_FILTER,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+    UniverseDaily,
+)
 from app.schemas.ml import (
     ApiContractResponse,
     BacktestRequest,
@@ -198,6 +205,19 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
+def _market_universe_sources() -> tuple[str, ...]:
+    if settings.secret_universe_source == "polygon":
+        return (
+            UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
+            UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+        )
+    return (
+        UNIVERSE_SOURCE_BROKER_FILTER,
+        UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    )
+
+
 def _universe_tickers_for_trade_date(
     db: Session,
     *,
@@ -209,6 +229,8 @@ def _universe_tickers_for_trade_date(
     if selected_trade_date is None:
         selected_trade_date = (
             db.query(UniverseDaily.trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(_market_universe_sources()))
             .order_by(UniverseDaily.trade_date.desc())
             .limit(1)
             .scalar()
@@ -216,7 +238,12 @@ def _universe_tickers_for_trade_date(
     if selected_trade_date is None:
         return []
 
-    query = db.query(UniverseDaily).filter(UniverseDaily.trade_date == selected_trade_date)
+    query = (
+        db.query(UniverseDaily)
+        .filter(UniverseDaily.trade_date == selected_trade_date)
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(_market_universe_sources()))
+    )
     if max_price is not None:
         query = query.filter(func.coalesce(UniverseDaily.open_price, UniverseDaily.last_price, 0) <= max_price)
     rows = query.order_by(UniverseDaily.ticker.asc()).all()
@@ -957,10 +984,16 @@ def get_secret_universe_daily(
     trade_date: str | None = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(UniverseDaily)
+    query = (
+        db.query(UniverseDaily)
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(_market_universe_sources()))
+    )
     if trade_date is None:
         latest_trade_date = (
             db.query(UniverseDaily.trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(_market_universe_sources()))
             .order_by(UniverseDaily.trade_date.desc())
             .limit(1)
             .scalar()
@@ -1069,6 +1102,8 @@ def get_secret_sauce_funnel(
     if trade_date is None:
         selected_trade_date = (
             db.query(UniverseDaily.trade_date)
+            .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+            .filter(UniverseDaily.source.in_(_market_universe_sources()))
             .order_by(UniverseDaily.trade_date.desc())
             .limit(1)
             .scalar()
@@ -1100,6 +1135,8 @@ def get_secret_sauce_funnel(
     universe_rows = (
         db.query(UniverseDaily)
         .filter(UniverseDaily.trade_date == selected_trade_date)
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(_market_universe_sources()))
         .all()
     )
     candidate_rows = (
