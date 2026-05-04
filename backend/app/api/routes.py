@@ -1658,9 +1658,8 @@ def get_symbol_state_live(
 ):
     query = db.query(SymbolStateLive)
     if universe_only:
-        universe_tickers = _universe_tickers_for_trade_date(
+        universe_tickers = _latest_universe_tickers(
             db,
-            trade_date=selected_trade_date,
             max_price=settings.secret_universe_max_price,
         )
         if not universe_tickers:
