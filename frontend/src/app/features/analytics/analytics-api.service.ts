@@ -68,10 +68,12 @@ export class AnalyticsApiService {
     return this.http.get<IDecisionOutcomeDetail[]>('/api/analytics/decision-events/details', { params });
   }
 
-  loadDecisionRuntimeKpis(windowMinutes = 10): Observable<IDecisionRuntimeKpis> {
-    return this.http.get<IDecisionRuntimeKpis>('/api/analytics/runtime-kpis', {
-      params: { window_minutes: String(windowMinutes) },
-    });
+  loadDecisionRuntimeKpis(windowMinutes = 10, tradeDate?: string): Observable<IDecisionRuntimeKpis> {
+    let params = new HttpParams().set('window_minutes', String(windowMinutes));
+    if (tradeDate?.trim()) {
+      params = params.set('trade_date', tradeDate.trim());
+    }
+    return this.http.get<IDecisionRuntimeKpis>('/api/analytics/runtime-kpis', { params });
   }
 
   downloadFlatfile(tradeDate: string): Observable<Blob> {

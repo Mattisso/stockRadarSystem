@@ -73,6 +73,20 @@ export class DecisionValidationPageComponent {
   readonly noPriorBuyCount = computed(() => this.summary()['NO_PRIOR_BUY'] ?? 0);
   readonly buyBarNotFoundCount = computed(() => this.summary()['BUY_BAR_NOT_FOUND'] ?? 0);
   readonly sellBarNotFoundCount = computed(() => this.summary()['SELL_BAR_NOT_FOUND'] ?? 0);
+  readonly minuteSecondRowSummary = computed(() => {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return '0/0';
+    }
+    return `${runtime.minute_live_row_count}/${runtime.second_live_row_count}`;
+  });
+  readonly minuteSecondSymbolSummary = computed(() => {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return '0/0';
+    }
+    return `${runtime.minute_live_symbol_count}/${runtime.second_live_symbol_count}`;
+  });
 
   constructor() {
     this.reload();
@@ -150,7 +164,7 @@ export class DecisionValidationPageComponent {
 
   private loadRuntimeKpis(): void {
     this.api
-      .loadDecisionRuntimeKpis(10)
+      .loadDecisionRuntimeKpis(10, this.tradeDate().trim())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: response => this.runtimeKpis.set(response),
@@ -210,6 +224,16 @@ export class DecisionValidationPageComponent {
           return 'warn';
         }
         return 'bad';
+      case 'aggregate_rows':
+        if (runtime.minute_live_row_count === 0 && runtime.second_live_row_count === 0) {
+          return 'warn';
+        }
+        return runtime.second_live_row_count >= runtime.minute_live_row_count ? 'ok' : 'bad';
+      case 'aggregate_symbols':
+        if (runtime.minute_live_symbol_count === 0 && runtime.second_live_symbol_count === 0) {
+          return 'warn';
+        }
+        return runtime.minute_without_second_symbol_count === 0 ? 'ok' : 'bad';
       default:
         return 'warn';
     }

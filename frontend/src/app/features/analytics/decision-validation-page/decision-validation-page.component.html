@@ -96,6 +96,21 @@
           <div class="summary-card__value">{{ runtime.minute_stale_symbols_count }}</div>
           <div class="summary-card__status">{{ kpiStatusLabel('minute_stale') }}</div>
         </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('aggregate_rows') === 'ok'" [class.summary-card--warn]="kpiSeverity('aggregate_rows') === 'warn'" [class.summary-card--bad]="kpiSeverity('aggregate_rows') === 'bad'">
+          <div class="summary-card__label">Minute / Second Rows</div>
+          <div class="summary-card__value">{{ minuteSecondRowSummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('aggregate_rows') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('aggregate_symbols') === 'ok'" [class.summary-card--warn]="kpiSeverity('aggregate_symbols') === 'warn'" [class.summary-card--bad]="kpiSeverity('aggregate_symbols') === 'bad'">
+          <div class="summary-card__label">Minute / Second Symbols</div>
+          <div class="summary-card__value">{{ minuteSecondSymbolSummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('aggregate_symbols') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('aggregate_symbols') === 'ok'" [class.summary-card--warn]="kpiSeverity('aggregate_symbols') === 'warn'" [class.summary-card--bad]="kpiSeverity('aggregate_symbols') === 'bad'">
+          <div class="summary-card__label">Minute Without Second</div>
+          <div class="summary-card__value">{{ runtime.minute_without_second_symbol_count }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('aggregate_symbols') }}</div>
+        </mat-card>
       </div>
     }
 

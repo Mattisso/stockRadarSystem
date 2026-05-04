@@ -1162,6 +1162,91 @@ def test_decision_event_market_validation_endpoint(db_engine, auth_headers):
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_decision_runtime_kpis_include_aggregate_coverage_counts(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 29),
+                        ticker="PLTR",
+                        open_price=9.5,
+                        last_price=9.7,
+                        avg_volume=1_000_000,
+                    ),
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 29),
+                        ticker="OPK",
+                        open_price=2.1,
+                        last_price=2.2,
+                        avg_volume=800_000,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="PLTR",
+                        minute_ts=datetime(2026, 4, 29, 14, 0, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.40,
+                        close=9.55,
+                        volume=1000,
+                        vwap=9.53,
+                        transactions=20,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="OPK",
+                        minute_ts=datetime(2026, 4, 29, 14, 0, 0, tzinfo=timezone.utc),
+                        open=2.10,
+                        high=2.15,
+                        low=2.08,
+                        close=2.12,
+                        volume=500,
+                        vwap=2.11,
+                        transactions=12,
+                    ),
+                    PolygonSecondAggregateLive(
+                        ticker="PLTR",
+                        second_ts=datetime(2026, 4, 29, 14, 0, 5, tzinfo=timezone.utc),
+                        open=9.54,
+                        high=9.56,
+                        low=9.53,
+                        close=9.55,
+                        volume=80,
+                        vwap=9.55,
+                        transactions=3,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/analytics/runtime-kpis",
+                headers=auth_headers,
+                params={"trade_date": "2026-04-29", "window_minutes": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-29"
+        assert body["minute_live_row_count"] == 2
+        assert body["second_live_row_count"] == 1
+        assert body["minute_live_symbol_count"] == 2
+        assert body["second_live_symbol_count"] == 1
+        assert body["minute_without_second_symbol_count"] == 1
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 

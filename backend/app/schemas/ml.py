@@ -513,6 +513,7 @@ class DecisionMarketValidationPageResponse(ApiResponseModel):
 class DecisionRuntimeKpiResponse(ApiResponseModel):
     generated_at: datetime
     window_minutes: int
+    trade_date: date
     candidate_events_window_count: int
     processed_candidate_events_window_count: int
     unprocessed_candidate_events_window_count: int
@@ -526,6 +527,11 @@ class DecisionRuntimeKpiResponse(ApiResponseModel):
     minute_stream_stale_reject_count: int
     second_stale_symbols_count: int
     minute_stale_symbols_count: int
+    minute_live_row_count: int
+    second_live_row_count: int
+    minute_live_symbol_count: int
+    second_live_symbol_count: int
+    minute_without_second_symbol_count: int
 
 
 class L2SubscriptionStatusResponse(ApiResponseModel):

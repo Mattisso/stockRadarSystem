@@ -1949,11 +1949,22 @@ def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/runtime-kpis", response_model=DecisionRuntimeKpiResponse)
-@track_tables("candidate_events", "decision_events", "symbol_state_live")
-def analytics_runtime_kpis(window_minutes: int = 10, db: Session = Depends(get_db)):
+@track_tables("candidate_events", "decision_events", "symbol_state_live", "minute_aggregates_live", "second_aggregates_live")
+def analytics_runtime_kpis(trade_date: date | None = None, window_minutes: int = 10, db: Session = Depends(get_db)):
     window_minutes = max(1, min(window_minutes, 240))
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     window_start = now_utc - timedelta(minutes=window_minutes)
+    latest_intraday_ts_candidates = [
+        _source_latest_timestamp(db, model=PolygonMinuteAggregateLive, ts_column=PolygonMinuteAggregateLive.minute_ts),
+        _source_latest_timestamp(db, model=PolygonSecondAggregateLive, ts_column=PolygonSecondAggregateLive.second_ts),
+    ]
+    latest_intraday_ts = max((value for value in latest_intraday_ts_candidates if value is not None), default=None)
+    selected_trade_date = trade_date or (latest_intraday_ts.date() if latest_intraday_ts is not None else _default_decision_trade_day())
+    session_start_utc, session_end_utc = _session_bounds_for_trade_date(
+        selected_trade_date,
+        session_start_et=REGULAR_MARKET_OPEN,
+        session_end_et=REGULAR_MARKET_CLOSE,
+    )
 
     candidate_events_window_count = (
         db.query(func.count(CandidateEvent.id))
@@ -2014,10 +2025,88 @@ def analytics_runtime_kpis(window_minutes: int = 10, db: Session = Depends(get_d
         .scalar()
         or 0
     )
+    universe_tickers = _latest_universe_tickers(
+        db,
+        max_price=settings.secret_universe_max_price,
+        allow_symbol_fallback=False,
+    )
+    minute_live_row_count = 0
+    second_live_row_count = 0
+    minute_live_symbol_count = 0
+    second_live_symbol_count = 0
+    minute_without_second_symbol_count = 0
+    if universe_tickers:
+        minute_live_query = db.query(PolygonMinuteAggregateLive).filter(
+            PolygonMinuteAggregateLive.ticker.in_(universe_tickers),
+            _under_ten_aggregate_filter(PolygonMinuteAggregateLive, max_price=settings.secret_universe_max_price),
+            PolygonMinuteAggregateLive.minute_ts >= session_start_utc,
+            PolygonMinuteAggregateLive.minute_ts < session_end_utc,
+        )
+        second_live_query = db.query(PolygonSecondAggregateLive).filter(
+            PolygonSecondAggregateLive.ticker.in_(universe_tickers),
+            _under_ten_aggregate_filter(PolygonSecondAggregateLive, max_price=settings.secret_universe_max_price),
+            PolygonSecondAggregateLive.second_ts >= session_start_utc,
+            PolygonSecondAggregateLive.second_ts < session_end_utc,
+        )
+        minute_live_row_count = minute_live_query.count()
+        second_live_row_count = second_live_query.count()
+        minute_live_symbol_count = (
+            db.query(func.count(func.distinct(PolygonMinuteAggregateLive.ticker)))
+            .filter(
+                PolygonMinuteAggregateLive.ticker.in_(universe_tickers),
+                _under_ten_aggregate_filter(PolygonMinuteAggregateLive, max_price=settings.secret_universe_max_price),
+                PolygonMinuteAggregateLive.minute_ts >= session_start_utc,
+                PolygonMinuteAggregateLive.minute_ts < session_end_utc,
+            )
+            .scalar()
+            or 0
+        )
+        second_live_symbol_count = (
+            db.query(func.count(func.distinct(PolygonSecondAggregateLive.ticker)))
+            .filter(
+                PolygonSecondAggregateLive.ticker.in_(universe_tickers),
+                _under_ten_aggregate_filter(PolygonSecondAggregateLive, max_price=settings.secret_universe_max_price),
+                PolygonSecondAggregateLive.second_ts >= session_start_utc,
+                PolygonSecondAggregateLive.second_ts < session_end_utc,
+            )
+            .scalar()
+            or 0
+        )
+        minute_ticker_subquery = (
+            db.query(PolygonMinuteAggregateLive.ticker.label("ticker"))
+            .filter(
+                PolygonMinuteAggregateLive.ticker.in_(universe_tickers),
+                _under_ten_aggregate_filter(PolygonMinuteAggregateLive, max_price=settings.secret_universe_max_price),
+                PolygonMinuteAggregateLive.minute_ts >= session_start_utc,
+                PolygonMinuteAggregateLive.minute_ts < session_end_utc,
+            )
+            .distinct()
+            .subquery()
+        )
+        second_ticker_subquery = (
+            db.query(PolygonSecondAggregateLive.ticker.label("ticker"))
+            .filter(
+                PolygonSecondAggregateLive.ticker.in_(universe_tickers),
+                _under_ten_aggregate_filter(PolygonSecondAggregateLive, max_price=settings.secret_universe_max_price),
+                PolygonSecondAggregateLive.second_ts >= session_start_utc,
+                PolygonSecondAggregateLive.second_ts < session_end_utc,
+            )
+            .distinct()
+            .subquery()
+        )
+        minute_without_second_symbol_count = (
+            db.query(func.count())
+            .select_from(minute_ticker_subquery)
+            .outerjoin(second_ticker_subquery, minute_ticker_subquery.c.ticker == second_ticker_subquery.c.ticker)
+            .filter(second_ticker_subquery.c.ticker.is_(None))
+            .scalar()
+            or 0
+        )
 
     return DecisionRuntimeKpiResponse(
         generated_at=now_utc,
         window_minutes=window_minutes,
+        trade_date=selected_trade_date,
         candidate_events_window_count=candidate_events_window_count,
         processed_candidate_events_window_count=processed_candidate_events_window_count,
         unprocessed_candidate_events_window_count=unprocessed_candidate_events_window_count,
@@ -2031,6 +2120,11 @@ def analytics_runtime_kpis(window_minutes: int = 10, db: Session = Depends(get_d
         minute_stream_stale_reject_count=stale_reject_counts.get("minute_stream_stale", 0),
         second_stale_symbols_count=second_stale_symbols_count,
         minute_stale_symbols_count=minute_stale_symbols_count,
+        minute_live_row_count=minute_live_row_count,
+        second_live_row_count=second_live_row_count,
+        minute_live_symbol_count=minute_live_symbol_count,
+        second_live_symbol_count=second_live_symbol_count,
+        minute_without_second_symbol_count=minute_without_second_symbol_count,
     )
 
 

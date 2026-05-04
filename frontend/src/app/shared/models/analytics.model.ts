@@ -83,6 +83,7 @@ export interface IDecisionOutcomeDetail {
 export interface IDecisionRuntimeKpis {
   generated_at: string;
   window_minutes: number;
+  trade_date: string;
   candidate_events_window_count: number;
   processed_candidate_events_window_count: number;
   unprocessed_candidate_events_window_count: number;
@@ -96,4 +97,9 @@ export interface IDecisionRuntimeKpis {
   minute_stream_stale_reject_count: number;
   second_stale_symbols_count: number;
   minute_stale_symbols_count: number;
+  minute_live_row_count: number;
+  second_live_row_count: number;
+  minute_live_symbol_count: number;
+  second_live_symbol_count: number;
+  minute_without_second_symbol_count: number;
 }
