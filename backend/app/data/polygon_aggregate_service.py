@@ -190,18 +190,51 @@ class PolygonAggregateService:
         effective_allowed_tickers = self._effective_allowed_tickers(allowed_tickers)
         rows_added = 0
         state_records: list[PolygonSecondAggregateRecord] = []
+        merged_records: dict[tuple[str, datetime], PolygonSecondAggregateRecord] = {}
         for record in records:
             if effective_allowed_tickers is not None and record.ticker.upper() not in effective_allowed_tickers:
                 continue
             second_ts = self._normalize_second_ts(record.second_ts)
-            historical_row, inserted = self._upsert_second_row(PolygonSecondAggregate, record, second_ts)
-            live_row, _ = self._upsert_second_row(PolygonSecondAggregateLive, record, second_ts)
+            key = (record.ticker, second_ts)
+            existing_record = merged_records.get(key)
+            if existing_record is None:
+                merged_records[key] = PolygonSecondAggregateRecord(
+                    ticker=record.ticker,
+                    second_ts=second_ts,
+                    open=record.open,
+                    high=record.high,
+                    low=record.low,
+                    close=record.close,
+                    volume=max(0, record.volume),
+                    vwap=record.vwap,
+                    transactions=record.transactions,
+                )
+                continue
+
+            previous_volume = max(0, existing_record.volume)
+            incoming_volume = max(0, record.volume)
+            total_volume = previous_volume + incoming_volume
+            existing_record.high = max(existing_record.high, record.high)
+            existing_record.low = min(existing_record.low, record.low)
+            existing_record.close = record.close
+            existing_record.volume = total_volume
+            existing_record.transactions = (existing_record.transactions or 0) + (record.transactions or 0)
+            if total_volume > 0:
+                previous_notional = (existing_record.vwap or existing_record.close) * previous_volume
+                incoming_notional = (record.vwap or record.close) * incoming_volume
+                existing_record.vwap = (previous_notional + incoming_notional) / total_volume
+            elif record.vwap is not None:
+                existing_record.vwap = record.vwap
+
+        for record in merged_records.values():
+            historical_row, inserted = self._upsert_second_row(PolygonSecondAggregate, record, record.second_ts)
+            live_row, _ = self._upsert_second_row(PolygonSecondAggregateLive, record, record.second_ts)
             if inserted:
                 rows_added += 1
             state_records.append(
                 PolygonSecondAggregateRecord(
                     ticker=record.ticker,
-                    second_ts=second_ts,
+                    second_ts=record.second_ts,
                     open=live_row.open,
                     high=live_row.high,
                     low=live_row.low,
