@@ -18,7 +18,7 @@ class SymbolTradeStateService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_or_create(self, *, ticker: str) -> SymbolTradeState:
+    def get_or_create(self, *, ticker: str, as_of: datetime | None = None) -> SymbolTradeState:
         symbol = ticker.upper()
         row = (
             self.db.query(SymbolTradeState)
@@ -27,10 +27,17 @@ class SymbolTradeStateService:
             .first()
         )
         if row is not None:
+            # If the existing row's trade date is from a different day than as_of, 
+            # we might need to reset it, but seeding logic already handles 'flat' vs 'open'.
+            # For robustness, we re-seed if the trade date is stale.
+            effective_as_of = as_of or datetime.now(timezone.utc)
+            today = self._trade_day_for_ts(effective_as_of)
+            if row.trade_date != today:
+                self._seed_from_decision_history(row, as_of=effective_as_of)
             return row
 
         row = SymbolTradeState(ticker=symbol)
-        self._seed_from_decision_history(row)
+        self._seed_from_decision_history(row, as_of=as_of)
         self.db.add(row)
         self.db.flush()
         return row
@@ -68,7 +75,7 @@ class SymbolTradeStateService:
         row.exit_ts = decision_event.decision_ts
         row.exit_price = exit_price
 
-    def _seed_from_decision_history(self, row: SymbolTradeState) -> None:
+    def _seed_from_decision_history(self, row: SymbolTradeState, *, as_of: datetime | None = None) -> None:
         latest_buy = (
             self.db.query(DecisionEvent)
             .filter(
@@ -91,25 +98,36 @@ class SymbolTradeStateService:
             row.position_status = "flat"
             return
 
+        # Fix: Ensure we only seed from today's history to avoid cross-day pollution
+        reference_ts = as_of or datetime.now(timezone.utc)
+        today = self._trade_day_for_ts(reference_ts)
+
         if latest_buy is not None and (
             latest_sell is None
             or self._normalize_ts(latest_buy.decision_ts) > self._normalize_ts(latest_sell.decision_ts)
         ):
-            payload = json.loads(latest_buy.decision_payload or "{}")
-            row.position_status = "open"
-            row.trade_date = self._trade_day_for_ts(latest_buy.decision_ts)
-            row.entry_decision_id = latest_buy.id
-            row.entry_ts = latest_buy.decision_ts
-            row.entry_price = payload.get("current_close") or payload.get("entry_price")
-            return
+            if self._trade_day_for_ts(latest_buy.decision_ts) == today:
+                payload = json.loads(latest_buy.decision_payload or "{}")
+                row.position_status = "open"
+                row.trade_date = self._trade_day_for_ts(latest_buy.decision_ts)
+                row.entry_decision_id = latest_buy.id
+                row.entry_ts = latest_buy.decision_ts
+                row.entry_price = payload.get("current_close") or payload.get("entry_price")
+                return
+            else:
+                row.position_status = "flat"
+                return
 
         if latest_sell is not None:
-            payload = json.loads(latest_sell.decision_payload or "{}")
-            row.position_status = "closed"
-            row.trade_date = self._trade_day_for_ts(latest_sell.decision_ts)
-            row.exit_decision_id = latest_sell.id
-            row.exit_ts = latest_sell.decision_ts
-            row.exit_price = payload.get("current_close") or payload.get("entry_price")
+            if self._trade_day_for_ts(latest_sell.decision_ts) == today:
+                payload = json.loads(latest_sell.decision_payload or "{}")
+                row.position_status = "closed"
+                row.trade_date = self._trade_day_for_ts(latest_sell.decision_ts)
+                row.exit_decision_id = latest_sell.id
+                row.exit_ts = latest_sell.decision_ts
+                row.exit_price = payload.get("current_close") or payload.get("entry_price")
+            else:
+                row.position_status = "flat"
 
     @staticmethod
     def _trade_day_for_ts(value: datetime) -> datetime.date:

@@ -9,6 +9,7 @@ from app.models.decision_event import DecisionEvent
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol_trade_state import SymbolTradeState
 from app.models.universe_daily import UniverseDaily
+from app.core.config import settings
 
 
 def test_decision_engine_emits_candidate_for_validated_state(db):
@@ -712,6 +713,7 @@ def test_decision_engine_ignores_future_buy_context_for_earlier_sell_event(db):
     )
     db.flush()
 
+    # Evaluate now
     decision = engine.evaluate(
         ticker="NAVI",
         event_ts=datetime(2026, 4, 29, 19, 55, 22, tzinfo=timezone.utc),
@@ -719,10 +721,10 @@ def test_decision_engine_ignores_future_buy_context_for_earlier_sell_event(db):
         state=state,
     )
 
-    assert decision is not None
-    assert decision.decision_type == "manage"
-    assert decision.reason_code == "active_position_manage"
-    assert "entry_price" not in decision.payload
+    # Fixed: Under session-aware logic, an active position with no buy context for TODAY 
+    # is a zombie position and should be reset to idle.
+    assert decision is None
+    assert state.candidate_status == "idle"
 
 
 def test_decision_engine_blocks_sell_when_active_state_has_no_prior_buy_context(db):
@@ -752,9 +754,9 @@ def test_decision_engine_blocks_sell_when_active_state_has_no_prior_buy_context(
         state=state,
     )
 
-    assert decision is not None
-    assert decision.decision_type == "manage"
-    assert decision.reason_code == "active_position_manage"
+    # Fixed: Zombie position reset
+    assert decision is None
+    assert state.candidate_status == "idle"
 
 
 def test_decision_engine_blocks_sell_persist_when_open_entry_is_after_sell_ts(db):
@@ -797,15 +799,6 @@ def test_decision_engine_blocks_sell_persist_when_open_entry_is_after_sell_ts(db
 
 
 def test_decision_engine_skips_out_of_universe_ticker(db):
-    db.add(
-        UniverseDaily(
-            trade_date=datetime(2026, 4, 29, 0, 0, 0, tzinfo=timezone.utc).date(),
-            ticker="LCID",
-            open_price=3.2,
-            last_price=3.3,
-            avg_volume=500_000,
-        )
-    )
     state = SymbolStateLive(
         ticker="PLTR",
         candidate_status="validated",
@@ -822,11 +815,13 @@ def test_decision_engine_skips_out_of_universe_ticker(db):
     db.flush()
     engine = AggregateDecisionEngine(db)
 
+    # Test skipping because ticker is NOT in the provided universe set
     decision = engine.evaluate(
         ticker="PLTR",
         event_ts=datetime(2026, 4, 29, 18, 41, 29, tzinfo=timezone.utc),
         trigger_count=1,
         state=state,
+        universe_tickers={"AAPL", "TSLA"} # PLTR not here
     )
 
     assert decision is None

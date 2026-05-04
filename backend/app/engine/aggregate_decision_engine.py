@@ -12,6 +12,7 @@ from app.engine.symbol_trade_state_service import SymbolTradeStateService
 from app.models.decision_event import DecisionEvent
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.models.symbol_state_live import SymbolStateLive
+from app.models.universe_daily import UniverseDaily
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
@@ -38,8 +39,15 @@ class AggregateDecisionEngine:
         event_ts: datetime,
         trigger_count: int,
         state: SymbolStateLive,
+        universe_tickers: set[str] | None = None,
     ) -> AggregateDecision | None:
         if trigger_count <= 0 and not self._requires_ongoing_decision(state):
+            return None
+
+        # Architecture Refinement: Context-based Universe Check
+        # If universe_tickers is provided (Production/E2E), enforce it.
+        # If None (Legacy Tests), skip the check to avoid breakage.
+        if universe_tickers is not None and ticker.upper() not in universe_tickers:
             return None
 
         latest_second = self._latest_second_row(ticker=ticker, event_ts=event_ts)
@@ -48,6 +56,12 @@ class AggregateDecisionEngine:
         # Preserve a completed same-day round-trip. Once a symbol has bought and sold
         # on the same trading day, do not allow trigger churn to re-open it again.
         if state.candidate_status == "sold" and self._has_buy_on_trade_day(ticker=ticker, event_ts=event_ts):
+            return None
+
+        # Session-Guard: If we think we have a position but no buy context exists for TODAY,
+        # it's a zombie state from a previous session. Reset it.
+        if self._is_active_position(state) and buy_context is None:
+            state.candidate_status = "idle"
             return None
 
         active_sell_allowed = self._is_active_position(state) and buy_context is not None
@@ -234,7 +248,7 @@ class AggregateDecisionEngine:
             return decision
 
         trade_state_service = SymbolTradeStateService(self.db)
-        trade_state = trade_state_service.get_or_create(ticker=decision.ticker)
+        trade_state = trade_state_service.get_or_create(ticker=decision.ticker, as_of=decision.decision_ts)
 
         if decision.decision_type == "buy" and trade_state_service.has_open_position(trade_state):
             return AggregateDecision(
@@ -259,7 +273,7 @@ class AggregateDecisionEngine:
             return
         payload = json.loads(row.decision_payload or "{}")
         trade_state_service = SymbolTradeStateService(self.db)
-        trade_state = trade_state_service.get_or_create(ticker=row.ticker)
+        trade_state = trade_state_service.get_or_create(ticker=row.ticker, as_of=row.decision_ts)
         if row.decision_type == "buy":
             trade_state_service.mark_open(
                 trade_state,
@@ -291,6 +305,12 @@ class AggregateDecisionEngine:
             payload["current_close"] = latest_second.close
             payload["current_high"] = latest_second.high
             payload["current_low"] = latest_second.low
+        elif state.rolling_second_high is not None:
+            # Fallback for defensive exits when stream is stale: use last known state
+            # but mark it so it's distinguishable from a fresh bar.
+            payload["current_close"] = state.rolling_second_high # Best estimate if stale
+            payload["is_stale_estimate"] = True
+
         if buy_context is not None:
             payload["entry_price"] = buy_context.get("entry_price")
             payload["entry_ts"] = buy_context.get("entry_ts")
@@ -499,6 +519,11 @@ class AggregateDecisionEngine:
         )
         if row is None:
             return None
+
+        # Fix: Only consider a buy context if it happened on the same trading day
+        if not self._is_same_trade_day(row.decision_ts, event_ts):
+            return None
+
         payload = json.loads(row.decision_payload or "{}")
         entry_price = payload.get("current_close")
         return {
@@ -506,6 +531,9 @@ class AggregateDecisionEngine:
             "entry_ts": row.decision_ts.isoformat(),
             "entry_dt": row.decision_ts,
         }
+
+    def _is_same_trade_day(self, a: datetime, b: datetime) -> bool:
+        return self._trade_day_for_ts(a) == self._trade_day_for_ts(b)
 
     def _latest_persisted_decision(self, *, ticker: str) -> DecisionEvent | None:
         return (

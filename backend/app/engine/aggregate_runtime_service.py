@@ -15,6 +15,7 @@ from app.engine.aggregate_validation_engine import AggregateValidationEngine
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.candidate_event import CandidateEvent
 from app.models.symbol_state_live import SymbolStateLive
+from app.models.universe_daily import UniverseDaily
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 
@@ -57,13 +58,37 @@ class AggregateRuntimeService:
         persisted_decision_count = 0
         processed_candidate_event_count = 0
         allow_decisions = is_regular_us_market_hours(reference_ts)
+
+        # Fix: Reset stale cross-day candidate states
+        today = self._trade_day_for_ts(reference_ts)
+        for state in states:
+            if state.last_second_ts is not None and self._trade_day_for_ts(state.last_second_ts) < today:
+                state.candidate_status = "idle"
+                # If we reset to idle, we should skip ongoing evaluation for this loop
+                continue
+
+        # Optimization: Fetch universe tickers once for the session
+        universe_tickers = self._fetch_universe_tickers(today) if settings.aggregate_decision_enforce_universe else None
+
         if allow_decisions:
             persisted_from_events, processed_candidate_event_count = self._process_candidate_events(
                 state_service=state_service,
                 decision_engine=decision_engine,
                 as_of=reference_ts,
+                universe_tickers=universe_tickers,
             )
             persisted_decision_count += persisted_from_events
+
+        # Re-query states in case some were reset or added
+        states = (
+            self.db.query(SymbolStateLive)
+            .filter(
+                SymbolStateLive.candidate_status.in_(("candidate", "validated", "buy", "manage"))
+            )
+            .order_by(SymbolStateLive.ticker.asc())
+            .all()
+        )
+
         for state in states:
             state_service.refresh_state(state, as_of=reference_ts)
             if state.last_second_ts is None:
@@ -79,6 +104,7 @@ class AggregateRuntimeService:
                 event_ts=reference_ts,
                 trigger_count=0,
                 state=state,
+                universe_tickers=universe_tickers,
             )
             persisted_decision_count += decision_engine.persist(decision, state, dedupe=True)
 
@@ -97,6 +123,7 @@ class AggregateRuntimeService:
         state_service: SymbolStateLiveService,
         decision_engine: AggregateDecisionEngine,
         as_of: datetime,
+        universe_tickers: set[str] | None = None,
     ) -> tuple[int, int]:
         reference_trade_day = self._trade_day_for_ts(as_of)
         allow_live_decisions = is_regular_us_market_hours(as_of)
@@ -160,6 +187,7 @@ class AggregateRuntimeService:
                     event_ts=effective_event_ts,
                     trigger_count=len(batch),
                     state=state,
+                    universe_tickers=universe_tickers,
                 )
                 persisted_decision_count += decision_engine.persist(decision, state, dedupe=True)
 
@@ -169,6 +197,14 @@ class AggregateRuntimeService:
 
         self.db.flush()
         return persisted_decision_count, processed_count
+
+    def _fetch_universe_tickers(self, trade_date: datetime.date) -> set[str]:
+        rows = (
+            self.db.query(UniverseDaily.ticker)
+            .filter(UniverseDaily.trade_date == trade_date)
+            .all()
+        )
+        return {row[0].upper() for row in rows}
 
     @staticmethod
     def _apply_candidate_batch_to_state(state: SymbolStateLive, batch: list[CandidateEvent]) -> None:

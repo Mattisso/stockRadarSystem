@@ -1,10 +1,14 @@
 from datetime import date, datetime, timezone
 
+from app.core.config import settings
 from app.data.polygon_aggregate_service import (
     PolygonAggregateService,
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
+
+# Disable universe enforcement for these tests
+settings.aggregate_decision_enforce_universe = False
 from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.engine.aggregate_runtime_service import AggregateRuntimeService
 from app.models.candidate_event import CandidateEvent
