@@ -1,5 +1,8 @@
+from datetime import date
+
 from app.main import (
     current_runtime_role,
+    resolve_polygon_minute_refresh_trade_date,
     should_enable_aggregate_rolling_refresh,
     should_enable_aggregate_client,
     should_enable_day_refresh,
@@ -11,6 +14,8 @@ from app.main import (
     should_interval_refresh_polygon_day_aggregates,
     should_run_background_jobs,
 )
+from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonDayAggregateRecord
+from app.models.universe_daily import UniverseDaily
 
 
 def test_current_runtime_role_normalizes_case(monkeypatch):
@@ -216,3 +221,52 @@ def test_polygon_ingest_worker_can_enable_aggregate_client_without_rolling_refre
 
     assert should_enable_aggregate_client() is True
     assert should_enable_aggregate_rolling_refresh() is False
+
+
+def test_resolve_polygon_minute_refresh_trade_date_prefers_latest_universe_snapshot(db):
+    service = PolygonAggregateService(db)
+    service.upsert_day_aggregates(
+        [
+            PolygonDayAggregateRecord(
+                ticker="LCID",
+                trade_date=date(2026, 5, 1),
+                open=3.2,
+                high=3.3,
+                low=3.1,
+                close=3.25,
+                volume=100_000,
+            )
+        ]
+    )
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 5, 4),
+            ticker="LCID",
+            open_price=3.2,
+            last_price=3.25,
+            avg_volume=100_000,
+        )
+    )
+    db.commit()
+
+    assert resolve_polygon_minute_refresh_trade_date(db) == date(2026, 5, 4)
+
+
+def test_resolve_polygon_minute_refresh_trade_date_falls_back_to_day_aggregate_date(db):
+    service = PolygonAggregateService(db)
+    service.upsert_day_aggregates(
+        [
+            PolygonDayAggregateRecord(
+                ticker="LCID",
+                trade_date=date(2026, 5, 1),
+                open=3.2,
+                high=3.3,
+                low=3.1,
+                close=3.25,
+                volume=100_000,
+            )
+        ]
+    )
+    db.commit()
+
+    assert resolve_polygon_minute_refresh_trade_date(db) == date(2026, 5, 1)

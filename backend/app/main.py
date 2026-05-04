@@ -16,6 +16,7 @@ from apscheduler.events import (
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func
 
 from dataclasses import asdict
 
@@ -59,6 +60,7 @@ from app.engine.trade_executor import TradeExecutor
 from app.engine.universe_filter import UniverseFilterEngine
 from app.ml import BreakoutClassifier, MLScorer, ModelTrainer
 from app.ml.training_example_builder import TrainingExampleBuilder
+from app.models.universe_daily import UniverseDaily
 from app.models.signal import Signal
 from app.models.trade import Trade
 from app.risk.risk_manager import RiskManager
@@ -124,6 +126,21 @@ def should_interval_refresh_polygon_day_aggregates() -> bool:
         and should_enable_day_refresh()
         and settings.polygon_day_aggregate_refresh_minutes > 0
     )
+
+
+def resolve_polygon_minute_refresh_trade_date(db) -> date | None:
+    """Pick the best trade date for minute backfill during live operations.
+
+    Prefer the latest universe snapshot because it can represent the current
+    trading day while grouped day aggregates are still only available for the
+    previous completed session.
+    """
+    latest_universe_trade_date = db.query(func.max(UniverseDaily.trade_date)).scalar()
+    if latest_universe_trade_date is not None:
+        return latest_universe_trade_date
+
+    aggregate_service = PolygonAggregateService(db)
+    return aggregate_service.latest_day_aggregate_date()
 
 
 @asynccontextmanager
@@ -626,9 +643,11 @@ async def lifespan(app: FastAPI):
                 aggregate_service = PolygonAggregateService(db)
                 tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
                 if not tickers:
+                    log.info("scheduler.polygon_minute_aggregates_refresh_skipped", reason="no_tickers")
                     return
-                trade_date = aggregate_service.latest_day_aggregate_date()
+                trade_date = resolve_polygon_minute_refresh_trade_date(db)
                 if trade_date is None:
+                    log.info("scheduler.polygon_minute_aggregates_refresh_skipped", reason="no_trade_date")
                     return
                 allowed_tickers = set(tickers)
                 inserted = 0
