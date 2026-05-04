@@ -87,6 +87,27 @@ export class DecisionValidationPageComponent {
     }
     return `${runtime.minute_live_symbol_count}/${runtime.second_live_symbol_count}`;
   });
+  readonly aggregateStreamSummary = computed(() => {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return '0/0';
+    }
+    return `${runtime.aggregate_stream_pending_count}/${runtime.aggregate_stream_lag_count}`;
+  });
+  readonly triggerStreamSummary = computed(() => {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return '0/0';
+    }
+    return `${runtime.trigger_stream_pending_count}/${runtime.trigger_stream_lag_count}`;
+  });
+  readonly persistenceBatchSummary = computed(() => {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return '0/0/0';
+    }
+    return `${runtime.persistence_last_batch_event_count}/${runtime.persistence_last_batch_minute_count}/${runtime.persistence_last_batch_second_count}`;
+  });
 
   constructor() {
     this.reload();
@@ -234,6 +255,41 @@ export class DecisionValidationPageComponent {
           return 'warn';
         }
         return runtime.minute_without_second_symbol_count === 0 ? 'ok' : 'bad';
+      case 'websocket':
+        if (!runtime.polygon_connected) {
+          return 'bad';
+        }
+        return runtime.polygon_subscriptions_paused ? 'warn' : 'ok';
+      case 'aggregate_stream':
+        if (runtime.aggregate_stream_lag_count > 0) {
+          return 'bad';
+        }
+        if (runtime.aggregate_stream_pending_count > 0) {
+          return 'warn';
+        }
+        return 'ok';
+      case 'trigger_stream':
+        if (runtime.trigger_stream_lag_count > 0) {
+          return 'bad';
+        }
+        if (runtime.trigger_stream_pending_count > 0) {
+          return 'warn';
+        }
+        return 'ok';
+      case 'persistence':
+        if (runtime.persistence_error_count > 0) {
+          return 'bad';
+        }
+        if (runtime.persistence_last_flush_latency_ms === null) {
+          return 'warn';
+        }
+        if (runtime.persistence_last_flush_latency_ms > 1000) {
+          return 'bad';
+        }
+        if (runtime.persistence_last_flush_latency_ms > 500) {
+          return 'warn';
+        }
+        return 'ok';
       default:
         return 'warn';
     }
@@ -256,5 +312,31 @@ export class DecisionValidationPageComponent {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  formatTimestamp(value: string | null): string {
+    if (!value) {
+      return '—';
+    }
+    return value.replace('T', ' ').replace('+00:00', ' UTC');
+  }
+
+  websocketSummary(): string {
+    const runtime = this.runtimeKpis();
+    if (!runtime) {
+      return 'Down';
+    }
+    if (!runtime.polygon_connected) {
+      return 'Down';
+    }
+    return runtime.polygon_subscriptions_paused ? 'Paused' : 'Up';
+  }
+
+  persistenceLatencySummary(): string {
+    const runtime = this.runtimeKpis();
+    if (!runtime || runtime.persistence_last_flush_latency_ms === null) {
+      return '—';
+    }
+    return `${runtime.persistence_last_flush_latency_ms.toFixed(0)}ms`;
   }
 }

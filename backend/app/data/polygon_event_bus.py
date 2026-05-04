@@ -127,6 +127,31 @@ class PolygonEventBus:
             return len(self._pending_ids)
         return self._queue.qsize()
 
+    async def snapshot(self) -> dict:
+        base = {
+            "mode": "redis" if self._redis is not None else "memory",
+            "stream_name": self._stream_name or None,
+            "consumer_group": self._consumer_group or None,
+            "consumer_name": self._consumer_name,
+            "in_flight_pending_count": len(self._pending_ids),
+            "pending_count": len(self._pending_ids),
+            "lag_count": 0,
+        }
+        if self._redis is None or not self.uses_redis_stream:
+            return base
+
+        groups = await self._redis.xinfo_groups(self._stream_name)
+        group = next((row for row in groups if row.get("name") == self._consumer_group), None)
+        if group is None:
+            return base
+
+        return {
+            **base,
+            "pending_count": int(group.get("pending", 0) or 0),
+            "lag_count": int(group.get("lag", 0) or 0),
+            "entries_read": int(group.get("entries-read", 0) or 0),
+        }
+
     def _decode_stream_event(self, entries) -> PolygonAggregateEvent | None:
         if not entries:
             return None

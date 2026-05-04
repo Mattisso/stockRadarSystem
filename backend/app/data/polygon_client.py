@@ -105,6 +105,8 @@ class PolygonClient:
         self._last_error_reason: str | None = None
         self._last_quote_received_at: datetime | None = None
         self._last_aggregate_received_at: datetime | None = None
+        self._last_minute_aggregate_event_at: datetime | None = None
+        self._last_second_aggregate_event_at: datetime | None = None
         self._last_aggregate_persisted_at: datetime | None = None
         self._last_minute_persisted_at: datetime | None = None
         self._last_second_persisted_at: datetime | None = None
@@ -266,11 +268,15 @@ class PolygonClient:
             "last_error_reason": self._last_error_reason,
             "last_quote_received_at": _iso(self._last_quote_received_at),
             "last_aggregate_received_at": _iso(self._last_aggregate_received_at),
+            "last_minute_aggregate_event_at": _iso(self._last_minute_aggregate_event_at),
+            "last_second_aggregate_event_at": _iso(self._last_second_aggregate_event_at),
             "last_aggregate_persisted_at": _iso(self._last_aggregate_persisted_at),
             "last_minute_persisted_at": _iso(self._last_minute_persisted_at),
             "last_second_persisted_at": _iso(self._last_second_persisted_at),
             "quote_age_seconds": _age_seconds(self._last_quote_received_at),
             "aggregate_age_seconds": _age_seconds(self._last_aggregate_received_at),
+            "minute_aggregate_event_age_seconds": _age_seconds(self._last_minute_aggregate_event_at),
+            "second_aggregate_event_age_seconds": _age_seconds(self._last_second_aggregate_event_at),
             "aggregate_persist_age_seconds": _age_seconds(self._last_aggregate_persisted_at),
             "minute_persist_age_seconds": _age_seconds(self._last_minute_persisted_at),
             "second_persist_age_seconds": _age_seconds(self._last_second_persisted_at),
@@ -743,6 +749,11 @@ class PolygonClient:
                         transactions=bar.transactions,
                     )
                 )
+
+        if minute_records:
+            self._last_minute_aggregate_event_at = max(record.minute_ts for record in minute_records)
+        if second_records:
+            self._last_second_aggregate_event_at = max(record.second_ts for record in second_records)
 
         if not minute_records and not second_records:
             return

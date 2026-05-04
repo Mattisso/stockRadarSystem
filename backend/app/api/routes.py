@@ -1949,7 +1949,12 @@ def analytics_kpis(days: int = 30, db: Session = Depends(get_db)):
 
 @router.get("/analytics/runtime-kpis", response_model=DecisionRuntimeKpiResponse)
 @track_tables("candidate_events", "decision_events", "symbol_state_live", "minute_aggregates_live", "second_aggregates_live")
-def analytics_runtime_kpis(trade_date: date | None = None, window_minutes: int = 10, db: Session = Depends(get_db)):
+async def analytics_runtime_kpis(
+    request: Request,
+    trade_date: date | None = None,
+    window_minutes: int = 10,
+    db: Session = Depends(get_db),
+):
     window_minutes = max(1, min(window_minutes, 240))
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     window_start = now_utc - timedelta(minutes=window_minutes)
@@ -2029,6 +2034,38 @@ def analytics_runtime_kpis(trade_date: date | None = None, window_minutes: int =
         max_price=settings.secret_universe_max_price,
         allow_symbol_fallback=False,
     )
+    polygon_snapshot: dict[str, object] = {}
+    polygon_client = getattr(request.app.state, "polygon_client", None)
+    if polygon_client is not None:
+        try:
+            polygon_snapshot = polygon_client.session_snapshot()
+        except Exception:
+            log.exception("analytics.runtime_kpis_polygon_snapshot_error")
+
+    aggregate_stream_snapshot: dict[str, object] = {}
+    aggregate_event_bus = getattr(request.app.state, "polygon_aggregate_event_bus", None)
+    if aggregate_event_bus is not None:
+        try:
+            aggregate_stream_snapshot = await aggregate_event_bus.snapshot()
+        except Exception:
+            log.exception("analytics.runtime_kpis_aggregate_stream_snapshot_error")
+
+    trigger_stream_snapshot: dict[str, object] = {}
+    trigger_event_bus = getattr(request.app.state, "polygon_trigger_event_bus", None)
+    if trigger_event_bus is not None:
+        try:
+            trigger_stream_snapshot = await trigger_event_bus.snapshot()
+        except Exception:
+            log.exception("analytics.runtime_kpis_trigger_stream_snapshot_error")
+
+    persistence_snapshot: dict[str, object] = {}
+    persistence_worker = getattr(request.app.state, "polygon_aggregate_persistence_worker", None)
+    if persistence_worker is not None:
+        try:
+            persistence_snapshot = persistence_worker.snapshot()
+        except Exception:
+            log.exception("analytics.runtime_kpis_persistence_snapshot_error")
+
     minute_live_row_count = 0
     second_live_row_count = 0
     minute_live_symbol_count = 0
@@ -2106,6 +2143,26 @@ def analytics_runtime_kpis(trade_date: date | None = None, window_minutes: int =
         generated_at=now_utc,
         window_minutes=window_minutes,
         trade_date=selected_trade_date,
+        polygon_connected=bool(polygon_snapshot.get("connected", False)),
+        polygon_subscriptions_paused=bool(polygon_snapshot.get("subscriptions_paused", False)),
+        polygon_subscription_count=int(polygon_snapshot.get("subscription_count", 0) or 0),
+        last_minute_aggregate_event_at=polygon_snapshot.get("last_minute_aggregate_event_at"),
+        last_second_aggregate_event_at=polygon_snapshot.get("last_second_aggregate_event_at"),
+        last_aggregate_persisted_at=polygon_snapshot.get("last_aggregate_persisted_at"),
+        last_minute_persisted_at=polygon_snapshot.get("last_minute_persisted_at"),
+        last_second_persisted_at=polygon_snapshot.get("last_second_persisted_at"),
+        aggregate_stream_pending_count=int(aggregate_stream_snapshot.get("pending_count", 0) or 0),
+        aggregate_stream_lag_count=int(aggregate_stream_snapshot.get("lag_count", 0) or 0),
+        trigger_stream_pending_count=int(trigger_stream_snapshot.get("pending_count", 0) or 0),
+        trigger_stream_lag_count=int(trigger_stream_snapshot.get("lag_count", 0) or 0),
+        persistence_last_flush_completed_at=persistence_snapshot.get("last_flush_completed_at"),
+        persistence_last_flush_latency_ms=persistence_snapshot.get("last_flush_latency_ms"),
+        persistence_last_batch_event_count=int(persistence_snapshot.get("last_batch_event_count", 0) or 0),
+        persistence_last_batch_minute_count=int(persistence_snapshot.get("last_batch_minute_count", 0) or 0),
+        persistence_last_batch_second_count=int(persistence_snapshot.get("last_batch_second_count", 0) or 0),
+        persistence_error_count=int(persistence_snapshot.get("error_count", 0) or 0),
+        persistence_last_error_at=persistence_snapshot.get("last_error_at"),
+        persistence_last_error_message=persistence_snapshot.get("last_error_message"),
         candidate_events_window_count=candidate_events_window_count,
         processed_candidate_events_window_count=processed_candidate_events_window_count,
         unprocessed_candidate_events_window_count=unprocessed_candidate_events_window_count,

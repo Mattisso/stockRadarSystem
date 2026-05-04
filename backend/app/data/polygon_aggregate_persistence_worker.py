@@ -39,6 +39,14 @@ class PolygonAggregatePersistenceWorker:
         self._trigger_event_bus = trigger_event_bus
         self._task: asyncio.Task | None = None
         self._running = False
+        self._last_flush_completed_at: datetime | None = None
+        self._last_flush_latency_ms: float | None = None
+        self._last_batch_event_count = 0
+        self._last_batch_minute_count = 0
+        self._last_batch_second_count = 0
+        self._last_error_at: datetime | None = None
+        self._last_error_message: str | None = None
+        self._error_count = 0
 
     async def start(self) -> None:
         if self._running:
@@ -61,6 +69,23 @@ class PolygonAggregatePersistenceWorker:
         except asyncio.CancelledError:
             pass
         log.info("polygon.aggregate_persistence_worker_stopped")
+
+    def snapshot(self) -> dict:
+        return {
+            "running": self._running,
+            "batch_size": self._batch_size,
+            "flush_interval_seconds": self._flush_interval_seconds,
+            "last_flush_completed_at": self._last_flush_completed_at.isoformat()
+            if self._last_flush_completed_at is not None
+            else None,
+            "last_flush_latency_ms": self._last_flush_latency_ms,
+            "last_batch_event_count": self._last_batch_event_count,
+            "last_batch_minute_count": self._last_batch_minute_count,
+            "last_batch_second_count": self._last_batch_second_count,
+            "error_count": self._error_count,
+            "last_error_at": self._last_error_at.isoformat() if self._last_error_at is not None else None,
+            "last_error_message": self._last_error_message,
+        }
 
     async def _run(self) -> None:
         pending: list[PolygonAggregateEvent] = []
@@ -94,6 +119,7 @@ class PolygonAggregatePersistenceWorker:
                 log.exception("polygon.aggregate_persistence_worker_error")
 
     async def _flush(self, events: list[PolygonAggregateEvent]) -> None:
+        flush_started_at = time.monotonic()
         minute_records: list[PolygonMinuteAggregateRecord] = []
         second_records: list[PolygonSecondAggregateRecord] = []
 
@@ -144,6 +170,11 @@ class PolygonAggregatePersistenceWorker:
                     await self._trigger_event_bus.publish_many(trigger_events)
             if self._on_batch_persisted is not None:
                 self._on_batch_persisted(len(minute_records), len(second_records), persisted_at)
+            self._last_flush_completed_at = persisted_at
+            self._last_flush_latency_ms = (time.monotonic() - flush_started_at) * 1000.0
+            self._last_batch_event_count = len(events)
+            self._last_batch_minute_count = len(minute_records)
+            self._last_batch_second_count = len(second_records)
             log.info(
                 "polygon.aggregate_persistence_batch_committed",
                 minute_count=len(minute_records),
@@ -152,6 +183,9 @@ class PolygonAggregatePersistenceWorker:
             )
         except Exception:
             db.rollback()
+            self._error_count += 1
+            self._last_error_at = datetime.now(tz=timezone.utc)
+            self._last_error_message = "aggregate_persistence_batch_failed"
             log.exception(
                 "polygon.aggregate_persistence_batch_failed",
                 minute_count=len(minute_records),

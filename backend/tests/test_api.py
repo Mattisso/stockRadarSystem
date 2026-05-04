@@ -1173,7 +1173,48 @@ def test_decision_runtime_kpis_include_aggregate_coverage_counts(db_engine, auth
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    original_polygon_client = getattr(app.state, "polygon_client", None)
+    original_aggregate_event_bus = getattr(app.state, "polygon_aggregate_event_bus", None)
+    original_trigger_event_bus = getattr(app.state, "polygon_trigger_event_bus", None)
+    original_persistence_worker = getattr(app.state, "polygon_aggregate_persistence_worker", None)
     try:
+        class _PolygonClientStub:
+            def session_snapshot(self):
+                return {
+                    "connected": True,
+                    "subscriptions_paused": False,
+                    "subscription_count": 25,
+                    "last_minute_aggregate_event_at": "2026-04-29T14:00:00+00:00",
+                    "last_second_aggregate_event_at": "2026-04-29T14:00:05+00:00",
+                    "last_aggregate_persisted_at": "2026-04-29T14:00:06+00:00",
+                    "last_minute_persisted_at": "2026-04-29T14:00:06+00:00",
+                    "last_second_persisted_at": "2026-04-29T14:00:06+00:00",
+                }
+
+        class _EventBusStub:
+            def __init__(self, pending_count: int, lag_count: int):
+                self._pending_count = pending_count
+                self._lag_count = lag_count
+
+            async def snapshot(self):
+                return {
+                    "pending_count": self._pending_count,
+                    "lag_count": self._lag_count,
+                }
+
+        class _PersistenceWorkerStub:
+            def snapshot(self):
+                return {
+                    "last_flush_completed_at": "2026-04-29T14:00:06+00:00",
+                    "last_flush_latency_ms": 123.0,
+                    "last_batch_event_count": 4,
+                    "last_batch_minute_count": 2,
+                    "last_batch_second_count": 2,
+                    "error_count": 0,
+                    "last_error_at": None,
+                    "last_error_message": None,
+                }
+
         with TestingSessionLocal() as db:
             db.add_all(
                 [
@@ -1229,6 +1270,10 @@ def test_decision_runtime_kpis_include_aggregate_coverage_counts(db_engine, auth
             db.commit()
 
         with TestClient(app) as client:
+            app.state.polygon_client = _PolygonClientStub()
+            app.state.polygon_aggregate_event_bus = _EventBusStub(pending_count=3, lag_count=0)
+            app.state.polygon_trigger_event_bus = _EventBusStub(pending_count=1, lag_count=2)
+            app.state.polygon_aggregate_persistence_worker = _PersistenceWorkerStub()
             response = client.get(
                 "/api/analytics/runtime-kpis",
                 headers=auth_headers,
@@ -1243,8 +1288,26 @@ def test_decision_runtime_kpis_include_aggregate_coverage_counts(db_engine, auth
         assert body["minute_live_symbol_count"] == 2
         assert body["second_live_symbol_count"] == 1
         assert body["minute_without_second_symbol_count"] == 1
+        assert body["polygon_connected"] is True
+        assert body["polygon_subscriptions_paused"] is False
+        assert body["polygon_subscription_count"] == 25
+        assert body["aggregate_stream_pending_count"] == 3
+        assert body["aggregate_stream_lag_count"] == 0
+        assert body["trigger_stream_pending_count"] == 1
+        assert body["trigger_stream_lag_count"] == 2
+        assert body["persistence_last_flush_latency_ms"] == pytest.approx(123.0)
+        assert body["persistence_last_batch_event_count"] == 4
+        assert body["persistence_last_batch_minute_count"] == 2
+        assert body["persistence_last_batch_second_count"] == 2
+        assert body["persistence_error_count"] == 0
+        assert body["last_second_aggregate_event_at"] == "2026-04-29T14:00:05Z"
+        assert body["last_second_persisted_at"] == "2026-04-29T14:00:06Z"
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.state.polygon_client = original_polygon_client
+        app.state.polygon_aggregate_event_bus = original_aggregate_event_bus
+        app.state.polygon_trigger_event_bus = original_trigger_event_bus
+        app.state.polygon_aggregate_persistence_worker = original_persistence_worker
 
 
 def test_polygon_ticks_reads_operational_live_table_only(db_engine, auth_headers):

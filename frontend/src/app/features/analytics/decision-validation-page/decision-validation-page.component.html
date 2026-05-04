@@ -111,7 +111,79 @@
           <div class="summary-card__value">{{ runtime.minute_without_second_symbol_count }}</div>
           <div class="summary-card__status">{{ kpiStatusLabel('aggregate_symbols') }}</div>
         </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('websocket') === 'ok'" [class.summary-card--warn]="kpiSeverity('websocket') === 'warn'" [class.summary-card--bad]="kpiSeverity('websocket') === 'bad'">
+          <div class="summary-card__label">Polygon WebSocket</div>
+          <div class="summary-card__value">{{ websocketSummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('websocket') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('aggregate_stream') === 'ok'" [class.summary-card--warn]="kpiSeverity('aggregate_stream') === 'warn'" [class.summary-card--bad]="kpiSeverity('aggregate_stream') === 'bad'">
+          <div class="summary-card__label">Aggregate Stream Pending / Lag</div>
+          <div class="summary-card__value">{{ aggregateStreamSummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('aggregate_stream') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('trigger_stream') === 'ok'" [class.summary-card--warn]="kpiSeverity('trigger_stream') === 'warn'" [class.summary-card--bad]="kpiSeverity('trigger_stream') === 'bad'">
+          <div class="summary-card__label">Trigger Stream Pending / Lag</div>
+          <div class="summary-card__value">{{ triggerStreamSummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('trigger_stream') }}</div>
+        </mat-card>
+        <mat-card class="summary-card" [class.summary-card--ok]="kpiSeverity('persistence') === 'ok'" [class.summary-card--warn]="kpiSeverity('persistence') === 'warn'" [class.summary-card--bad]="kpiSeverity('persistence') === 'bad'">
+          <div class="summary-card__label">Last Flush Latency</div>
+          <div class="summary-card__value">{{ persistenceLatencySummary() }}</div>
+          <div class="summary-card__status">{{ kpiStatusLabel('persistence') }}</div>
+        </mat-card>
+        <mat-card class="summary-card">
+          <div class="summary-card__label">Last Batch Events / Minute / Second</div>
+          <div class="summary-card__value">{{ persistenceBatchSummary() }}</div>
+          <div class="summary-card__status">Observed</div>
+        </mat-card>
       </div>
+
+      <mat-card class="decision-validation__ingest-card">
+        <div class="decision-validation__ingest-header">Polygon AM/A Ingest Health</div>
+        <div class="decision-validation__ingest-grid">
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Subscriptions</div>
+            <div class="decision-validation__ingest-value">{{ runtime.polygon_subscription_count }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last WS Minute Event</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.last_minute_aggregate_event_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last WS Second Event</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.last_second_aggregate_event_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last Persisted Aggregate</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.last_aggregate_persisted_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last Persisted Minute</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.last_minute_persisted_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last Persisted Second</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.last_second_persisted_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Last Flush Completed</div>
+            <div class="decision-validation__ingest-value">{{ formatTimestamp(runtime.persistence_last_flush_completed_at) }}</div>
+          </div>
+          <div class="decision-validation__ingest-item">
+            <div class="decision-validation__ingest-label">Persistence Errors</div>
+            <div class="decision-validation__ingest-value">{{ runtime.persistence_error_count }}</div>
+          </div>
+          <div class="decision-validation__ingest-item decision-validation__ingest-item--wide">
+            <div class="decision-validation__ingest-label">Last Persistence Error</div>
+            <div class="decision-validation__ingest-value">
+              {{ runtime.persistence_last_error_message ?? '—' }}
+              @if (runtime.persistence_last_error_at) {
+                <span class="decision-validation__ingest-muted"> · {{ formatTimestamp(runtime.persistence_last_error_at) }}</span>
+              }
+            </div>
+          </div>
+        </div>
+      </mat-card>
     }
 
     <div class="decision-validation__summary-grid">

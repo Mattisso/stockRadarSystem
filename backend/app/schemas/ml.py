@@ -514,6 +514,26 @@ class DecisionRuntimeKpiResponse(ApiResponseModel):
     generated_at: datetime
     window_minutes: int
     trade_date: date
+    polygon_connected: bool
+    polygon_subscriptions_paused: bool
+    polygon_subscription_count: int
+    last_minute_aggregate_event_at: datetime | None = None
+    last_second_aggregate_event_at: datetime | None = None
+    last_aggregate_persisted_at: datetime | None = None
+    last_minute_persisted_at: datetime | None = None
+    last_second_persisted_at: datetime | None = None
+    aggregate_stream_pending_count: int
+    aggregate_stream_lag_count: int
+    trigger_stream_pending_count: int
+    trigger_stream_lag_count: int
+    persistence_last_flush_completed_at: datetime | None = None
+    persistence_last_flush_latency_ms: float | None = None
+    persistence_last_batch_event_count: int
+    persistence_last_batch_minute_count: int
+    persistence_last_batch_second_count: int
+    persistence_error_count: int
+    persistence_last_error_at: datetime | None = None
+    persistence_last_error_message: str | None = None
     candidate_events_window_count: int
     processed_candidate_events_window_count: int
     unprocessed_candidate_events_window_count: int
