@@ -125,3 +125,57 @@ async def test_persistence_worker_merges_duplicate_second_events_within_single_b
     assert row.volume == 250
     assert row.transactions == 9
     assert persisted_batches == [(0, 2)]
+
+
+@pytest.mark.asyncio
+async def test_persistence_worker_flushes_small_live_batch_without_waiting_for_full_batch(db, db_session_factory):
+    event_bus = PolygonEventBus(maxsize=10)
+    persisted_batches: list[tuple[int, int]] = []
+    worker = PolygonAggregatePersistenceWorker(
+        event_bus,
+        db_session_factory,
+        batch_size=500,
+        flush_interval_seconds=0.05,
+        on_batch_persisted=lambda minute_count, second_count, _persisted_at: persisted_batches.append((minute_count, second_count)),
+    )
+
+    now = datetime.now(tz=timezone.utc)
+    await event_bus.publish(
+        PolygonAggregateEvent(
+            ticker="LCID",
+            event_type="A",
+            event_ts=now,
+            received_at=now,
+            subscription_generation_id=1,
+            open=3.47,
+            high=3.49,
+            low=3.46,
+            close=3.48,
+            volume=100,
+            vwap=3.48,
+            transactions=4,
+        )
+    )
+    await event_bus.publish(
+        PolygonAggregateEvent(
+            ticker="SIRI",
+            event_type="A",
+            event_ts=now,
+            received_at=now,
+            subscription_generation_id=1,
+            open=6.12,
+            high=6.15,
+            low=6.11,
+            close=6.14,
+            volume=200,
+            vwap=6.13,
+            transactions=6,
+        )
+    )
+
+    await worker.start()
+    await asyncio.sleep(0.2)
+    await worker.stop()
+
+    assert db.query(PolygonSecondAggregate).count() == 2
+    assert persisted_batches == [(0, 2)]

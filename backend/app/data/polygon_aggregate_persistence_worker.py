@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
+import time
 
 from app.core.market_hours import is_regular_us_market_time
 from app.core.logging import get_logger
@@ -63,20 +64,28 @@ class PolygonAggregatePersistenceWorker:
 
     async def _run(self) -> None:
         pending: list[PolygonAggregateEvent] = []
+        batch_started_at: float | None = None
         while self._running:
             try:
                 event = await asyncio.wait_for(
                     self._event_bus.read(),
                     timeout=self._flush_interval_seconds,
                 )
+                if not pending:
+                    batch_started_at = time.monotonic()
                 pending.append(event)
-                if len(pending) >= self._batch_size:
+                should_flush = len(pending) >= self._batch_size
+                if not should_flush and batch_started_at is not None:
+                    should_flush = (time.monotonic() - batch_started_at) >= self._flush_interval_seconds
+                if should_flush:
                     await self._flush(pending)
                     pending = []
+                    batch_started_at = None
             except TimeoutError:
                 if pending:
                     await self._flush(pending)
                     pending = []
+                    batch_started_at = None
             except asyncio.CancelledError:
                 if pending:
                     await self._flush(pending)
