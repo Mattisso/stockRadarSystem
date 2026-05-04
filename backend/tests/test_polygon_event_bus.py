@@ -53,6 +53,25 @@ class _FakeRedisStream:
         return 1
 
 
+class _FakeRedisStreamWithEmptyPending(_FakeRedisStream):
+    def __init__(self) -> None:
+        super().__init__()
+        self._first_pending_read = True
+
+    async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+        target = next(iter(streams.values()))
+        if target == "0" and self._first_pending_read:
+            self._first_pending_read = False
+            return [("stream", [])]
+        return await super().xreadgroup(
+            groupname=groupname,
+            consumername=consumername,
+            streams=streams,
+            count=count,
+            block=block,
+        )
+
+
 @pytest.mark.asyncio
 async def test_publish_and_read_single_event():
     bus = PolygonEventBus(maxsize=10)
@@ -175,4 +194,26 @@ async def test_redis_stream_mode_round_trips_event_and_acks():
     assert result.event_ts == event.event_ts
     assert result.received_at == event.received_at
     assert result.volume == event.volume
+    assert bus._redis.acked == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_redis_stream_mode_ignores_empty_pending_read_and_reads_fresh_event():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+    )
+    bus._redis = _FakeRedisStreamWithEmptyPending()
+    event = _make_event(ticker="TEST2", event_type="A")
+
+    await bus.publish(event)
+    result = await bus.read()
+    bus.task_done()
+    await asyncio.sleep(0)
+
+    assert result.ticker == "TEST2"
+    assert result.event_type == "A"
     assert bus._redis.acked == ["1"]

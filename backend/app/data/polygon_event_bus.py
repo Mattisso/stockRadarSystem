@@ -91,8 +91,9 @@ class PolygonEventBus:
                 streams={self._stream_name: "0"},
                 count=1,
             )
-            if pending:
-                return self._decode_stream_event(pending)
+            pending_event = self._decode_stream_event(pending)
+            if pending_event is not None:
+                return pending_event
 
             while True:
                 fresh = await self._redis.xreadgroup(
@@ -102,8 +103,9 @@ class PolygonEventBus:
                     count=1,
                     block=1000,
                 )
-                if fresh:
-                    return self._decode_stream_event(fresh)
+                fresh_event = self._decode_stream_event(fresh)
+                if fresh_event is not None:
+                    return fresh_event
         return await self._queue.get()
 
     def read_nowait(self) -> PolygonAggregateEvent:
@@ -124,8 +126,12 @@ class PolygonEventBus:
             return len(self._pending_ids)
         return self._queue.qsize()
 
-    def _decode_stream_event(self, entries) -> PolygonAggregateEvent:
+    def _decode_stream_event(self, entries) -> PolygonAggregateEvent | None:
+        if not entries:
+            return None
         _, messages = entries[0]
+        if not messages:
+            return None
         message_id, payload = messages[0]
         self._pending_ids.append(message_id)
         return PolygonAggregateEvent.from_payload(payload)
