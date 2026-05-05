@@ -108,7 +108,10 @@ class AggregateTriggerEngine:
             self.db.flush()
             return 0
 
+        inserted = 0
         for trigger in triggers:
+            if self._candidate_event_exists(trigger.ticker, trigger.event_ts, trigger.trigger_name):
+                continue
             self.db.add(
                 CandidateEvent(
                     ticker=trigger.ticker,
@@ -124,11 +127,12 @@ class AggregateTriggerEngine:
                     is_minute_stream_stale=state.is_minute_stream_stale,
                 )
             )
+            inserted += 1
         if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
             state.candidate_status = "candidate"
         state.candidate_score = max(trigger.score for trigger in triggers)
         self.db.flush()
-        return len(triggers)
+        return inserted
 
     def persist_with_validation(
         self,
@@ -146,7 +150,10 @@ class AggregateTriggerEngine:
             self.db.flush()
             return 0
 
+        inserted = 0
         for trigger in triggers:
+            if self._candidate_event_exists(trigger.ticker, trigger.event_ts, trigger.trigger_name):
+                continue
             payload = {
                 **trigger.payload,
                 "validation_score": validation.score,
@@ -168,11 +175,27 @@ class AggregateTriggerEngine:
                     is_minute_stream_stale=state.is_minute_stream_stale,
                 )
             )
+            inserted += 1
         if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
             state.candidate_status = "candidate"
         state.candidate_score = max(trigger.score for trigger in triggers)
         self.db.flush()
-        return len(triggers)
+        return inserted
+
+    def _candidate_event_exists(self, ticker: str, event_ts: datetime, trigger_name: str) -> bool:
+        # Idempotency safety net: if the same (ticker, event_ts, trigger_name)
+        # was already persisted (e.g. via redelivery from the aggregate event
+        # bus), skip re-insertion. Cheap point lookup against an indexed pair.
+        return (
+            self.db.query(CandidateEvent.id)
+            .filter(
+                CandidateEvent.ticker == ticker,
+                CandidateEvent.event_ts == event_ts,
+                CandidateEvent.trigger_name == trigger_name,
+            )
+            .first()
+            is not None
+        )
 
     def _trigger_breakout_above_recent_high(
         self,

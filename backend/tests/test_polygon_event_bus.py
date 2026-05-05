@@ -180,7 +180,7 @@ async def test_task_done():
     await bus.publish(_make_event())
     await bus.read()
 
-    bus.task_done()
+    await bus.task_done()
 
 
 @pytest.mark.asyncio
@@ -217,8 +217,7 @@ async def test_redis_stream_mode_round_trips_event_and_acks():
 
     await bus.publish(event)
     result = await bus.read()
-    bus.task_done()
-    await asyncio.sleep(0)
+    await bus.task_done()
 
     assert result.ticker == "TEST"
     assert result.event_type == "AM"
@@ -242,8 +241,7 @@ async def test_redis_stream_mode_ignores_empty_pending_read_and_reads_fresh_even
 
     await bus.publish(event)
     result = await bus.read()
-    bus.task_done()
-    await asyncio.sleep(0)
+    await bus.task_done()
 
     assert result.ticker == "TEST2"
     assert result.event_type == "A"
@@ -272,8 +270,7 @@ async def test_redis_stream_mode_does_not_replay_same_pending_message_while_unac
     assert first.ticker == "PENDING"
     assert second.ticker == "FRESH"
 
-    bus.task_done()
-    bus.task_done()
-    await asyncio.sleep(0)
+    await bus.task_done()
+    await bus.task_done()
 
     assert bus._redis.acked == ["1", "2"]

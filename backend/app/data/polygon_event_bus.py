@@ -114,11 +114,16 @@ class PolygonEventBus:
             raise asyncio.QueueEmpty()
         return self._queue.get_nowait()
 
-    def task_done(self) -> None:
+    async def task_done(self) -> None:
+        # Synchronous ack: the previous fire-and-forget asyncio.create_task path
+        # let workers exit before XACK reached Redis, so the consumer-group
+        # pending-list kept replaying the same events on restart (observed:
+        # one HIMS aggregate processed 300x on 2026-05-04). Callers are all
+        # already in async contexts, so awaiting here is safe.
         if self._redis is not None:
             if self._pending_ids:
                 message_id = self._pending_ids.popleft()
-                asyncio.create_task(self._ack_stream_message(message_id))
+                await self._ack_stream_message(message_id)
             return
         self._queue.task_done()
 

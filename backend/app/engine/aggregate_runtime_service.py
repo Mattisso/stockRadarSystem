@@ -171,7 +171,11 @@ class AggregateRuntimeService:
                 idx += 1
 
             effective_event_ts = self._effective_event_ts(batch_start)
-            if self._trade_day_for_ts(effective_event_ts) != reference_trade_day:
+            # Gate on created_at (server-generated at row insertion) rather than
+            # effective_event_ts: the latter falls back to last_second_ts, which is
+            # snapshotted from SymbolStateLive at trigger time and can carry a prior
+            # NY trade day into a fresh candidate event, silently dropping the batch.
+            if self._trade_day_for_ts(batch_start.created_at) != reference_trade_day:
                 for row in batch:
                     row.processed_at = as_of
                 processed_count += len(batch)

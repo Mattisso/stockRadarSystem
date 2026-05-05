@@ -156,6 +156,7 @@ class PolygonAggregatePersistenceWorker:
                 )
 
         db = self._db_session_factory()
+        ack_events = False
         try:
             aggregate_service = PolygonAggregateService(db)
             if minute_records:
@@ -168,6 +169,11 @@ class PolygonAggregatePersistenceWorker:
                 trigger_events = [event for event in events if event.event_type == "A"]
                 if trigger_events:
                     await self._trigger_event_bus.publish_many(trigger_events)
+            # Durable side effects are done; safe to ack now. The on_batch_persisted
+            # callback is best-effort runtime status — losing it is acceptable, but
+            # losing acks here means redelivery and (without idempotency) duplicate
+            # publishes to the trigger bus.
+            ack_events = True
             if self._on_batch_persisted is not None:
                 self._on_batch_persisted(len(minute_records), len(second_records), persisted_at)
             self._last_flush_completed_at = persisted_at
@@ -195,5 +201,6 @@ class PolygonAggregatePersistenceWorker:
             raise
         finally:
             db.close()
-            for _ in events:
-                self._event_bus.task_done()
+            if ack_events:
+                for _ in events:
+                    await self._event_bus.task_done()

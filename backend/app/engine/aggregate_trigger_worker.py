@@ -83,6 +83,7 @@ class AggregateTriggerWorker:
 
     async def _process(self, events: list[PolygonAggregateEvent]) -> None:
         db: Session = self._db_session_factory()
+        ack_events = False
         try:
             trigger_engine = AggregateTriggerEngine(db)
             persisted_candidate_event_count = 0
@@ -115,6 +116,10 @@ class AggregateTriggerWorker:
                 if triggers:
                     changed_tickers.add(event.ticker.upper())
             db.commit()
+            # Commit succeeded — safe to ack. The downstream notification is
+            # best-effort; losing it is preferable to acking before commit and
+            # silently dropping events on a worker restart.
+            ack_events = True
             if (
                 persisted_candidate_event_count > 0
                 and self._on_candidate_events_persisted is not None
@@ -132,5 +137,6 @@ class AggregateTriggerWorker:
             raise
         finally:
             db.close()
-            for _ in events:
-                self._event_bus.task_done()
+            if ack_events:
+                for _ in events:
+                    await self._event_bus.task_done()
