@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     polygon_ticks_history_retention_enabled: bool = True
     polygon_ticks_history_retention_days: int = 14
     polygon_ticks_history_cleanup_interval_hours: int = 24
+    signals_retention_enabled: bool = True
+    signals_retention_days: int = 90
+    signals_retention_batch_size: int = 50_000
+    signals_retention_max_batches: int = 1_000
+    signals_retention_interval_hours: int = 24
     aggregate_rolling_refresh_seconds: int = 1
     aggregate_candidate_event_max_age_seconds: int = 15
     aggregate_history_export_enabled: bool = False

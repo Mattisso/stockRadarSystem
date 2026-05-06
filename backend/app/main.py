@@ -43,6 +43,7 @@ from app.data.tick_buffer import TickBuffer
 from app.data.polygon_event_bus import PolygonEventBus
 from app.data.polygon_aggregate_persistence_worker import PolygonAggregatePersistenceWorker
 from app.data.runtime_snapshot_publisher import RuntimeSnapshotPublisher
+from app.data.signals_retention_service import SignalsRetentionService
 from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.data.aggregate_history_export_service import AggregateHistoryExportService
 from app.data.polygon_live_retention_service import PolygonLiveRetentionService
@@ -1051,6 +1052,36 @@ async def lifespan(app: FastAPI):
                 time.monotonic() - start
             )
 
+    async def signals_retention_job():
+        start = time.monotonic()
+        try:
+            if not settings.signals_retention_enabled:
+                return
+            if should_defer_nonessential_market_hours_jobs():
+                log.info("scheduler.signals_retention_deferred_market_hours")
+                return
+            db = SessionLocal()
+            try:
+                result = SignalsRetentionService(db).purge(
+                    retention_days=settings.signals_retention_days,
+                    batch_size=settings.signals_retention_batch_size,
+                    max_batches=settings.signals_retention_max_batches,
+                )
+                log.info(
+                    "scheduler.signals_retention_completed",
+                    deleted_signal_rows=result.deleted_signal_rows,
+                    batches_run=result.batches_run,
+                    stopped_reason=result.stopped_reason,
+                    cutoff_ts=result.cutoff_ts.isoformat(),
+                )
+            finally:
+                db.close()
+        except Exception:
+            SCHEDULER_JOB_ERRORS.labels(job="signals_retention").inc()
+            log.exception("scheduler.signals_retention_error")
+        finally:
+            SCHEDULER_JOB_DURATION.labels(job="signals_retention").observe(time.monotonic() - start)
+
     async def aggregate_rolling_refresh_job():
         start = time.monotonic()
         try:
@@ -1172,6 +1203,14 @@ async def lifespan(app: FastAPI):
                 hours=settings.polygon_ticks_history_cleanup_interval_hours,
                 max_instances=1,
                 id="polygon_tick_history_retention",
+            )
+        if settings.signals_retention_enabled:
+            scheduler.add_job(
+                signals_retention_job,
+                "interval",
+                hours=settings.signals_retention_interval_hours,
+                max_instances=1,
+                id="signals_retention",
             )
         if polygon_client is not None and settings.polygon_mode == "websocket":
             scheduler.add_job(
