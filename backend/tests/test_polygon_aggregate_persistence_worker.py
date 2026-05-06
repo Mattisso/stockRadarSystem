@@ -179,3 +179,52 @@ async def test_persistence_worker_flushes_small_live_batch_without_waiting_for_f
 
     assert db.query(PolygonSecondAggregate).count() == 2
     assert persisted_batches == [(0, 2)]
+
+
+@pytest.mark.asyncio
+async def test_persistence_worker_does_not_ack_when_commit_fails(db_session_factory):
+    # Regression: prior to the ack-after-commit fix the worker fire-and-forgot
+    # XACK before commit, so a failing commit silently consumed the message and
+    # the redelivery path could not recover it. Verify the message is NOT acked
+    # when commit raises.
+    event_bus = PolygonEventBus(maxsize=10)
+
+    def failing_session_factory():
+        session = db_session_factory()
+        def _raise():
+            raise RuntimeError("commit failed (simulated)")
+        session.commit = _raise  # type: ignore[method-assign]
+        return session
+
+    worker = PolygonAggregatePersistenceWorker(
+        event_bus,
+        failing_session_factory,
+        batch_size=10,
+        flush_interval_seconds=0.05,
+    )
+
+    market_hours_ts = datetime(2026, 4, 10, 14, 30, 0, tzinfo=timezone.utc)  # 10:30 ET, Friday
+    event = PolygonAggregateEvent(
+        ticker="LCID",
+        event_type="A",
+        event_ts=market_hours_ts,
+        received_at=market_hours_ts,
+        subscription_generation_id=1,
+        open=3.47,
+        high=3.49,
+        low=3.46,
+        close=3.48,
+        volume=100,
+        vwap=3.48,
+        transactions=4,
+    )
+    await event_bus.publish(event)
+    assert event_bus._queue._unfinished_tasks == 1
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await worker._flush([event])
+
+    # Critical invariant: commit failed, so the message must remain pending for
+    # Redis Streams to redeliver. If task_done() were called, the consumer group
+    # would advance past this message and the data would be lost.
+    assert event_bus._queue._unfinished_tasks == 1

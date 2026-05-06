@@ -241,3 +241,38 @@ def test_trigger_persist_with_validation_does_not_overwrite_active_or_sold_state
         )
         engine.persist_with_validation([trigger], state, event_ts=event_ts)
         assert state.candidate_status == protected_status
+
+
+def test_trigger_engine_persist_is_idempotent_on_redelivery(db):
+    # Regression: on Redis Streams redelivery the same trigger can hit
+    # persist() twice. Without the _candidate_event_exists guard we would
+    # insert duplicate candidate_events rows (no unique constraint exists
+    # at the DB level today).
+    engine = AggregateTriggerEngine(db)
+    event_ts = datetime(2026, 4, 24, 13, 30, 0, tzinfo=timezone.utc)
+
+    state = SymbolStateLive(
+        ticker="LCID",
+        candidate_status="idle",
+        validation_score=0.0,
+        validation_pass_count=0,
+        is_second_stream_stale=False,
+        is_minute_stream_stale=False,
+    )
+    db.add(state)
+    db.flush()
+
+    trigger = AggregateCandidateTrigger(
+        ticker="LCID",
+        event_ts=event_ts,
+        trigger_name="breakout_above_recent_high",
+        score=0.91,
+        payload={"close": 3.1},
+    )
+
+    first = engine.persist([trigger], state)
+    second = engine.persist([trigger], state)
+
+    assert first == 1
+    assert second == 0
+    assert db.query(CandidateEvent).filter_by(ticker="LCID", event_ts=event_ts).count() == 1
