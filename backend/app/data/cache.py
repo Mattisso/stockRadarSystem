@@ -5,6 +5,8 @@ from datetime import datetime
 
 from app.broker.interface import OrderBook, Quote
 
+RUNTIME_SNAPSHOT_KEY = "stockradar:runtime:polygon_snapshot"
+
 
 class CacheInterface(ABC):
     """Unified cache interface for L1/L2 market data."""
@@ -32,6 +34,16 @@ class CacheInterface(ABC):
     @abstractmethod
     async def get_l2(self, ticker: str) -> OrderBook | None: ...
 
+    # Cross-pod runtime snapshot (worker writes, web reads — see
+    # RuntimeSnapshotPublisher). Carries polygon WS session + event-bus +
+    # persistence telemetry so the web pod can serve runtime KPIs without
+    # owning the in-process objects.
+    @abstractmethod
+    async def set_runtime_snapshot(self, payload: dict, ttl_seconds: int) -> None: ...
+
+    @abstractmethod
+    async def get_runtime_snapshot(self) -> dict | None: ...
+
 
 class InMemoryCache(CacheInterface):
     """Dict-based fallback when Redis is not configured."""
@@ -40,6 +52,7 @@ class InMemoryCache(CacheInterface):
         self._ttl = ttl
         self._l1: dict[str, tuple[Quote, float]] = {}
         self._l2: dict[str, tuple[OrderBook, float]] = {}
+        self._runtime_snapshot: tuple[dict, float] | None = None
 
     async def connect(self) -> None:
         pass
@@ -47,6 +60,7 @@ class InMemoryCache(CacheInterface):
     async def disconnect(self) -> None:
         self._l1.clear()
         self._l2.clear()
+        self._runtime_snapshot = None
 
     async def is_healthy(self) -> bool:
         return True
@@ -76,3 +90,15 @@ class InMemoryCache(CacheInterface):
             del self._l2[ticker]
             return None
         return book
+
+    async def set_runtime_snapshot(self, payload: dict, ttl_seconds: int) -> None:
+        self._runtime_snapshot = (payload, datetime.now().timestamp() + max(1, ttl_seconds))
+
+    async def get_runtime_snapshot(self) -> dict | None:
+        if self._runtime_snapshot is None:
+            return None
+        payload, expires_at = self._runtime_snapshot
+        if datetime.now().timestamp() > expires_at:
+            self._runtime_snapshot = None
+            return None
+        return payload

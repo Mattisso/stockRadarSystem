@@ -1,6 +1,7 @@
 """Tests for API routes."""
 
 from datetime import date, datetime, timezone
+import asyncio
 import io
 
 import pytest
@@ -1270,10 +1271,22 @@ def test_decision_runtime_kpis_include_aggregate_coverage_counts(db_engine, auth
             db.commit()
 
         with TestClient(app) as client:
-            app.state.polygon_client = _PolygonClientStub()
-            app.state.polygon_aggregate_event_bus = _EventBusStub(pending_count=3, lag_count=0)
-            app.state.polygon_trigger_event_bus = _EventBusStub(pending_count=1, lag_count=2)
-            app.state.polygon_aggregate_persistence_worker = _PersistenceWorkerStub()
+            polygon_session = _PolygonClientStub().session_snapshot()
+            aggregate_stream = asyncio.run(_EventBusStub(pending_count=3, lag_count=0).snapshot())
+            trigger_stream = asyncio.run(_EventBusStub(pending_count=1, lag_count=2).snapshot())
+            persistence = _PersistenceWorkerStub().snapshot()
+            asyncio.run(
+                app.state.cache.set_runtime_snapshot(
+                    {
+                        "generated_at": "2026-04-29T14:00:06+00:00",
+                        "polygon_session": polygon_session,
+                        "aggregate_stream": aggregate_stream,
+                        "trigger_stream": trigger_stream,
+                        "persistence": persistence,
+                    },
+                    ttl_seconds=10,
+                )
+            )
             response = client.get(
                 "/api/analytics/runtime-kpis",
                 headers=auth_headers,

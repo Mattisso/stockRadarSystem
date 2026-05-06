@@ -748,6 +748,18 @@ def _deduped_tick_query(db: Session, query, model):
     return db.query(model).join(dedupe_subquery, model.id == dedupe_subquery.c.max_id)
 
 
+async def _read_runtime_snapshot(request: Request) -> dict:
+    cache = getattr(request.app.state, "cache", None)
+    if cache is None:
+        return {}
+    try:
+        snapshot = await cache.get_runtime_snapshot()
+    except Exception:
+        log.exception("analytics.runtime_snapshot_read_failed")
+        return {}
+    return snapshot or {}
+
+
 @router.get("/health/broker")
 async def broker_health(broker=Depends(get_broker)):
     """Report IB Gateway / broker connection status."""
@@ -969,7 +981,7 @@ async def get_secret_sauce_status(request: Request):
         }
     )
     runtime_snapshot = runtime.to_dict() if runtime is not None else {}
-    polygon_snapshot = polygon_client.session_snapshot() if polygon_client is not None else None
+    polygon_snapshot = (await _read_runtime_snapshot(request)).get("polygon_session") or None
     return SecretSauceStatusResponse(
         runtime=runtime_snapshot,
         queue=SecretSauceQueueStatusResponse(**queue_snapshot),
@@ -2071,37 +2083,11 @@ async def analytics_runtime_kpis(
         max_price=settings.secret_universe_max_price,
         allow_symbol_fallback=False,
     )
-    polygon_snapshot: dict[str, object] = {}
-    polygon_client = getattr(request.app.state, "polygon_client", None)
-    if polygon_client is not None:
-        try:
-            polygon_snapshot = polygon_client.session_snapshot()
-        except Exception:
-            log.exception("analytics.runtime_kpis_polygon_snapshot_error")
-
-    aggregate_stream_snapshot: dict[str, object] = {}
-    aggregate_event_bus = getattr(request.app.state, "polygon_aggregate_event_bus", None)
-    if aggregate_event_bus is not None:
-        try:
-            aggregate_stream_snapshot = await aggregate_event_bus.snapshot()
-        except Exception:
-            log.exception("analytics.runtime_kpis_aggregate_stream_snapshot_error")
-
-    trigger_stream_snapshot: dict[str, object] = {}
-    trigger_event_bus = getattr(request.app.state, "polygon_trigger_event_bus", None)
-    if trigger_event_bus is not None:
-        try:
-            trigger_stream_snapshot = await trigger_event_bus.snapshot()
-        except Exception:
-            log.exception("analytics.runtime_kpis_trigger_stream_snapshot_error")
-
-    persistence_snapshot: dict[str, object] = {}
-    persistence_worker = getattr(request.app.state, "polygon_aggregate_persistence_worker", None)
-    if persistence_worker is not None:
-        try:
-            persistence_snapshot = persistence_worker.snapshot()
-        except Exception:
-            log.exception("analytics.runtime_kpis_persistence_snapshot_error")
+    runtime_snapshot = await _read_runtime_snapshot(request)
+    polygon_snapshot: dict[str, object] = runtime_snapshot.get("polygon_session") or {}
+    aggregate_stream_snapshot: dict[str, object] = runtime_snapshot.get("aggregate_stream") or {}
+    trigger_stream_snapshot: dict[str, object] = runtime_snapshot.get("trigger_stream") or {}
+    persistence_snapshot: dict[str, object] = runtime_snapshot.get("persistence") or {}
 
     minute_live_row_count = 0
     second_live_row_count = 0

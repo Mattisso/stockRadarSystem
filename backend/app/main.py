@@ -42,6 +42,7 @@ from app.core.orchestration import RuntimeOrchestrator
 from app.data.tick_buffer import TickBuffer
 from app.data.polygon_event_bus import PolygonEventBus
 from app.data.polygon_aggregate_persistence_worker import PolygonAggregatePersistenceWorker
+from app.data.runtime_snapshot_publisher import RuntimeSnapshotPublisher
 from app.data.polygon_aggregate_service import PolygonAggregateService
 from app.data.aggregate_history_export_service import AggregateHistoryExportService
 from app.data.polygon_live_retention_service import PolygonLiveRetentionService
@@ -480,6 +481,15 @@ async def lifespan(app: FastAPI):
             if polygon_queue_consumer is not None:
                 await polygon_queue_consumer.start()
             await polygon_client.start()
+            runtime_snapshot_publisher = RuntimeSnapshotPublisher(
+                cache=cache,
+                polygon_client=polygon_client,
+                aggregate_event_bus=polygon_aggregate_event_bus,
+                trigger_event_bus=polygon_trigger_event_bus,
+                persistence_worker=polygon_aggregate_persistence_worker,
+            )
+            await runtime_snapshot_publisher.start()
+            app.state.runtime_snapshot_publisher = runtime_snapshot_publisher
         runtime.mark_service(
             "polygon_queue_consumer",
             polygon_queue_consumer is not None and run_background,
@@ -1242,6 +1252,9 @@ async def lifespan(app: FastAPI):
 
     if run_background:
         scheduler.shutdown(wait=False)
+    runtime_snapshot_publisher = getattr(app.state, "runtime_snapshot_publisher", None)
+    if runtime_snapshot_publisher is not None:
+        await runtime_snapshot_publisher.stop()
     if polygon_client:
         await polygon_client.stop()
     if polygon_aggregate_persistence_worker:

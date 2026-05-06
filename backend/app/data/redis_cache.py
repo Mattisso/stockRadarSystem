@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 from app.broker.interface import OrderBook, OrderBookLevel, Quote
-from app.data.cache import CacheInterface
+from app.data.cache import RUNTIME_SNAPSHOT_KEY, CacheInterface
 
 
 class RedisCache(CacheInterface):
@@ -84,3 +84,15 @@ class RedisCache(CacheInterface):
             asks=[OrderBookLevel(price=l["price"], size=l["size"], order_count=l["order_count"]) for l in d["asks"]],
             timestamp=datetime.fromisoformat(d["timestamp"]),
         )
+
+    async def set_runtime_snapshot(self, payload: dict, ttl_seconds: int) -> None:
+        await self._redis.setex(RUNTIME_SNAPSHOT_KEY, max(1, ttl_seconds), json.dumps(payload, default=str))
+
+    async def get_runtime_snapshot(self) -> dict | None:
+        raw = await self._redis.get(RUNTIME_SNAPSHOT_KEY)
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
