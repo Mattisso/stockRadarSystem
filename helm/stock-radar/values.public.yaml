@@ -86,7 +86,7 @@ api:
     apiEnablePositionMonitorJob: "false"
     apiEnableAggregateRollingRefresh: "false"
     apiEnableDayRefresh: "true"
-    apiEnableMinuteRefresh: "true"
+    apiEnableMinuteRefresh: "false"
     polygonEnableQuoteClient: "false"
     polygonEnableAggregateClient: "true"
     resources:
@@ -112,7 +112,7 @@ api:
     includeTradeWildcard: "false"
     dayAggregateIngestionEnabled: "true"
     dayAggregateRefreshMinutes: "15"
-    minuteAggregateIngestionEnabled: "true"
+    minuteAggregateIngestionEnabled: "false"
     minuteAggregateRefreshMinutes: "1"
 
 frontend:
