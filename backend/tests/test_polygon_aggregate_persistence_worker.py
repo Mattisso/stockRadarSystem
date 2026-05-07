@@ -7,7 +7,9 @@ from app.data.polygon_aggregate_persistence_worker import PolygonAggregatePersis
 from app.data.polygon_event_bus import PolygonEventBus
 from app.data.polygon_event_models import PolygonAggregateEvent
 from app.models.polygon_minute_aggregate import PolygonMinuteAggregate
+from app.models.polygon_minute_aggregate_live import PolygonMinuteAggregateLive
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
+from app.models.polygon_second_aggregate_live import PolygonSecondAggregateLive
 
 
 @pytest.mark.asyncio
@@ -228,3 +230,103 @@ async def test_persistence_worker_does_not_ack_when_commit_fails(db_session_fact
     # Redis Streams to redeliver. If task_done() were called, the consumer group
     # would advance past this message and the data would be lost.
     assert event_bus._queue._unfinished_tasks == 1
+
+
+@pytest.mark.asyncio
+async def test_persistence_worker_writes_to_both_live_and_history_tables(db, db_session_factory):
+    # API endpoints under /api/polygon/minute-aggregates and /api/polygon/second-aggregates
+    # query the *_live tables exclusively. If the persistence path writes only to the
+    # history tables, the API returns empty even when ingestion is healthy.
+    event_bus = PolygonEventBus(maxsize=10)
+    worker = PolygonAggregatePersistenceWorker(
+        event_bus,
+        db_session_factory,
+        batch_size=10,
+        flush_interval_seconds=0.05,
+    )
+
+    market_hours_ts = datetime(2026, 4, 10, 14, 30, 0, tzinfo=timezone.utc)  # 10:30 ET Friday
+
+    await event_bus.publish(
+        PolygonAggregateEvent(
+            ticker="LCID",
+            event_type="AM",
+            event_ts=market_hours_ts,
+            received_at=market_hours_ts,
+            subscription_generation_id=1,
+            open=3.40,
+            high=3.50,
+            low=3.39,
+            close=3.48,
+            volume=1000,
+            vwap=3.45,
+            transactions=10,
+        )
+    )
+    await event_bus.publish(
+        PolygonAggregateEvent(
+            ticker="LCID",
+            event_type="A",
+            event_ts=market_hours_ts,
+            received_at=market_hours_ts,
+            subscription_generation_id=1,
+            open=3.47,
+            high=3.49,
+            low=3.46,
+            close=3.48,
+            volume=100,
+            vwap=3.48,
+            transactions=4,
+        )
+    )
+
+    await worker.start()
+    await asyncio.sleep(0.2)
+    await worker.stop()
+
+    assert db.query(PolygonMinuteAggregateLive).count() == 1, "minute_aggregates_live missing AM row"
+    assert db.query(PolygonSecondAggregateLive).count() == 1, "second_aggregates_live missing A row"
+    assert db.query(PolygonMinuteAggregate).count() == 1
+    assert db.query(PolygonSecondAggregate).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_persistence_worker_drops_events_outside_regular_market_hours(db, db_session_factory):
+    # Pre-market and after-hours events are silently dropped at the worker filter
+    # (polygon_aggregate_persistence_worker.py:127). The live tables stay empty for
+    # those events, which is the correct behavior; this test pins it.
+    event_bus = PolygonEventBus(maxsize=10)
+    worker = PolygonAggregatePersistenceWorker(
+        event_bus,
+        db_session_factory,
+        batch_size=10,
+        flush_interval_seconds=0.05,
+    )
+
+    pre_market_ts = datetime(2026, 4, 10, 13, 29, 0, tzinfo=timezone.utc)  # 09:29 ET, 1 min before open
+    after_hours_ts = datetime(2026, 4, 10, 20, 0, 0, tzinfo=timezone.utc)  # 16:00 ET, exactly close (exclusive bound)
+
+    for ts in (pre_market_ts, after_hours_ts):
+        await event_bus.publish(
+            PolygonAggregateEvent(
+                ticker="LCID",
+                event_type="AM",
+                event_ts=ts,
+                received_at=ts,
+                subscription_generation_id=1,
+                open=3.40,
+                high=3.50,
+                low=3.39,
+                close=3.48,
+                volume=1000,
+                vwap=3.45,
+                transactions=10,
+            )
+        )
+
+    await worker.start()
+    await asyncio.sleep(0.2)
+    await worker.stop()
+
+    assert db.query(PolygonMinuteAggregateLive).count() == 0
+    assert db.query(PolygonMinuteAggregate).count() == 0

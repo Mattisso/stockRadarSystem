@@ -78,7 +78,7 @@ polygonIngestWorker:
   apiEnablePositionMonitorJob: "false"
   apiEnableAggregateRollingRefresh: "false"
   apiEnableDayRefresh: "true"
-  apiEnableMinuteRefresh: "true"
+  apiEnableMinuteRefresh: "false"
   polygonEnableQuoteClient: "false"
   polygonEnableAggregateClient: "true"
   resources:
