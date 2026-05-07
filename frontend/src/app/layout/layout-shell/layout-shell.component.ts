@@ -5,11 +5,12 @@ import { NavigationService } from '../../core/navigation.service';
 import { NavBarComponent } from '../nav-bar/nav-bar.component';
 import { SideNavComponent } from '../side-nav/side-nav.component';
 import { APP_MENU } from '../../app.menu';
+import { DebugOverlayComponent } from '../../shared/components/debug-overlay/debug-overlay.component';
 
 @Component({
   selector: 'app-layout-shell',
   standalone: true,
-  imports: [RouterOutlet, NavBarComponent, SideNavComponent],
+  imports: [RouterOutlet, NavBarComponent, SideNavComponent, DebugOverlayComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './layout-shell.component.html',
   styleUrl: './layout-shell.component.scss',
