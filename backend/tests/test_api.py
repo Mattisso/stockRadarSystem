@@ -23,7 +23,11 @@ from app.models.polygon_tick import PolygonTick
 from app.models.polygon_tick_live import PolygonTickLive
 from app.models.symbol_state_live import SymbolStateLive
 from app.models.symbol import Symbol
-from app.models.universe_daily import UniverseDaily
+from app.models.universe_daily import (
+    UNIVERSE_KIND_MARKET,
+    UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+    UniverseDaily,
+)
 
 
 @pytest.fixture
@@ -100,6 +104,133 @@ def test_get_universe_empty(client, auth_headers):
     response = client.get("/api/universe", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_get_universe_uses_latest_market_snapshot_not_active_symbols(client, auth_headers, db_engine):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    db = TestingSessionLocal()
+    try:
+        db.add_all(
+            [
+                UniverseDaily(
+                    trade_date=date(2026, 5, 6),
+                    ticker="LCID",
+                    universe_kind=UNIVERSE_KIND_MARKET,
+                    source=UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+                    exchange="NASDAQ",
+                    open_price=3.2,
+                    last_price=3.3,
+                    avg_volume=500_000,
+                ),
+                UniverseDaily(
+                    trade_date=date(2026, 5, 6),
+                    ticker="SOFI",
+                    universe_kind=UNIVERSE_KIND_MARKET,
+                    source=UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+                    exchange="NASDAQ",
+                    open_price=6.1,
+                    last_price=6.2,
+                    avg_volume=900_000,
+                ),
+                Symbol(
+                    ticker="LCID",
+                    name="Lucid",
+                    exchange="NASDAQ",
+                    last_price=3.35,
+                    avg_volume=550_000,
+                    is_active=True,
+                ),
+                Symbol(
+                    ticker="OLDONLY",
+                    name="Legacy",
+                    exchange="NASDAQ",
+                    last_price=1.25,
+                    avg_volume=10_000,
+                    is_active=True,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/universe", headers=auth_headers)
+    app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [row["ticker"] for row in body] == ["LCID", "SOFI"]
+    assert body[0]["is_active"] is True
+    assert body[0]["name"] == "Lucid"
+    assert body[1]["is_active"] is False
+
+
+def test_get_universe_active_only_filters_market_snapshot_by_operational_status(client, auth_headers, db_engine):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    db = TestingSessionLocal()
+    try:
+        db.add_all(
+            [
+                UniverseDaily(
+                    trade_date=date(2026, 5, 6),
+                    ticker="LCID",
+                    universe_kind=UNIVERSE_KIND_MARKET,
+                    source=UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+                    exchange="NASDAQ",
+                    last_price=3.3,
+                    avg_volume=500_000,
+                ),
+                UniverseDaily(
+                    trade_date=date(2026, 5, 6),
+                    ticker="SOFI",
+                    universe_kind=UNIVERSE_KIND_MARKET,
+                    source=UNIVERSE_SOURCE_LEGACY_MARKET_INFERRED,
+                    exchange="NASDAQ",
+                    last_price=6.2,
+                    avg_volume=900_000,
+                ),
+                Symbol(
+                    ticker="LCID",
+                    name="Lucid",
+                    exchange="NASDAQ",
+                    is_active=True,
+                ),
+                Symbol(
+                    ticker="SOFI",
+                    name="SoFi",
+                    exchange="NASDAQ",
+                    is_active=False,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/universe?active_only=true", headers=auth_headers)
+    app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [row["ticker"] for row in body] == ["LCID"]
 
 
 def test_get_trades_empty(client, auth_headers):

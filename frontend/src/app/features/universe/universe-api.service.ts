@@ -7,7 +7,7 @@ import { ISymbol } from '../../shared/models';
 export class UniverseApiService {
   private readonly http = inject(HttpClient);
 
-  getAll(activeOnly = true): Observable<ISymbol[]> {
+  getAll(activeOnly = false): Observable<ISymbol[]> {
     return this.http.get<ISymbol[]>('/api/universe', {
       params: { active_only: String(activeOnly) },
     });

@@ -789,13 +789,55 @@ async def broker_health(broker=Depends(get_broker)):
 
 
 @router.get("/universe", response_model=list[SymbolRead])
-@track_tables("symbols")
-def get_universe(active_only: bool = True, db: Session = Depends(get_db)):
-    """Get all symbols in the universe."""
-    query = db.query(Symbol)
-    if active_only:
-        query = query.filter_by(is_active=True)
-    return query.order_by(Symbol.ticker).all()
+@track_tables("universe_daily", "symbols")
+def get_universe(active_only: bool = False, db: Session = Depends(get_db)):
+    """Get the latest flatfile-driven market universe with operational status overlay."""
+    latest_trade_date = (
+        db.query(UniverseDaily.trade_date)
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(_market_universe_sources()))
+        .order_by(UniverseDaily.trade_date.desc())
+        .limit(1)
+        .scalar()
+    )
+    if latest_trade_date is None:
+        return []
+
+    rows = (
+        db.query(UniverseDaily, Symbol)
+        .outerjoin(Symbol, Symbol.ticker == UniverseDaily.ticker)
+        .filter(UniverseDaily.trade_date == latest_trade_date)
+        .filter(UniverseDaily.universe_kind == UNIVERSE_KIND_MARKET)
+        .filter(UniverseDaily.source.in_(_market_universe_sources()))
+        .order_by(UniverseDaily.ticker.asc())
+        .all()
+    )
+
+    response_rows: list[SymbolRead] = []
+    for universe_row, symbol_row in rows:
+        is_active = bool(symbol_row.is_active) if symbol_row is not None else False
+        if active_only and not is_active:
+            continue
+        row_created_at = universe_row.created_at
+        row_updated_at = symbol_row.updated_at if symbol_row is not None else universe_row.created_at
+        response_rows.append(
+            SymbolRead(
+                id=universe_row.id,
+                ticker=universe_row.ticker,
+                name=(symbol_row.name if symbol_row is not None else "") or "",
+                exchange=universe_row.exchange or (symbol_row.exchange if symbol_row is not None else "NASDAQ"),
+                last_price=universe_row.last_price if universe_row.last_price is not None else (
+                    symbol_row.last_price if symbol_row is not None else None
+                ),
+                avg_volume=universe_row.avg_volume if universe_row.avg_volume is not None else (
+                    symbol_row.avg_volume if symbol_row is not None else None
+                ),
+                is_active=is_active,
+                created_at=row_created_at,
+                updated_at=row_updated_at,
+            )
+        )
+    return response_rows
 
 
 @router.get("/trades", response_model=list[TradeRead])
