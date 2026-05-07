@@ -446,6 +446,73 @@ def test_polygon_second_aggregates_filters_to_latest_under_ten_universe(db_engin
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_polygon_second_aggregates_uses_live_trade_day_for_session_filter(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 8),
+                        ticker="SIRI",
+                        exchange="NASDAQ",
+                        open_price=9.1,
+                        last_price=9.4,
+                        avg_volume=500_000,
+                    ),
+                    PolygonSecondAggregate(
+                        ticker="SIRI",
+                        second_ts=datetime(2026, 4, 7, 19, 59, 0, tzinfo=timezone.utc),
+                        open=9.20,
+                        high=9.20,
+                        low=9.20,
+                        close=9.20,
+                        volume=50,
+                        vwap=9.20,
+                        transactions=1,
+                    ),
+                    PolygonSecondAggregateLive(
+                        ticker="SIRI",
+                        second_ts=datetime(2026, 4, 8, 13, 30, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.50,
+                        close=9.60,
+                        volume=300,
+                        vwap=9.56,
+                        transactions=2,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/second-aggregates",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10, "session_start_et": "09:30:00"},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-08"
+        assert body["is_stale"] is False
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["second_ts"].startswith("2026-04-08T13:30:00")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_symbol_state_live_filters_to_latest_under_ten_universe(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 
@@ -612,6 +679,73 @@ def test_polygon_minute_aggregates_reads_live_table(db_engine, auth_headers):
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_polygon_minute_aggregates_uses_live_trade_day_for_session_filter(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 4, 8),
+                        ticker="SIRI",
+                        exchange="NASDAQ",
+                        open_price=9.1,
+                        last_price=9.4,
+                        avg_volume=500_000,
+                    ),
+                    PolygonMinuteAggregate(
+                        ticker="SIRI",
+                        minute_ts=datetime(2026, 4, 7, 19, 59, 0, tzinfo=timezone.utc),
+                        open=9.0,
+                        high=9.05,
+                        low=8.95,
+                        close=9.01,
+                        volume=50,
+                        vwap=9.0,
+                        transactions=1,
+                    ),
+                    PolygonMinuteAggregateLive(
+                        ticker="SIRI",
+                        minute_ts=datetime(2026, 4, 8, 13, 30, 0, tzinfo=timezone.utc),
+                        open=9.50,
+                        high=9.60,
+                        low=9.50,
+                        close=9.60,
+                        volume=300,
+                        vwap=9.56,
+                        transactions=2,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/polygon/minute-aggregates",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10, "session_start_et": "09:30:00"},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-04-08"
+        assert body["is_stale"] is False
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ticker"] == "SIRI"
+        assert body["items"][0]["minute_ts"].startswith("2026-04-08T13:30:00")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_polygon_minute_aggregates_excludes_rows_priced_over_ten_even_if_ticker_is_in_universe(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 
@@ -659,7 +793,8 @@ def test_polygon_minute_aggregates_excludes_rows_priced_over_ten_even_if_ticker_
 
         assert response.status_code == 200
         body = response.json()
-        assert body["trade_date"] is None
+        assert body["trade_date"] == "2026-04-24"
+        assert body["is_stale"] is False
         assert body["total"] is None
         assert body["items"] == []
     finally:

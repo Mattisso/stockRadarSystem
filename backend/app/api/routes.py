@@ -283,7 +283,7 @@ def _resolve_canonical_intraday_trade_date(
     latest_ts = db.query(func.max(ts_column)).select_from(model).scalar()
     if latest_ts is None:
         return None
-    return latest_ts.date()
+    return _intraday_trade_day(latest_ts)
 
 
 def _source_latest_timestamp(
@@ -293,6 +293,23 @@ def _source_latest_timestamp(
     ts_column,
 ):
     return db.query(func.max(ts_column)).select_from(model).scalar()
+
+
+def _intraday_trade_day(value: datetime) -> date:
+    if value.tzinfo is None:
+        aware = value.replace(tzinfo=timezone.utc)
+    else:
+        aware = value.astimezone(timezone.utc)
+    return aware.astimezone(NEW_YORK_TZ).date()
+
+
+def _intraday_trade_day_bounds(trade_date: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(trade_date, dt_time.min, tzinfo=NEW_YORK_TZ)
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
 
 
 def _decision_trade_day(value: datetime) -> date:
@@ -1291,8 +1308,8 @@ def get_polygon_minute_aggregates(
     selected_trade_date = _resolve_canonical_intraday_trade_date(
         db,
         explicit_trade_date=trade_date,
-        model=PolygonMinuteAggregate,
-        ts_column=PolygonMinuteAggregate.minute_ts,
+        model=PolygonMinuteAggregateLive,
+        ts_column=PolygonMinuteAggregateLive.minute_ts,
     )
     latest_available_ts = _source_latest_timestamp(
         db,
@@ -1316,8 +1333,7 @@ def get_polygon_minute_aggregates(
         query = query.filter(PolygonMinuteAggregateLive.ticker.in_(universe_tickers))
         query = query.filter(_under_ten_aggregate_filter(PolygonMinuteAggregateLive, max_price=settings.secret_universe_max_price))
     if selected_trade_date:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
-        end_dt = start_dt + timedelta(days=1)
+        start_dt, end_dt = _intraday_trade_day_bounds(selected_trade_date)
         query = query.filter(
             PolygonMinuteAggregateLive.minute_ts >= start_dt,
             PolygonMinuteAggregateLive.minute_ts < end_dt,
@@ -1350,7 +1366,8 @@ def get_polygon_minute_aggregates(
         trade_date=selected_trade_date,
         source="live",
         latest_available_ts=latest_available_ts,
-        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
+        is_stale=selected_trade_date is not None
+        and (latest_available_ts is None or _intraday_trade_day(latest_available_ts) != selected_trade_date),
     )
 
 
@@ -1393,8 +1410,7 @@ def get_polygon_minute_aggregates_history(
         query = query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
         query = query.filter(_under_ten_aggregate_filter(PolygonMinuteAggregate, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
-        end_dt = start_dt + timedelta(days=1)
+        start_dt, end_dt = _intraday_trade_day_bounds(selected_trade_date)
         query = query.filter(PolygonMinuteAggregate.minute_ts >= start_dt, PolygonMinuteAggregate.minute_ts < end_dt)
     if ticker:
         query = query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
@@ -1413,7 +1429,8 @@ def get_polygon_minute_aggregates_history(
         trade_date=selected_trade_date,
         source="history",
         latest_available_ts=latest_available_ts,
-        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
+        is_stale=selected_trade_date is not None
+        and (latest_available_ts is None or _intraday_trade_day(latest_available_ts) != selected_trade_date),
     )
 
 
@@ -1435,8 +1452,8 @@ def get_polygon_second_aggregates(
     selected_trade_date = _resolve_canonical_intraday_trade_date(
         db,
         explicit_trade_date=trade_date,
-        model=PolygonSecondAggregate,
-        ts_column=PolygonSecondAggregate.second_ts,
+        model=PolygonSecondAggregateLive,
+        ts_column=PolygonSecondAggregateLive.second_ts,
     )
     latest_available_ts = _source_latest_timestamp(
         db,
@@ -1460,8 +1477,7 @@ def get_polygon_second_aggregates(
         query = query.filter(PolygonSecondAggregateLive.ticker.in_(universe_tickers))
         query = query.filter(_under_ten_aggregate_filter(PolygonSecondAggregateLive, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
-        end_dt = start_dt + timedelta(days=1)
+        start_dt, end_dt = _intraday_trade_day_bounds(selected_trade_date)
         query = query.filter(PolygonSecondAggregateLive.second_ts >= start_dt, PolygonSecondAggregateLive.second_ts < end_dt)
     requested_session_start = session_start_et or session_time_et or REGULAR_MARKET_OPEN
     requested_session_end = session_end_et or REGULAR_MARKET_CLOSE
@@ -1491,7 +1507,8 @@ def get_polygon_second_aggregates(
         trade_date=selected_trade_date,
         source="live",
         latest_available_ts=latest_available_ts,
-        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
+        is_stale=selected_trade_date is not None
+        and (latest_available_ts is None or _intraday_trade_day(latest_available_ts) != selected_trade_date),
     )
 
 
@@ -1534,8 +1551,7 @@ def get_polygon_second_aggregates_history(
         query = query.filter(PolygonSecondAggregate.ticker.in_(universe_tickers))
         query = query.filter(_under_ten_aggregate_filter(PolygonSecondAggregate, max_price=settings.secret_universe_max_price))
     if selected_trade_date is not None:
-        start_dt = datetime.combine(selected_trade_date, datetime.min.time())
-        end_dt = start_dt + timedelta(days=1)
+        start_dt, end_dt = _intraday_trade_day_bounds(selected_trade_date)
         query = query.filter(PolygonSecondAggregate.second_ts >= start_dt, PolygonSecondAggregate.second_ts < end_dt)
     if ticker:
         query = query.filter(PolygonSecondAggregate.ticker == ticker.upper())
@@ -1554,7 +1570,8 @@ def get_polygon_second_aggregates_history(
         trade_date=selected_trade_date,
         source="history",
         latest_available_ts=latest_available_ts,
-        is_stale=selected_trade_date is not None and (latest_available_ts is None or latest_available_ts.date() != selected_trade_date),
+        is_stale=selected_trade_date is not None
+        and (latest_available_ts is None or _intraday_trade_day(latest_available_ts) != selected_trade_date),
     )
 
 
