@@ -22,7 +22,8 @@ venv/
 # Environment
 .env
 backend/.env
-
+backend/scripts/
+.public*
 # Testing
 .pytest_cache/
 .ruff_cache/
