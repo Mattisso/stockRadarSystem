@@ -18,6 +18,27 @@ from app.data.polygon_event_models import PolygonAggregateEvent
 log = get_logger(__name__)
 
 
+def _commit_records_sync(
+    db_session_factory,
+    minute_records: list[PolygonMinuteAggregateRecord],
+    second_records: list[PolygonSecondAggregateRecord],
+) -> None:
+    """Run SQLAlchemy upserts and commit. Synchronous; intended for asyncio.to_thread()."""
+    db = db_session_factory()
+    try:
+        service = PolygonAggregateService(db)
+        if minute_records:
+            service.upsert_minute_aggregates(minute_records)
+        if second_records:
+            service.upsert_second_aggregates(second_records)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 class PolygonAggregatePersistenceWorker:
     """Consume normalized aggregate events and persist them off the websocket thread."""
 
@@ -155,15 +176,19 @@ class PolygonAggregatePersistenceWorker:
                     )
                 )
 
-        db = self._db_session_factory()
         ack_events = False
         try:
-            aggregate_service = PolygonAggregateService(db)
-            if minute_records:
-                aggregate_service.upsert_minute_aggregates(minute_records)
-            if second_records:
-                aggregate_service.upsert_second_aggregates(second_records)
-            db.commit()
+            if minute_records or second_records:
+                # Run sync SQLAlchemy ORM in a worker thread so the asyncio event
+                # loop stays responsive under high event volume. Without this,
+                # millions of sync db.query() calls per second saturate the loop
+                # and APScheduler / event-bus reads stall.
+                await asyncio.to_thread(
+                    _commit_records_sync,
+                    self._db_session_factory,
+                    minute_records,
+                    second_records,
+                )
             persisted_at = datetime.now(tz=timezone.utc)
             if self._trigger_event_bus is not None and second_records:
                 trigger_events = [event for event in events if event.event_type == "A"]
@@ -188,7 +213,6 @@ class PolygonAggregatePersistenceWorker:
                 event_count=len(events),
             )
         except Exception:
-            db.rollback()
             self._error_count += 1
             self._last_error_at = datetime.now(tz=timezone.utc)
             self._last_error_message = "aggregate_persistence_batch_failed"
@@ -200,7 +224,6 @@ class PolygonAggregatePersistenceWorker:
             )
             raise
         finally:
-            db.close()
             if ack_events:
                 for _ in events:
                     await self._event_bus.task_done()
