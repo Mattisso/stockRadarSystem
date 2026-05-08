@@ -70,14 +70,14 @@ echo
 echo "=== Step 7: Wait 3s, then query DB for the synthetic row ==="
 sleep 3
 # Adjust PG host/credentials for your env. If running from inside cluster, use the in-cluster host.
-PGPASSWORD=postgres psql -h 192.168.1.77 -U postgres -d stock_radar -tAc "
+PGPASSWORD=postgres psql -h 192.168.1.77 -p 5434 -U postgres -d stock_radar -tAc "
   SELECT ticker || '|' || minute_ts || '|' || close
     FROM stock_radar.minute_aggregates_live
    WHERE ticker = 'TEST_VALIDATION';"
 
 echo
 echo "=== Step 8: Cleanup ==="
-PGPASSWORD=postgres psql -h 192.168.1.77 -U postgres -d stock_radar -c "
+PGPASSWORD=postgres psql -h 192.168.1.77 -p 5434 -U postgres -d stock_radar -c "
   DELETE FROM stock_radar.minute_aggregates_live WHERE ticker = 'TEST_VALIDATION';
   DELETE FROM stock_radar.polygon_minute_aggregates WHERE ticker = 'TEST_VALIDATION';"
 
