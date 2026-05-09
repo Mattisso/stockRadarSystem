@@ -1687,7 +1687,7 @@ def get_polygon_ticks(
         next_cursor = f"{last_row.tick_ts.isoformat()}|{last_row.id}"
     return PolygonTickPageResponse(
         items=[PolygonTickResponse.model_validate(row) for row in visible_rows],
-        total=None,
+        total=len(visible_rows),
         page_size=page_size,
         trade_date=selected_trade_date,
         next_cursor=next_cursor,

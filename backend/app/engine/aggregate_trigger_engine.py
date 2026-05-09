@@ -177,7 +177,13 @@ class AggregateTriggerEngine:
             )
             inserted += 1
         if state.candidate_status not in self.PROTECTED_LIFECYCLE_STATES:
-            state.candidate_status = "candidate"
+            if (
+                validation.score >= settings.aggregate_decision_min_validation_score
+                and validation.pass_count >= settings.aggregate_decision_min_validation_pass_count
+            ):
+                state.candidate_status = "validated"
+            else:
+                state.candidate_status = "candidate"
         state.candidate_score = max(trigger.score for trigger in triggers)
         self.db.flush()
         return inserted

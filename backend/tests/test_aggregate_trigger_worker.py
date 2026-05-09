@@ -89,7 +89,7 @@ async def test_aggregate_trigger_worker_persists_candidate_events(db, db_session
     assert db.query(CandidateEvent).count() > 0
     db.expire_all()
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
-    assert state.candidate_status == "candidate"
+    assert state.candidate_status == "validated"
     assert state.candidate_score is not None
     assert state.validation_score is not None
 

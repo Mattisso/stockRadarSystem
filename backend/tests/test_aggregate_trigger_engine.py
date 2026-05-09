@@ -38,6 +38,7 @@ def test_breakout_above_recent_high_emits_candidate_event(db):
     service.upsert_second_aggregates([current])
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
     triggers = engine.evaluate_second_bar(current, state)
+    engine.persist_with_validation(triggers, state, event_ts=current.second_ts)
 
     trigger_names = {trigger.trigger_name for trigger in triggers}
     assert "breakout_above_recent_high" in trigger_names
@@ -113,6 +114,10 @@ def test_upsert_second_aggregates_persists_candidate_events_and_live_score(db):
             PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 33, 3, tzinfo=timezone.utc), 3.02, 3.10, 3.02, 3.10, 150, 3.08, 1),
         ]
     )
+    state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    current = PolygonSecondAggregateRecord("LCID", datetime(2026, 4, 10, 13, 33, 3, tzinfo=timezone.utc), 3.02, 3.10, 3.02, 3.10, 150, 3.08, 1)
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    AggregateTriggerEngine(db).persist_with_validation(triggers, state, event_ts=current.second_ts)
 
     events = db.query(CandidateEvent).filter_by(ticker="LCID").all()
     assert len(events) >= 1

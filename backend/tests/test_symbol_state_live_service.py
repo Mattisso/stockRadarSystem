@@ -5,6 +5,7 @@ from app.data.polygon_aggregate_service import (
     PolygonMinuteAggregateRecord,
     PolygonSecondAggregateRecord,
 )
+from app.engine.aggregate_trigger_engine import AggregateTriggerEngine
 from app.models.polygon_second_aggregate import PolygonSecondAggregate
 from app.engine.symbol_state_live_service import SymbolStateLiveService
 from app.models.symbol_state_live import SymbolStateLive
@@ -71,6 +72,19 @@ def test_symbol_state_live_updates_from_second_and_minute_aggregates(db):
     )
 
     state = db.query(SymbolStateLive).filter_by(ticker="LCID").one()
+    current = PolygonSecondAggregateRecord(
+        ticker="LCID",
+        second_ts=datetime(2026, 4, 10, 13, 30, 3, tzinfo=timezone.utc),
+        open=3.00,
+        high=3.20,
+        low=2.99,
+        close=3.20,
+        volume=120,
+        transactions=1,
+    )
+    triggers = AggregateTriggerEngine(db).evaluate_second_bar(current, state)
+    AggregateTriggerEngine(db).persist_with_validation(triggers, state, event_ts=current.second_ts)
+
     assert state.last_second_ts == datetime(2026, 4, 10, 13, 30, 3)
     assert state.last_minute_ts == datetime(2026, 4, 10, 13, 30, 0)
     assert state.rolling_second_high == 3.20
