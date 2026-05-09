@@ -1895,9 +1895,19 @@ def get_decision_events(
     query = db.query(DecisionEvent)
     selected_trade_date = trade_date
     if selected_trade_date is None:
-        latest_decision_ts = db.query(func.max(DecisionEvent.decision_ts)).scalar()
-        if latest_decision_ts is not None:
-            selected_trade_date = latest_decision_ts.date()
+        latest_intraday_ts_candidates = [
+            _source_latest_timestamp(db, model=PolygonMinuteAggregateLive, ts_column=PolygonMinuteAggregateLive.minute_ts),
+            _source_latest_timestamp(db, model=PolygonSecondAggregateLive, ts_column=PolygonSecondAggregateLive.second_ts),
+        ]
+        latest_intraday_ts = max((value for value in latest_intraday_ts_candidates if value is not None), default=None)
+        if latest_intraday_ts is not None:
+            selected_trade_date = latest_intraday_ts.date()
+        else:
+            latest_decision_ts = db.query(func.max(DecisionEvent.decision_ts)).scalar()
+            if latest_decision_ts is not None:
+                selected_trade_date = latest_decision_ts.date()
+            else:
+                selected_trade_date = _default_decision_trade_day()
     if universe_only:
         universe_tickers = _universe_tickers_for_trade_date(
             db,

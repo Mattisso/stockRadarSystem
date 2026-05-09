@@ -1241,6 +1241,70 @@ def test_decision_events_use_selected_trade_date_universe(db_engine, auth_header
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_decision_events_default_to_latest_intraday_trade_date_not_stale_decision_history(db_engine, auth_headers):
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestingSessionLocal() as db:
+            db.add_all(
+                [
+                    UniverseDaily(
+                        trade_date=date(2026, 5, 9),
+                        ticker="LCID",
+                        open_price=3.0,
+                        last_price=3.1,
+                        avg_volume=2_000_000,
+                    ),
+                    DecisionEvent(
+                        ticker="LCID",
+                        decision_ts=datetime(2026, 5, 4, 16, 44, 0, tzinfo=timezone.utc),
+                        decision_type="reject",
+                        reason_code="second_stream_stale",
+                        decision_payload='{"validation_score": 0}',
+                        candidate_score=0.91,
+                        validation_pass_count=0,
+                        is_second_stream_stale=True,
+                        is_minute_stream_stale=True,
+                    ),
+                    PolygonSecondAggregateLive(
+                        ticker="LCID",
+                        second_ts=datetime(2026, 5, 9, 14, 31, 0, tzinfo=timezone.utc),
+                        open=3.0,
+                        high=3.1,
+                        low=2.99,
+                        close=3.08,
+                        volume=100,
+                        vwap=3.05,
+                        transactions=2,
+                    ),
+                ]
+            )
+            db.commit()
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/aggregate/decision-events",
+                headers=auth_headers,
+                params={"page": 0, "page_size": 10},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trade_date"] == "2026-05-09"
+        assert body["total"] == 0
+        assert body["items"] == []
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_decision_event_analytics_summary_and_by_reason(db_engine, auth_headers):
     TestingSessionLocal = sessionmaker(bind=db_engine)
 
