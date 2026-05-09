@@ -159,11 +159,15 @@ class Settings(BaseSettings):
     polygon_live_ticks_retention_hours: int = 8
     polygon_live_minute_aggregates_retention_hours: int = 8
     polygon_live_second_aggregates_retention_hours: int = 8
+    polygon_live_retention_batch_size: int = 50_000
+    polygon_live_retention_max_batches: int = 1_000
     polygon_scope_cleanup_enabled: bool = True
     polygon_scope_cleanup_session_start_et: str = "09:30:00"
     polygon_scope_cleanup_session_end_et: str = "16:00:00"
     polygon_ticks_history_retention_enabled: bool = True
-    polygon_ticks_history_retention_days: int = 14
+    polygon_history_retention_business_days: int = 2
+    polygon_history_retention_batch_size: int = 50_000
+    polygon_history_retention_max_batches: int = 1_000
     polygon_ticks_history_cleanup_interval_hours: int = 24
     signals_retention_enabled: bool = True
     signals_retention_days: int = 90

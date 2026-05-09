@@ -97,6 +97,55 @@ def test_polygon_live_retention_service_purges_only_old_live_rows(db):
     assert db.query(PolygonSecondAggregateLive).one().second_ts == datetime(2026, 4, 11, 20, 0, 0)
 
 
+def test_polygon_live_retention_service_batches_live_deletes(db):
+    db.add_all(
+        [
+            PolygonTickLive(
+                ticker="ALTS",
+                event_type="trade",
+                bid=1.0,
+                ask=1.01,
+                last=1.005,
+                volume=100,
+                tick_ts=datetime(2026, 4, 11, 10, 0, 0, tzinfo=timezone.utc),
+            ),
+            PolygonTickLive(
+                ticker="ALTS",
+                event_type="trade",
+                bid=1.0,
+                ask=1.01,
+                last=1.005,
+                volume=100,
+                tick_ts=datetime(2026, 4, 11, 10, 1, 0, tzinfo=timezone.utc),
+            ),
+            PolygonTickLive(
+                ticker="ALTS",
+                event_type="trade",
+                bid=1.0,
+                ask=1.01,
+                last=1.005,
+                volume=100,
+                tick_ts=datetime(2026, 4, 11, 10, 2, 0, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db.commit()
+
+    result = PolygonLiveRetentionService(db).purge(
+        tick_retention_hours=8,
+        minute_retention_hours=8,
+        second_retention_hours=8,
+        batch_size=1,
+        max_batches=2,
+        now=datetime(2026, 4, 12, 0, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.deleted_tick_rows == 2
+    assert result.live_batches_run == 2
+    assert "max_batches_reached" in result.live_stopped_reason
+    assert db.query(PolygonTickLive).count() == 1
+
+
 def test_polygon_live_retention_service_purges_out_of_scope_live_and_historical_rows(db):
     db.add_all(
         [
@@ -253,3 +302,89 @@ def test_polygon_live_retention_service_purges_historical_ticks_by_age(db):
     assert result.historical_tick_cutoff_ts == datetime(2026, 4, 17, 0, 0, 0, tzinfo=timezone.utc)
     assert db.query(PolygonTick).count() == 1
     assert db.query(PolygonTick).one().tick_ts == datetime(2026, 4, 25, 14, 0, 0)
+
+
+def test_polygon_live_retention_service_purges_historical_rows_by_market_business_days(db):
+    db.add_all(
+        [
+            PolygonTick(
+                ticker="LCID",
+                event_type="quote",
+                bid=3.0,
+                ask=3.01,
+                last=3.005,
+                volume=100,
+                tick_ts=datetime(2026, 5, 21, 14, 0, 0, tzinfo=timezone.utc),
+            ),
+            PolygonTick(
+                ticker="LCID",
+                event_type="quote",
+                bid=3.1,
+                ask=3.11,
+                last=3.105,
+                volume=120,
+                tick_ts=datetime(2026, 5, 22, 14, 0, 0, tzinfo=timezone.utc),
+            ),
+            PolygonMinuteAggregate(
+                ticker="LCID",
+                minute_ts=datetime(2026, 5, 21, 14, 0, 0, tzinfo=timezone.utc),
+                open=3.0,
+                high=3.1,
+                low=2.99,
+                close=3.05,
+                volume=1000,
+                vwap=3.04,
+                transactions=10,
+            ),
+            PolygonMinuteAggregate(
+                ticker="LCID",
+                minute_ts=datetime(2026, 5, 22, 14, 0, 0, tzinfo=timezone.utc),
+                open=3.1,
+                high=3.2,
+                low=3.0,
+                close=3.15,
+                volume=1200,
+                vwap=3.14,
+                transactions=11,
+            ),
+            PolygonSecondAggregate(
+                ticker="LCID",
+                second_ts=datetime(2026, 5, 21, 14, 0, 0, tzinfo=timezone.utc),
+                open=3.0,
+                high=3.01,
+                low=2.99,
+                close=3.0,
+                volume=100,
+                vwap=3.0,
+                transactions=2,
+            ),
+            PolygonSecondAggregate(
+                ticker="LCID",
+                second_ts=datetime(2026, 5, 22, 14, 0, 0, tzinfo=timezone.utc),
+                open=3.1,
+                high=3.11,
+                low=3.09,
+                close=3.1,
+                volume=120,
+                vwap=3.1,
+                transactions=3,
+            ),
+        ]
+    )
+    db.commit()
+
+    result = PolygonLiveRetentionService(db).purge_historical(
+        retention_business_days=2,
+        batch_size=1,
+        max_batches=5,
+        now=datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.deleted_historical_tick_rows == 1
+    assert result.deleted_historical_minute_rows == 1
+    assert result.deleted_historical_second_rows == 1
+    assert result.historical_tick_cutoff_ts == datetime(2026, 5, 22, 4, 0, 0, tzinfo=timezone.utc)
+    assert result.historical_batches_run == 2
+    assert db.query(PolygonTick).count() == 1
+    assert db.query(PolygonMinuteAggregate).count() == 1
+    assert db.query(PolygonSecondAggregate).count() == 1

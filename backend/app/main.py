@@ -988,12 +988,16 @@ async def lifespan(app: FastAPI):
                         max_price=settings.secret_universe_max_price,
                         session_start_et=settings.polygon_scope_cleanup_session_start_et,
                         session_end_et=settings.polygon_scope_cleanup_session_end_et,
+                        batch_size=settings.polygon_live_retention_batch_size,
+                        max_batches=settings.polygon_live_retention_max_batches,
                     )
                 else:
                     result = retention_service.purge(
                         tick_retention_hours=settings.polygon_live_ticks_retention_hours,
                         minute_retention_hours=settings.polygon_live_minute_aggregates_retention_hours,
                         second_retention_hours=settings.polygon_live_second_aggregates_retention_hours,
+                        batch_size=settings.polygon_live_retention_batch_size,
+                        max_batches=settings.polygon_live_retention_max_batches,
                     )
                 db.commit()
                 log.info(
@@ -1010,6 +1014,8 @@ async def lifespan(app: FastAPI):
                     tick_cutoff_ts=result.tick_cutoff_ts.isoformat(),
                     minute_cutoff_ts=result.minute_cutoff_ts.isoformat(),
                     second_cutoff_ts=result.second_cutoff_ts.isoformat(),
+                    live_batches_run=result.live_batches_run,
+                    live_stopped_reason=result.live_stopped_reason,
                 )
             finally:
                 db.close()
@@ -1019,36 +1025,42 @@ async def lifespan(app: FastAPI):
         finally:
             SCHEDULER_JOB_DURATION.labels(job="polygon_live_retention").observe(time.monotonic() - start)
 
-    async def polygon_tick_history_retention_job():
+    async def polygon_history_retention_job():
         start = time.monotonic()
         try:
             if not settings.polygon_ticks_history_retention_enabled:
                 return
             if should_defer_nonessential_market_hours_jobs():
-                log.info("scheduler.polygon_tick_history_retention_deferred_market_hours")
+                log.info("scheduler.polygon_history_retention_deferred_market_hours")
                 return
             db = SessionLocal()
             try:
-                result = PolygonLiveRetentionService(db).purge_historical_ticks(
-                    retention_days=settings.polygon_ticks_history_retention_days,
+                result = PolygonLiveRetentionService(db).purge_historical(
+                    retention_business_days=settings.polygon_history_retention_business_days,
+                    batch_size=settings.polygon_history_retention_batch_size,
+                    max_batches=settings.polygon_history_retention_max_batches,
                 )
                 db.commit()
                 log.info(
-                    "scheduler.polygon_tick_history_retention_completed",
+                    "scheduler.polygon_history_retention_completed",
                     deleted_historical_tick_rows=result.deleted_historical_tick_rows,
-                    historical_tick_cutoff_ts=(
+                    deleted_historical_minute_rows=result.deleted_historical_minute_rows,
+                    deleted_historical_second_rows=result.deleted_historical_second_rows,
+                    historical_cutoff_ts=(
                         result.historical_tick_cutoff_ts.isoformat()
                         if result.historical_tick_cutoff_ts is not None
                         else None
                     ),
+                    historical_batches_run=result.historical_batches_run,
+                    historical_stopped_reason=result.historical_stopped_reason,
                 )
             finally:
                 db.close()
         except Exception:
-            SCHEDULER_JOB_ERRORS.labels(job="polygon_tick_history_retention").inc()
-            log.exception("scheduler.polygon_tick_history_retention_error")
+            SCHEDULER_JOB_ERRORS.labels(job="polygon_history_retention").inc()
+            log.exception("scheduler.polygon_history_retention_error")
         finally:
-            SCHEDULER_JOB_DURATION.labels(job="polygon_tick_history_retention").observe(
+            SCHEDULER_JOB_DURATION.labels(job="polygon_history_retention").observe(
                 time.monotonic() - start
             )
 
@@ -1198,11 +1210,11 @@ async def lifespan(app: FastAPI):
         )
         if settings.polygon_ticks_history_retention_enabled:
             scheduler.add_job(
-                polygon_tick_history_retention_job,
+                polygon_history_retention_job,
                 "interval",
                 hours=settings.polygon_ticks_history_cleanup_interval_hours,
                 max_instances=1,
-                id="polygon_tick_history_retention",
+                id="polygon_history_retention",
             )
         if settings.signals_retention_enabled:
             scheduler.add_job(
