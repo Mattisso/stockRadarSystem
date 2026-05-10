@@ -511,6 +511,19 @@ async def test_start_and_stop_websocket_mode(cache, queue):
 
 
 @pytest.mark.asyncio
+async def test_start_is_idempotent(cache, queue):
+    client = PolygonClient(api_key="test-key", mode="websocket", cache=cache, queue=queue)
+
+    with patch.object(client, "_ws_loop", new=AsyncMock()) as ws_loop:
+        await client.start()
+        await client.start()
+        await asyncio.sleep(0)
+        await client.stop()
+
+    ws_loop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_session_snapshot_reports_quote_and_aggregate_telemetry(cache, queue):
     await cache.connect()
 

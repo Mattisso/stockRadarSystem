@@ -115,6 +115,8 @@ class PolygonClient:
 
     async def start(self) -> None:
         """Launch the background ingestion task."""
+        if self._running:
+            return
         self._running = True
         POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
         if self._mode == "websocket":
@@ -127,6 +129,8 @@ class PolygonClient:
 
     async def stop(self) -> None:
         """Gracefully shutdown the ingestion task."""
+        if not self._running and self._task is None:
+            return
         self._running = False
         self._session_connected = False
         POLYGON_SESSION_CONNECTED.labels(mode=self._mode).set(0)
@@ -136,7 +140,13 @@ class PolygonClient:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            self._task = None
+        self._ws = None
         log.info("polygon.stopped")
+
+    @property
+    def running(self) -> bool:
+        return self._running
 
     def update_subscriptions(
         self,

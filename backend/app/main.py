@@ -135,6 +135,13 @@ def should_hydrate_polygon_startup_subscriptions(now: datetime | None = None) ->
     return is_regular_us_market_hours(reference_time)
 
 
+def should_run_polygon_websocket_session(now: datetime | None = None) -> bool:
+    if settings.polygon_mode != "websocket":
+        return True
+    reference_time = now or datetime.now(timezone.utc)
+    return is_regular_us_market_hours(reference_time)
+
+
 def should_interval_refresh_polygon_day_aggregates() -> bool:
     return (
         settings.secret_universe_enabled
@@ -489,7 +496,7 @@ async def lifespan(app: FastAPI):
                 on_candidate_events_persisted=refresh_polygon_operational_subscriptions,
             )
         if run_background:
-            if settings.polygon_mode == "websocket" and not is_regular_us_market_hours(datetime.now(timezone.utc)):
+            if settings.polygon_mode == "websocket" and not should_run_polygon_websocket_session():
                 await polygon_client.pause_subscriptions()
             if polygon_aggregate_event_bus is not None:
                 await polygon_aggregate_event_bus.connect()
@@ -501,7 +508,10 @@ async def lifespan(app: FastAPI):
                 await aggregate_trigger_worker.start()
             if polygon_queue_consumer is not None:
                 await polygon_queue_consumer.start()
-            await polygon_client.start()
+            if should_run_polygon_websocket_session():
+                await polygon_client.start()
+            else:
+                log.info("polygon.websocket_start_skipped", reason="outside_regular_market_hours")
             runtime_snapshot_publisher = RuntimeSnapshotPublisher(
                 cache=cache,
                 polygon_client=polygon_client,
@@ -1188,10 +1198,14 @@ async def lifespan(app: FastAPI):
         try:
             if polygon_client is None or settings.polygon_mode != "websocket":
                 return
-            if is_regular_us_market_hours(datetime.now(timezone.utc)):
+            if should_run_polygon_websocket_session():
+                if not polygon_client.running:
+                    await polygon_client.start()
                 await polygon_client.resume_subscriptions()
             else:
                 await polygon_client.pause_subscriptions()
+                if polygon_client.running:
+                    await polygon_client.stop()
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="polygon_market_hours_subscriptions").inc()
             log.exception("scheduler.polygon_market_hours_subscriptions_error")

@@ -12,6 +12,7 @@ from app.main import (
     should_enable_position_monitor_job,
     should_enable_quote_client,
     should_hydrate_polygon_startup_subscriptions,
+    should_run_polygon_websocket_session,
     should_interval_refresh_polygon_day_aggregates,
     should_run_background_jobs,
 )
@@ -155,6 +156,27 @@ def test_should_hydrate_polygon_startup_subscriptions_for_non_websocket_mode(mon
     monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
 
     assert should_hydrate_polygon_startup_subscriptions() is True
+
+
+def test_should_run_polygon_websocket_session_during_market_hours(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "websocket")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_run_polygon_websocket_session() is True
+
+
+def test_should_not_run_polygon_websocket_session_outside_market_hours(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "websocket")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
+
+    assert should_run_polygon_websocket_session() is False
+
+
+def test_should_run_polygon_websocket_session_for_non_websocket_mode(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "rest")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
+
+    assert should_run_polygon_websocket_session() is True
 
 
 def test_is_regular_us_market_hours_false_on_weekend_during_regular_clock_time():
