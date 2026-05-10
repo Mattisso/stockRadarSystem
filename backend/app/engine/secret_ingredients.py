@@ -273,6 +273,9 @@ class SecretIngredientsService:
             if recent_sold_minutes is None
             else recent_sold_minutes
         )
+        market_universe = set(self.latest_daily_universe_tickers())
+        if not market_universe:
+            return []
         reference_now = now or datetime.now(timezone.utc).replace(tzinfo=None)
         sold_cutoff = reference_now - timedelta(minutes=max(sold_window_minutes, 0))
 
@@ -286,6 +289,8 @@ class SecretIngredientsService:
             .all()
         )
         for row in open_trade_rows:
+            if row.ticker not in market_universe:
+                continue
             if row.ticker in seen:
                 continue
             seen.add(row.ticker)
@@ -321,6 +326,8 @@ class SecretIngredientsService:
         )
 
         for row in ranked_states:
+            if row.ticker not in market_universe:
+                continue
             if row.ticker in seen:
                 continue
             seen.add(row.ticker)

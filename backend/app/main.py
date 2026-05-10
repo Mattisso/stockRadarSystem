@@ -670,12 +670,21 @@ async def lifespan(app: FastAPI):
         try:
             if not settings.secret_universe_enabled:
                 return
-            source, tickers, live_tickers = await refresh_secret_universe_once(update_subscriptions=True)
+            update_subscriptions = should_hydrate_polygon_startup_subscriptions()
+            if not update_subscriptions:
+                log.info(
+                    "scheduler.secret_universe_refresh_subscriptions_skipped",
+                    reason="outside_regular_market_hours",
+                )
+            source, tickers, live_tickers = await refresh_secret_universe_once(
+                update_subscriptions=update_subscriptions
+            )
             log.info(
                 "scheduler.secret_universe_refreshed",
                 count=len(tickers),
                 live_count=len(live_tickers),
                 source=source,
+                subscriptions_updated=update_subscriptions,
             )
         except Exception:
             SCHEDULER_JOB_ERRORS.labels(job="secret_universe_refresh").inc()

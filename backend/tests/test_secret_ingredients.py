@@ -106,6 +106,7 @@ def test_select_operational_subscription_tickers_prioritizes_open_trades_and_act
     monkeypatch,
 ):
     now = datetime(2026, 5, 2, 14, 0, 0)
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.secret_universe_source", "polygon")
     monkeypatch.setattr(
         "app.engine.secret_ingredients.settings.polygon_operational_subscription_max_symbols",
         3,
@@ -115,6 +116,40 @@ def test_select_operational_subscription_tickers_prioritizes_open_trades_and_act
         30,
     )
 
+    db.add_all(
+        [
+            UniverseDaily(
+                trade_date=date(2026, 5, 2),
+                ticker="OPEN1",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 2),
+                ticker="OPEN2",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 2),
+                ticker="MANAGE1",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 2),
+                ticker="CAND1",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 2),
+                ticker="SOLD1",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+        ]
+    )
     db.add_all(
         [
             Trade(
@@ -159,6 +194,58 @@ def test_select_operational_subscription_tickers_prioritizes_open_trades_and_act
     tickers = service.select_operational_subscription_tickers(now=now)
 
     assert tickers == ["OPEN2", "OPEN1", "MANAGE1"]
+
+
+def test_select_operational_subscription_tickers_does_not_expand_beyond_market_universe(
+    db,
+    monkeypatch,
+):
+    now = datetime(2026, 5, 2, 14, 0, 0)
+    monkeypatch.setattr("app.engine.secret_ingredients.settings.secret_universe_source", "polygon")
+    monkeypatch.setattr(
+        "app.engine.secret_ingredients.settings.polygon_operational_subscription_max_symbols",
+        10,
+    )
+    monkeypatch.setattr(
+        "app.engine.secret_ingredients.settings.polygon_operational_recent_sold_minutes",
+        30,
+    )
+
+    db.add(
+        UniverseDaily(
+            trade_date=date(2026, 5, 2),
+            ticker="IN_UNIVERSE",
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+        )
+    )
+    db.add_all(
+        [
+            Trade(
+                ticker="OUTSIDE_TRADE",
+                side=TradeSide.BUY,
+                status=TradeStatus.FILLED,
+                quantity=100,
+                created_at=now - timedelta(minutes=1),
+            ),
+            SymbolStateLive(
+                ticker="OUTSIDE_STATE",
+                candidate_status="manage",
+                updated_at=now - timedelta(minutes=2),
+            ),
+            SymbolStateLive(
+                ticker="IN_UNIVERSE",
+                candidate_status="candidate",
+                updated_at=now - timedelta(minutes=3),
+            ),
+        ]
+    )
+    db.commit()
+
+    service = SecretIngredientsService(db)
+    tickers = service.select_operational_subscription_tickers(now=now)
+
+    assert tickers == ["IN_UNIVERSE"]
 
 
 def test_select_aggregate_subscription_tickers_ignores_newer_operational_snapshot(db, monkeypatch):
