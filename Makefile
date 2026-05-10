@@ -25,6 +25,10 @@ PF_GRAFANA_LOG := /tmp/stock-radar-port-forward-grafana.$(CURRENT_USER).log
 CF_BACKEND_LOG := /tmp/cf_be.$(CURRENT_USER).log
 CF_FRONTEND_LOG := /tmp/cf_fe.$(CURRENT_USER).log
 CF_GRAFANA_LOG := /tmp/cf_grafana.$(CURRENT_USER).log
+E2E_DB_NAME ?= stock_radar_pr6_e2e
+E2E_DB_URL ?= postgresql://postgres:postgres@localhost:5434/$(E2E_DB_NAME)
+ANALYSIS_DB_NAME ?= stock_radar_analysis
+ANALYSIS_DB_URL ?= postgresql://postgres:postgres@localhost:5434/$(ANALYSIS_DB_NAME)
 
 # ── Tilt (local K8s dev) ────────────────────────────────────────────
 .PHONY: up up-stockradarx-tunnel down logs stop restart refresh trigger-api trigger-frontend
@@ -458,7 +462,7 @@ print-client-tunnel:
 	@echo "http://127.0.0.1:14200"
 
 # ── Local dev (no K8s) ──────────────────────────────────────────────
-.PHONY: dev test frontend-specs frontend-specs-watch frontend-check migrate serve-frontend tunnel tunnel-frontend
+.PHONY: dev test frontend-specs frontend-specs-watch frontend-check migrate serve-frontend tunnel tunnel-frontend e2e-db-reset e2e-alembic-check e2e-backend-smoke analysis-db-reset analysis-db-init analysis-schema-ensure analysis-db-psql
 
 dev:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -481,6 +485,54 @@ frontend-check: frontend-specs
 
 migrate:
 	cd backend && alembic upgrade head
+
+# When to use:
+# - `make e2e-db-reset` before destructive PostgreSQL-backed testing
+# - `make e2e-alembic-check` before deploys that need real migration validation
+# - `make e2e-backend-smoke` when SQLite pytest coverage is not enough and you
+#   want a real PostgreSQL smoke pass against a disposable database
+e2e-db-reset:
+	PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -d postgres -c "DROP DATABASE IF EXISTS $(E2E_DB_NAME)"
+	PGPASSWORD=postgres createdb -h localhost -p 5434 -U postgres $(E2E_DB_NAME)
+	@echo "Scratch e2e database reset: $(E2E_DB_NAME)"
+	@echo "DATABASE_URL=$(E2E_DB_URL)"
+
+e2e-alembic-check: e2e-db-reset
+	cd backend && DATABASE_URL=$(E2E_DB_URL) ~/pystock/bin/alembic -c alembic.ini upgrade head
+	cd backend && DATABASE_URL=$(E2E_DB_URL) ~/pystock/bin/alembic -c alembic.ini downgrade base
+	@echo "Alembic upgrade/downgrade passed on $(E2E_DB_NAME)"
+
+e2e-backend-smoke: e2e-db-reset
+	cd backend && DATABASE_URL=$(E2E_DB_URL) ~/pystock/bin/alembic -c alembic.ini upgrade head
+	cd backend && DATABASE_URL=$(E2E_DB_URL) ~/pystock/bin/python -c "from app.core.database import SessionLocal; db = SessionLocal(); db.execute('select 1'); db.close(); print('Backend PostgreSQL smoke passed')"
+
+# When to use:
+# - `make analysis-db-reset` before rebuilding a clean analysis workspace
+# - `make analysis-db-init` to create the analysis tables in public schema
+# - `make analysis-schema-ensure` to add analysis tables to an existing DB
+#   without dropping it; use this for `stock_radar`
+# - `make analysis-db-psql` for interactive flatfile/candidate/decision analysis
+analysis-db-reset:
+	PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(ANALYSIS_DB_NAME)' AND pid <> pg_backend_pid()"
+	PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -d postgres -c "DROP DATABASE IF EXISTS $(ANALYSIS_DB_NAME)"
+	PGPASSWORD=postgres createdb -h localhost -p 5434 -U postgres $(ANALYSIS_DB_NAME)
+	@echo "Analysis database reset: $(ANALYSIS_DB_NAME)"
+	@echo "DATABASE_URL=$(ANALYSIS_DB_URL)"
+
+analysis-db-init: analysis-db-reset
+	psql "$(ANALYSIS_DB_URL)" -f sql/stock_radar_analysis.sql
+	@echo "Initialized analysis schema in $(ANALYSIS_DB_NAME)"
+	@echo "Load a flatfile with:"
+	@echo "  TRADE_DATE=YYYY-MM-DD CSV_GZ_PATH=/path/file.csv.gz scripts/load_polygon_day_flatfile_to_analysis.sh"
+	@echo "Run cap queries from:"
+	@echo "  sql/subscription_cap_analysis_queries.sql"
+
+analysis-schema-ensure:
+	psql "$(ANALYSIS_DB_URL)" -f sql/stock_radar_analysis.sql
+	@echo "Ensured analysis tables exist in $(ANALYSIS_DB_URL)"
+
+analysis-db-psql:
+	psql "$(ANALYSIS_DB_URL)"
 
 tunnel:
 	@echo "Starting Cloudflare quick tunnel for backend (port 8000)..."
@@ -571,7 +623,7 @@ tunnel-stop:
 	@echo "Stopped."
 
 # ── API Key Management ─────────────────────────────────────────────
-.PHONY: rotate-api-key show-api-key show-api-key-public show-polygon-key show-polygon-key-public show-access-token show-access-token-public apply-polygon-secret apply-polygon-secret-public check-polygon-secret check-polygon-secret-public
+.PHONY: rotate-api-key show-api-key show-api-key-public show-polygon-key show-polygon-key-public show-polygon-flatfile-access-key show-polygon-flatfile-access-key-public show-polygon-flatfile-secret-key show-polygon-flatfile-secret-key-public show-access-token show-access-token-public apply-polygon-secret apply-polygon-secret-public check-polygon-secret check-polygon-secret-public
 
 rotate-api-key:
 	@API_KEY=$$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); \
@@ -593,6 +645,18 @@ show-polygon-key:
 
 show-polygon-key-public:
 	@kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.POLYGON_API_KEY}' | base64 -d; echo
+
+show-polygon-flatfile-access-key:
+	@kubectl get secret polygon-secret -n $(NAMESPACE) -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d; echo
+
+show-polygon-flatfile-access-key-public:
+	@kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d; echo
+
+show-polygon-flatfile-secret-key:
+	@kubectl get secret polygon-secret -n $(NAMESPACE) -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d; echo
+
+show-polygon-flatfile-secret-key-public:
+	@kubectl get secret polygon-secret -n $(PUBLIC_NAMESPACE) -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d; echo
 
 apply-polygon-secret:
 	@test -n "$(POLYGON_API_KEY)" || (echo "POLYGON_API_KEY is required"; exit 1)

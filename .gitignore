@@ -54,3 +54,11 @@ deploy/ibc/ibc.ini
 tmp/
 .cache/
 .claude/
+
+# Analysis downloads and local outputs
+analysis/
+downloads/
+*.csv
+*.csv.gz
+*.tsv
+*.parquet
