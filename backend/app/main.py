@@ -127,6 +127,14 @@ def should_defer_nonessential_market_hours_jobs(now: datetime | None = None) -> 
     return is_regular_us_market_hours(reference_time)
 
 
+def should_hydrate_polygon_startup_subscriptions(now: datetime | None = None) -> bool:
+    """Only do heavy Polygon subscription hydration during regular market hours."""
+    if settings.polygon_mode != "websocket":
+        return True
+    reference_time = now or datetime.now(timezone.utc)
+    return is_regular_us_market_hours(reference_time)
+
+
 def should_interval_refresh_polygon_day_aggregates() -> bool:
     return (
         settings.secret_universe_enabled
@@ -268,33 +276,36 @@ async def lifespan(app: FastAPI):
             aggregate_event_bus=polygon_aggregate_event_bus,
         )
 
-        # Pre-hydrate subscriptions from database if symbols are already known
-        db = SessionLocal()
-        try:
-            engine = UniverseFilterEngine(broker, db)
-            active_tickers = engine.get_active_tickers()
-            if (
-                active_tickers
-                and polygon_client is not None
-                and not (settings.secret_universe_enabled and settings.secret_universe_source == "polygon")
-            ):
-                polygon_client.update_subscriptions(active_tickers, source="watchlist")
+        if should_hydrate_polygon_startup_subscriptions():
+            # Pre-hydrate subscriptions from database if symbols are already known.
+            db = SessionLocal()
+            try:
+                engine = UniverseFilterEngine(broker, db)
+                active_tickers = engine.get_active_tickers()
+                if (
+                    active_tickers
+                    and polygon_client is not None
+                    and not (settings.secret_universe_enabled and settings.secret_universe_source == "polygon")
+                ):
+                    polygon_client.update_subscriptions(active_tickers, source="watchlist")
 
-            if settings.secret_universe_enabled:
-                aggregate_secret_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
-                operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
-                if aggregate_secret_tickers and polygon_client is not None:
-                    polygon_client.update_subscriptions(aggregate_secret_tickers, source="secret_universe")
-                if polygon_client is not None:
-                    polygon_client.update_subscriptions(
-                        operational_tickers,
-                        source="operational",
-                        sticky=True,
-                    )
-        except Exception:
-            log.exception("polygon.pre_hydrate_error")
-        finally:
-            db.close()
+                if settings.secret_universe_enabled:
+                    aggregate_secret_tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
+                    operational_tickers = SecretIngredientsService(db).select_operational_subscription_tickers()
+                    if aggregate_secret_tickers and polygon_client is not None:
+                        polygon_client.update_subscriptions(aggregate_secret_tickers, source="secret_universe")
+                    if polygon_client is not None:
+                        polygon_client.update_subscriptions(
+                            operational_tickers,
+                            source="operational",
+                            sticky=True,
+                        )
+            except Exception:
+                log.exception("polygon.pre_hydrate_error")
+            finally:
+                db.close()
+        elif polygon_client is not None:
+            log.info("polygon.pre_hydrate_skipped", reason="outside_regular_market_hours")
 
     app.state.polygon_client = polygon_client
     app.state.polygon_aggregate_event_bus = polygon_aggregate_event_bus
@@ -426,7 +437,12 @@ async def lifespan(app: FastAPI):
         finally:
             db.close()
 
-    if run_background and settings.secret_universe_enabled and settings.secret_universe_source == "polygon":
+    if (
+        run_background
+        and settings.secret_universe_enabled
+        and settings.secret_universe_source == "polygon"
+        and should_hydrate_polygon_startup_subscriptions()
+    ):
         try:
             source, tickers, live_tickers = await refresh_secret_universe_once(update_subscriptions=True)
             log.info(
@@ -438,6 +454,8 @@ async def lifespan(app: FastAPI):
         except Exception:
             secret_runtime_status.mark_error("startup_secret_universe_refresh_error")
             log.exception("startup.secret_universe_hydration_error")
+    elif run_background and settings.secret_universe_enabled and settings.secret_universe_source == "polygon":
+        log.info("startup.secret_universe_hydration_skipped", reason="outside_regular_market_hours")
 
     if polygon_client and (should_enable_quote_client() or should_enable_aggregate_client()):
         from app.data.polygon_queue_consumer import BreakoutQueueConsumer

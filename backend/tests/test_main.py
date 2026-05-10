@@ -11,6 +11,7 @@ from app.main import (
     should_enable_minute_refresh,
     should_enable_position_monitor_job,
     should_enable_quote_client,
+    should_hydrate_polygon_startup_subscriptions,
     should_interval_refresh_polygon_day_aggregates,
     should_run_background_jobs,
 )
@@ -132,6 +133,27 @@ def test_should_not_defer_nonessential_jobs_when_priority_policy_disabled(monkey
     monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
 
     assert should_defer_nonessential_market_hours_jobs() is False
+
+
+def test_should_hydrate_polygon_startup_subscriptions_during_market_hours(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "websocket")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: True)
+
+    assert should_hydrate_polygon_startup_subscriptions() is True
+
+
+def test_should_not_hydrate_polygon_startup_subscriptions_outside_market_hours(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "websocket")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
+
+    assert should_hydrate_polygon_startup_subscriptions() is False
+
+
+def test_should_hydrate_polygon_startup_subscriptions_for_non_websocket_mode(monkeypatch):
+    monkeypatch.setattr("app.main.settings.polygon_mode", "rest")
+    monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
+
+    assert should_hydrate_polygon_startup_subscriptions() is True
 
 
 def test_market_hours_priority_policy_does_not_disable_aggregate_rolling_refresh(monkeypatch):
