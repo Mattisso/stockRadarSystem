@@ -217,6 +217,7 @@ class PolygonClient:
                     await self._connection_manager.subscribe(
                         self._ws,
                         self.current_symbols(),
+                        channels=self._subscription_channels(),
                         include_trades=self._include_trade_wildcard,
                     )
                 except Exception:

@@ -453,6 +453,30 @@ async def test_pause_and_resume_subscriptions_preserves_desired_symbols(cache, q
 
 
 @pytest.mark.asyncio
+async def test_update_subscriptions_resubscribe_preserves_aggregate_channels(cache, queue):
+    await cache.connect()
+    client = PolygonClient(
+        api_key="test-key",
+        mode="websocket",
+        cache=cache,
+        queue=queue,
+        enable_quotes=True,
+        enable_aggregates=True,
+    )
+    manager = _RetryConnectionManager(client)
+    client._connection_manager = manager
+    client._running = True
+    client._ws = object()
+
+    client.update_subscriptions(["AAPL"], source="secret_universe")
+    await asyncio.sleep(0)
+
+    assert manager.subscribe_calls == [
+        {"symbols": ["AAPL"], "channels": ["Q", "AM", "A"], "include_trades": False}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_ws_loop_skips_initial_subscribe_when_paused(cache, queue):
     await cache.connect()
     client = PolygonClient(
