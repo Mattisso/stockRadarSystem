@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.main import (
     current_runtime_role,
@@ -16,6 +16,7 @@ from app.main import (
     should_run_background_jobs,
 )
 from app.data.polygon_aggregate_service import PolygonAggregateService, PolygonDayAggregateRecord
+from app.core.market_hours import is_regular_us_market_hours
 from app.models.universe_daily import (
     UNIVERSE_KIND_MARKET,
     UNIVERSE_KIND_OPERATIONAL,
@@ -154,6 +155,12 @@ def test_should_hydrate_polygon_startup_subscriptions_for_non_websocket_mode(mon
     monkeypatch.setattr("app.main.is_regular_us_market_hours", lambda now: False)
 
     assert should_hydrate_polygon_startup_subscriptions() is True
+
+
+def test_is_regular_us_market_hours_false_on_weekend_during_regular_clock_time():
+    sunday_utc = datetime(2026, 5, 10, 19, 16, tzinfo=timezone.utc)
+
+    assert is_regular_us_market_hours(sunday_utc) is False
 
 
 def test_market_hours_priority_policy_does_not_disable_aggregate_rolling_refresh(monkeypatch):

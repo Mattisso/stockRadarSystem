@@ -103,6 +103,28 @@ class _FakeRedisStreamWithStickyPending(_FakeRedisStream):
         return 1
 
 
+class _FakeRedisStreamWithMalformedPending(_FakeRedisStream):
+    def __init__(self) -> None:
+        super().__init__()
+        self._malformed_returned = False
+        self._next_id = 2
+
+    async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+        target = next(iter(streams.values()))
+        if target == "0" and not self._malformed_returned:
+            self._malformed_returned = True
+            return [("stream", [("1", {"event_type": "A"})])]
+        if target == ">" and self.messages:
+            message_id, payload = self.messages[0]
+            return [("stream", [(message_id, payload)])]
+        return []
+
+    async def xack(self, stream_name: str, group_name: str, message_id: str) -> int:
+        self.acked.append(message_id)
+        self.messages = [entry for entry in self.messages if entry[0] != message_id]
+        return 1
+
+
 @pytest.mark.asyncio
 async def test_publish_and_read_single_event():
     bus = PolygonEventBus(maxsize=10)
@@ -273,4 +295,24 @@ async def test_redis_stream_mode_does_not_replay_same_pending_message_while_unac
     await bus.task_done()
     await bus.task_done()
 
+    assert bus._redis.acked == ["1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_redis_stream_mode_acks_and_skips_malformed_pending_payload():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+    )
+    bus._redis = _FakeRedisStreamWithMalformedPending()
+    fresh_event = _make_event(ticker="FRESH", event_type="A")
+
+    await bus.publish(fresh_event)
+    result = await bus.read()
+    await bus.task_done()
+
+    assert result.ticker == "FRESH"
     assert bus._redis.acked == ["1", "2"]

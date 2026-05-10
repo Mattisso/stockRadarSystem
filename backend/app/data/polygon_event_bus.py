@@ -92,7 +92,7 @@ class PolygonEventBus:
                     streams={self._stream_name: "0"},
                     count=1,
                 )
-                pending_event = self._decode_stream_event(pending)
+                pending_event = await self._decode_stream_event(pending)
                 if pending_event is not None:
                     return pending_event
 
@@ -104,7 +104,7 @@ class PolygonEventBus:
                     count=1,
                     block=1000,
                 )
-                fresh_event = self._decode_stream_event(fresh)
+                fresh_event = await self._decode_stream_event(fresh)
                 if fresh_event is not None:
                     return fresh_event
         return await self._queue.get()
@@ -157,15 +157,28 @@ class PolygonEventBus:
             "entries_read": int(group.get("entries-read", 0) or 0),
         }
 
-    def _decode_stream_event(self, entries) -> PolygonAggregateEvent | None:
+    async def _decode_stream_event(self, entries) -> PolygonAggregateEvent | None:
         if not entries:
             return None
         _, messages = entries[0]
         if not messages:
             return None
         message_id, payload = messages[0]
+        try:
+            event = PolygonAggregateEvent.from_payload(payload)
+        except Exception:
+            log.exception(
+                "polygon.event_bus_malformed_payload",
+                stream_name=self._stream_name,
+                consumer_group=self._consumer_group,
+                consumer_name=self._consumer_name,
+                message_id=message_id,
+                payload_keys=sorted(payload.keys()) if hasattr(payload, "keys") else None,
+            )
+            await self._ack_stream_message(message_id)
+            return None
         self._pending_ids.append(message_id)
-        return PolygonAggregateEvent.from_payload(payload)
+        return event
 
     async def _ack_stream_message(self, message_id: str) -> None:
         if self._redis is None:

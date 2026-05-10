@@ -14,6 +14,8 @@ def is_regular_us_market_hours(value: datetime) -> bool:
     else:
         aware = value.astimezone(timezone.utc)
     eastern = aware.astimezone(NEW_YORK_TZ)
+    if eastern.weekday() >= 5:
+        return False
     current_time = eastern.time()
     return REGULAR_MARKET_OPEN <= current_time < REGULAR_MARKET_CLOSE
 
