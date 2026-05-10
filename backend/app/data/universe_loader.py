@@ -35,16 +35,24 @@ class PolygonFlatFileUniverseLoader:
         *,
         max_close: float | None = None,
         min_close: float | None = None,
+        min_volume: int | None = None,
     ) -> list[str]:
         target_max_close = settings.universe_max_price if max_close is None else max_close
         target_min_close = settings.universe_min_price if min_close is None else min_close
-        records, _stats = self._fetch_day_records_from_s3(trade_date, max_close=target_max_close, min_close=target_min_close)
+        target_min_volume = settings.universe_min_volume if min_volume is None else min_volume
+        records, _stats = self._fetch_day_records_from_s3(
+            trade_date,
+            max_close=target_max_close,
+            min_close=target_min_close,
+            min_volume=target_min_volume,
+        )
         aggregate_service = PolygonAggregateService(self.db)
         aggregate_service.upsert_day_aggregates(records)
         return aggregate_service.build_daily_universe(
             trade_date=trade_date,
             max_close=target_max_close,
             min_close=target_min_close,
+            min_volume=target_min_volume,
             source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
         )
 
@@ -54,10 +62,12 @@ class PolygonFlatFileUniverseLoader:
         max_lookback_days: int = 7,
         max_close: float | None = None,
         min_close: float | None = None,
+        min_volume: int | None = None,
         as_of: date | None = None,
     ) -> tuple[date, list[str], UniverseLoadStats]:
         target_max_close = settings.universe_max_price if max_close is None else max_close
         target_min_close = settings.universe_min_price if min_close is None else min_close
+        target_min_volume = settings.universe_min_volume if min_volume is None else min_volume
         anchor = as_of or datetime.now(timezone.utc).date()
 
         last_error: Exception | None = None
@@ -70,6 +80,7 @@ class PolygonFlatFileUniverseLoader:
                     trade_date,
                     max_close=target_max_close,
                     min_close=target_min_close,
+                    min_volume=target_min_volume,
                 )
             except Exception as exc:
                 if self._should_continue_latest_lookup(exc, trade_date=trade_date, anchor=anchor):
@@ -83,6 +94,7 @@ class PolygonFlatFileUniverseLoader:
                 trade_date=trade_date,
                 max_close=target_max_close,
                 min_close=target_min_close,
+                min_volume=target_min_volume,
                 source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
             )
             return trade_date, tickers, stats
@@ -98,6 +110,7 @@ class PolygonFlatFileUniverseLoader:
         *,
         max_close: float,
         min_close: float | None = None,
+        min_volume: int | None = None,
     ) -> tuple[list[PolygonDayAggregateRecord], UniverseLoadStats]:
         stats = UniverseLoadStats()
         records: list[PolygonDayAggregateRecord] = []
@@ -113,7 +126,9 @@ class PolygonFlatFileUniverseLoader:
                 stats.valid_rows += 1
                 if record.close >= max_close:
                     continue
-                if min_close is not None and record.close < min_close:
+                if min_close is not None and record.close <= min_close:
+                    continue
+                if min_volume is not None and max(0, record.volume) <= min_volume:
                     continue
                 records.append(record)
                 stats.filtered_rows += 1
@@ -140,6 +155,7 @@ class PolygonFlatFileUniverseLoader:
         *,
         max_close: float,
         min_close: float | None = None,
+        min_volume: int | None = None,
     ) -> tuple[list[PolygonDayAggregateRecord], UniverseLoadStats]:
         response = self.fetch_day_aggregate_object(trade_date)
         body = response["Body"]
@@ -148,6 +164,7 @@ class PolygonFlatFileUniverseLoader:
             trade_date,
             max_close=max_close,
             min_close=min_close,
+            min_volume=min_volume,
         )
 
     def _get_s3_client(self):

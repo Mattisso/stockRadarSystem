@@ -54,7 +54,12 @@ def test_upsert_day_aggregates_and_build_universe(db):
     assert inserted == 2
     assert db.query(PolygonDayAggregate).count() == 2
 
-    universe = service.build_daily_universe(trade_date=trade_date, max_close=10.0)
+    universe = service.build_daily_universe(
+        trade_date=trade_date,
+        max_close=10.0,
+        min_close=0.70,
+        min_volume=1000,
+    )
     db.commit()
 
     assert universe == ["LCID"]
@@ -101,9 +106,60 @@ def test_build_daily_universe_filters_by_close_not_open(db):
         ]
     )
 
-    universe = service.build_daily_universe(trade_date=trade_date, max_close=10.0)
+    universe = service.build_daily_universe(
+        trade_date=trade_date,
+        max_close=10.0,
+        min_close=0.70,
+        min_volume=1000,
+    )
 
     assert universe == ["OPENHIGH_CLOSELOW"]
+
+
+def test_build_daily_universe_uses_strict_min_price_and_volume(db):
+    service = PolygonAggregateService(db)
+    trade_date = date(2026, 4, 4)
+
+    service.upsert_day_aggregates(
+        [
+            PolygonDayAggregateRecord(
+                ticker="AT_MIN_PRICE",
+                trade_date=trade_date,
+                open=0.70,
+                high=0.72,
+                low=0.69,
+                close=0.70,
+                volume=5_000,
+            ),
+            PolygonDayAggregateRecord(
+                ticker="AT_MIN_VOLUME",
+                trade_date=trade_date,
+                open=1.50,
+                high=1.55,
+                low=1.45,
+                close=1.52,
+                volume=1_000,
+            ),
+            PolygonDayAggregateRecord(
+                ticker="INCLUDED",
+                trade_date=trade_date,
+                open=1.60,
+                high=1.65,
+                low=1.55,
+                close=1.62,
+                volume=1_001,
+            ),
+        ]
+    )
+
+    universe = service.build_daily_universe(
+        trade_date=trade_date,
+        max_close=10.0,
+        min_close=0.70,
+        min_volume=1000,
+    )
+
+    assert universe == ["INCLUDED"]
 
 
 def test_upsert_minute_aggregates_filters_to_allowed_tickers(db):

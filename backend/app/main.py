@@ -356,6 +356,7 @@ async def lifespan(app: FastAPI):
                         trade_date, tickers, stats = loader.load_latest_universe_from_s3(
                             max_close=settings.secret_universe_max_price,
                             min_close=settings.secret_universe_min_price,
+                            min_volume=settings.secret_universe_min_volume,
                         )
                         db.commit()
                         log.info(
@@ -379,6 +380,7 @@ async def lifespan(app: FastAPI):
                             trade_date=trade_date,
                             max_close=settings.secret_universe_max_price,
                             min_close=settings.secret_universe_min_price,
+                            min_volume=settings.secret_universe_min_volume,
                         )
                         db.commit()
                         log.warning(

@@ -54,10 +54,12 @@ def _gzip_csv(text: str) -> bytes:
     return buffer.getvalue()
 
 
-def test_parse_day_aggregate_stream_filters_by_close_and_skips_bad_rows(db):
+def test_parse_day_aggregate_stream_filters_by_close_volume_and_skips_bad_rows(db):
     payload = _gzip_csv(
         "ticker,volume,open,close,high,low,timestamp,vwap,transactions\n"
         "LCID,500000,3.25,3.45,3.50,3.10,1712946600000,3.40,10\n"
+        "LOWVOL,1000,3.10,3.20,3.25,3.00,1712946600000,3.15,5\n"
+        "MINPRICE,500000,0.70,0.70,0.71,0.69,1712946600000,0.70,5\n"
         "BADROW,not-a-number,3.0,3.5,3.6,2.9,1712946600000,3.2,1\n"
         "AAPL,1000000,150.0,150.5,151.0,149.5,1712946600000,150.2,20\n"
     )
@@ -67,12 +69,13 @@ def test_parse_day_aggregate_stream_filters_by_close_and_skips_bad_rows(db):
         io.BytesIO(payload),
         date(2026, 4, 13),
         max_close=10.0,
-        min_close=1.0,
+        min_close=0.70,
+        min_volume=1000,
     )
 
     assert [record.ticker for record in records] == ["LCID"]
-    assert stats.total_rows == 3
-    assert stats.valid_rows == 2
+    assert stats.total_rows == 5
+    assert stats.valid_rows == 4
     assert stats.filtered_rows == 1
     assert stats.skipped_rows == 1
 
@@ -81,13 +84,19 @@ def test_load_universe_from_s3_persists_only_universe_related_rows(db):
     payload = _gzip_csv(
         "ticker,volume,open,close,high,low,timestamp,vwap,transactions\n"
         "LCID,500000,3.25,3.45,3.50,3.10,1712946600000,3.40,10\n"
+        "LOWVOL,1000,3.10,3.20,3.25,3.00,1712946600000,3.15,5\n"
         "AAPL,1000000,150.0,150.5,151.0,149.5,1712946600000,150.2,20\n"
         "F,900000,9.80,9.95,10.10,9.70,1712946600000,9.90,12\n"
     )
     s3_client = FakeS3Client(payload)
     loader = PolygonFlatFileUniverseLoader(db, s3_client=s3_client)
 
-    tickers = loader.load_universe_from_s3(date(2026, 4, 13), max_close=10.0, min_close=1.0)
+    tickers = loader.load_universe_from_s3(
+        date(2026, 4, 13),
+        max_close=10.0,
+        min_close=0.70,
+        min_volume=1000,
+    )
     db.commit()
 
     assert tickers == ["F", "LCID"]
@@ -121,7 +130,8 @@ def test_load_latest_universe_from_s3_falls_back_to_most_recent_available_file(d
         as_of=date(2026, 4, 13),
         max_lookback_days=3,
         max_close=10.0,
-        min_close=1.0,
+        min_close=0.70,
+        min_volume=1000,
     )
     db.commit()
 
@@ -147,7 +157,8 @@ def test_load_latest_universe_from_s3_skips_weekends_before_probing_s3(db):
         as_of=date(2026, 4, 19),
         max_lookback_days=3,
         max_close=10.0,
-        min_close=1.0,
+        min_close=0.70,
+        min_volume=1000,
     )
 
     assert trade_date == date(2026, 4, 17)
@@ -173,7 +184,8 @@ def test_load_latest_universe_from_s3_continues_past_anchor_access_denied(db):
         as_of=date(2026, 4, 21),
         max_lookback_days=1,
         max_close=10.0,
-        min_close=1.0,
+        min_close=0.70,
+        min_volume=1000,
     )
 
     assert trade_date == date(2026, 4, 20)
@@ -192,7 +204,8 @@ def test_parse_day_aggregate_stream_accepts_nanosecond_timestamps(db):
         io.BytesIO(payload),
         date(2026, 4, 18),
         max_close=10.0,
-        min_close=1.0,
+        min_close=0.70,
+        min_volume=1000,
     )
 
     assert stats.filtered_rows == 1

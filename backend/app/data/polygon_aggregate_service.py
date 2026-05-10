@@ -96,6 +96,7 @@ class PolygonAggregateService:
         trade_date: date,
         max_close: float = 10.0,
         min_close: float | None = None,
+        min_volume: int | None = None,
         source: str = UNIVERSE_SOURCE_POLYGON_GROUPED_DAY_REST,
     ) -> list[str]:
         rows = (
@@ -108,7 +109,9 @@ class PolygonAggregateService:
             .all()
         )
         if min_close is not None:
-            rows = [row for row in rows if row.close >= min_close]
+            rows = [row for row in rows if row.close > min_close]
+        if min_volume is not None:
+            rows = [row for row in rows if max(0, row.volume or 0) > min_volume]
         tickers = [row.ticker for row in rows]
         snapshots_by_ticker = {
             row.ticker: DailyUniverseSnapshot(
