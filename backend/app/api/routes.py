@@ -1346,18 +1346,28 @@ def get_polygon_minute_aggregates(
     universe_only: bool = True,
     db: Session = Depends(get_db),
 ):
+    latest_live_ts = _source_latest_timestamp(
+        db,
+        model=PolygonMinuteAggregateLive,
+        ts_column=PolygonMinuteAggregateLive.minute_ts,
+    )
+    latest_history_ts = _source_latest_timestamp(
+        db,
+        model=PolygonMinuteAggregate,
+        ts_column=PolygonMinuteAggregate.minute_ts,
+    )
+    if trade_date is not None:
+        selected_trade_date = trade_date
+    else:
+        candidate_trade_dates = [
+            _intraday_trade_day(ts)
+            for ts in (latest_live_ts, latest_history_ts)
+            if ts is not None
+        ]
+        selected_trade_date = max(candidate_trade_dates) if candidate_trade_dates else None
+
+    latest_available_ts = latest_live_ts
     query = db.query(PolygonMinuteAggregateLive)
-    selected_trade_date = _resolve_canonical_intraday_trade_date(
-        db,
-        explicit_trade_date=trade_date,
-        model=PolygonMinuteAggregateLive,
-        ts_column=PolygonMinuteAggregateLive.minute_ts,
-    )
-    latest_available_ts = _source_latest_timestamp(
-        db,
-        model=PolygonMinuteAggregateLive,
-        ts_column=PolygonMinuteAggregateLive.minute_ts,
-    )
     if universe_only:
         universe_tickers = _latest_universe_tickers(
             db,
@@ -1400,16 +1410,77 @@ def get_polygon_minute_aggregates(
         .limit(page_size)
         .all()
     )
+    if rows:
+        return PolygonMinuteAggregatePageResponse(
+            items=[PolygonMinuteAggregateResponse.model_validate(row) for row in rows],
+            total=None,
+            page=page,
+            page_size=page_size,
+            trade_date=selected_trade_date,
+            source="live",
+            latest_available_ts=latest_live_ts,
+            is_stale=selected_trade_date is not None
+            and (latest_live_ts is None or _intraday_trade_day(latest_live_ts) != selected_trade_date),
+        )
+
+    history_query = db.query(PolygonMinuteAggregate)
+    if universe_only:
+        universe_tickers = _latest_universe_tickers(
+            db,
+            max_price=settings.secret_universe_max_price,
+            allow_symbol_fallback=False,
+        )
+        if not universe_tickers:
+            return PolygonMinuteAggregatePageResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                trade_date=selected_trade_date,
+                source="history",
+                latest_available_ts=latest_history_ts,
+                is_stale=selected_trade_date is not None
+                and (latest_history_ts is None or _intraday_trade_day(latest_history_ts) != selected_trade_date),
+            )
+        history_query = history_query.filter(PolygonMinuteAggregate.ticker.in_(universe_tickers))
+        history_query = history_query.filter(
+            _under_ten_aggregate_filter(PolygonMinuteAggregate, max_price=settings.secret_universe_max_price)
+        )
+    if selected_trade_date:
+        start_dt, end_dt = _intraday_trade_day_bounds(selected_trade_date)
+        history_query = history_query.filter(
+            PolygonMinuteAggregate.minute_ts >= start_dt,
+            PolygonMinuteAggregate.minute_ts < end_dt,
+        )
+    if selected_trade_date is not None:
+        session_start_utc, session_end_utc = _session_bounds_for_trade_date(
+            selected_trade_date,
+            session_start_et=requested_session_start,
+            session_end_et=requested_session_end,
+        )
+        history_query = history_query.filter(
+            PolygonMinuteAggregate.minute_ts >= session_start_utc,
+            PolygonMinuteAggregate.minute_ts < session_end_utc,
+        )
+    if ticker:
+        history_query = history_query.filter(PolygonMinuteAggregate.ticker == ticker.upper())
+    history_total = history_query.count()
+    history_rows = (
+        history_query.order_by(PolygonMinuteAggregate.minute_ts.desc(), PolygonMinuteAggregate.id.desc())
+        .offset(page * page_size)
+        .limit(page_size)
+        .all()
+    )
     return PolygonMinuteAggregatePageResponse(
-        items=[PolygonMinuteAggregateResponse.model_validate(row) for row in rows],
-        total=None,
+        items=[PolygonMinuteAggregateResponse.model_validate(row) for row in history_rows],
+        total=history_total,
         page=page,
         page_size=page_size,
         trade_date=selected_trade_date,
-        source="live",
-        latest_available_ts=latest_available_ts,
+        source="history",
+        latest_available_ts=latest_history_ts,
         is_stale=selected_trade_date is not None
-        and (latest_available_ts is None or _intraday_trade_day(latest_available_ts) != selected_trade_date),
+        and (latest_history_ts is None or _intraday_trade_day(latest_history_ts) != selected_trade_date),
     )
 
 
