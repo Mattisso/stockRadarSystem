@@ -219,6 +219,7 @@ class AggregateDecisionEngine:
             if (
                 latest is not None
                 and self._normalize_ts(latest.decision_ts) < self._normalize_ts(decision.decision_ts)
+                and self._is_same_trade_day(latest.decision_ts, decision.decision_ts)
                 and latest.decision_type == decision.decision_type
                 and latest.reason_code == decision.reason_code
             ):

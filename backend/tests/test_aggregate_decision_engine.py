@@ -68,6 +68,55 @@ def test_decision_engine_emits_candidate_for_validated_state(db):
     assert state.candidate_status == "validated"
 
 
+def test_decision_engine_dedupe_does_not_suppress_same_reason_on_next_trade_day(db):
+    state = SymbolStateLive(ticker="LCID")
+    db.add(state)
+    db.flush()
+    state.validation_score = 0.7
+    state.validation_pass_count = 7
+    state.candidate_score = 0.6
+    state.current_minute_high = 3.28
+    state.rolling_second_high = 3.30
+    state.rolling_second_low = 3.10
+    state.candidate_status = "validated"
+    state.is_second_stream_stale = False
+    state.is_minute_stream_stale = False
+
+    db.add(
+        DecisionEvent(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 10, 19, 59, 59, tzinfo=timezone.utc),
+            decision_type="candidate",
+            reason_code="validated_candidate",
+            decision_payload='{"validation_score": 0.7}',
+            candidate_score=0.6,
+            validation_pass_count=7,
+            is_second_stream_stale=False,
+            is_minute_stream_stale=False,
+        )
+    )
+    db.commit()
+
+    engine = AggregateDecisionEngine(db)
+    inserted = engine.persist(
+        AggregateDecision(
+            ticker="LCID",
+            decision_ts=datetime(2026, 4, 11, 13, 45, 3, tzinfo=timezone.utc),
+            decision_type="candidate",
+            reason_code="validated_candidate",
+            payload={"validation_score": 0.7, "validation_pass_count": 7},
+        ),
+        state,
+        dedupe=True,
+    )
+
+    decisions = db.query(DecisionEvent).filter_by(ticker="LCID").order_by(DecisionEvent.id.asc()).all()
+    assert inserted == 1
+    assert len(decisions) == 2
+    assert decisions[-1].decision_ts.date().isoformat() == "2026-04-11"
+    assert decisions[-1].reason_code == "validated_candidate"
+
+
 def test_decision_engine_emits_buy_for_strong_validated_state(db):
     service = PolygonAggregateService(db)
     service.upsert_minute_aggregates(
