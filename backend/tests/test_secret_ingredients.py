@@ -286,3 +286,52 @@ def test_select_aggregate_subscription_tickers_ignores_newer_operational_snapsho
     tickers = SecretIngredientsService(db).select_aggregate_subscription_tickers()
 
     assert tickers == ["SOFI", "LCID"]
+
+
+def test_record_daily_universe_replaces_stale_rows_for_same_trade_date_and_source(db):
+    service = SecretIngredientsService(db)
+
+    db.add_all(
+        [
+            UniverseDaily(
+                trade_date=date(2026, 5, 8),
+                ticker="AAA",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 8),
+                ticker="BBB",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+            UniverseDaily(
+                trade_date=date(2026, 5, 8),
+                ticker="CCC",
+                universe_kind=UNIVERSE_KIND_MARKET,
+                source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+            ),
+        ]
+    )
+    db.commit()
+
+    service.record_daily_universe(
+        ["AAA", "BBB"],
+        trade_date=date(2026, 5, 8),
+        universe_kind=UNIVERSE_KIND_MARKET,
+        source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+    )
+    db.commit()
+
+    rows = (
+        db.query(UniverseDaily)
+        .filter_by(
+            trade_date=date(2026, 5, 8),
+            universe_kind=UNIVERSE_KIND_MARKET,
+            source=UNIVERSE_SOURCE_POLYGON_FLATFILE,
+        )
+        .order_by(UniverseDaily.ticker.asc())
+        .all()
+    )
+
+    assert [row.ticker for row in rows] == ["AAA", "BBB"]

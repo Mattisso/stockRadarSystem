@@ -53,6 +53,16 @@ class SecretIngredientsService:
         trade_date = trade_date or date.today()
         rows_added = 0
         snapshots_by_ticker = snapshots_by_ticker or {}
+        normalized_tickers = {ticker.strip().upper() for ticker in tickers if ticker and ticker.strip()}
+        stale_rows = (
+            self.db.query(UniverseDaily)
+            .filter(UniverseDaily.trade_date == trade_date)
+            .filter(UniverseDaily.universe_kind == universe_kind)
+            .filter(UniverseDaily.source == source)
+        )
+        if normalized_tickers:
+            stale_rows = stale_rows.filter(~UniverseDaily.ticker.in_(normalized_tickers))
+        stale_rows.delete(synchronize_session=False)
         symbols = {
             symbol.ticker: symbol
             for symbol in self.db.query(Symbol).filter(Symbol.ticker.in_(tickers)).all()
