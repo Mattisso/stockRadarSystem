@@ -47,10 +47,13 @@ class _FakeRedisStream:
             return [("stream", [(message_id, payload)])]
         return []
 
-    async def xack(self, stream_name: str, group_name: str, message_id: str) -> int:
-        self.acked.append(message_id)
-        self.messages = [entry for entry in self.messages if entry[0] != message_id]
-        return 1
+    async def xack(self, stream_name: str, group_name: str, *message_ids: str) -> int:
+        acked = 0
+        for message_id in message_ids:
+            self.acked.append(message_id)
+            self.messages = [entry for entry in self.messages if entry[0] != message_id]
+            acked += 1
+        return acked
 
 
 class _FakeRedisStreamWithEmptyPending(_FakeRedisStream):
@@ -96,11 +99,14 @@ class _FakeRedisStreamWithStickyPending(_FakeRedisStream):
             return [("stream", [(message_id, payload)])]
         return []
 
-    async def xack(self, stream_name: str, group_name: str, message_id: str) -> int:
-        self.acked.append(message_id)
-        if self._pending_message is not None and self._pending_message[0] == message_id:
-            self._pending_message = None
-        return 1
+    async def xack(self, stream_name: str, group_name: str, *message_ids: str) -> int:
+        acked = 0
+        for message_id in message_ids:
+            self.acked.append(message_id)
+            if self._pending_message is not None and self._pending_message[0] == message_id:
+                self._pending_message = None
+            acked += 1
+        return acked
 
 
 class _FakeRedisStreamWithMalformedPending(_FakeRedisStream):
@@ -119,10 +125,13 @@ class _FakeRedisStreamWithMalformedPending(_FakeRedisStream):
             return [("stream", [(message_id, payload)])]
         return []
 
-    async def xack(self, stream_name: str, group_name: str, message_id: str) -> int:
-        self.acked.append(message_id)
-        self.messages = [entry for entry in self.messages if entry[0] != message_id]
-        return 1
+    async def xack(self, stream_name: str, group_name: str, *message_ids: str) -> int:
+        acked = 0
+        for message_id in message_ids:
+            self.acked.append(message_id)
+            self.messages = [entry for entry in self.messages if entry[0] != message_id]
+            acked += 1
+        return acked
 
 
 @pytest.mark.asyncio
@@ -316,3 +325,195 @@ async def test_redis_stream_mode_acks_and_skips_malformed_pending_payload():
 
     assert result.ticker == "FRESH"
     assert bus._redis.acked == ["1", "2"]
+
+
+class _FakeRedisStreamWithTombstonePending(_FakeRedisStream):
+    """Pending replay returns a Redis Streams tombstone (empty payload) first."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._tombstone_returned = False
+        self._next_id = 2
+
+    async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+        target = next(iter(streams.values()))
+        if target == "0" and not self._tombstone_returned:
+            self._tombstone_returned = True
+            return [("stream", [("1", {})])]
+        if target == ">" and self.messages:
+            message_id, payload = self.messages[0]
+            return [("stream", [(message_id, payload)])]
+        return []
+
+
+class _FakeRedisStreamWithTombstoneBacklog(_FakeRedisStream):
+    """PEL replay returns N tombstones in a single batch, then no more."""
+
+    def __init__(self, tombstone_count: int) -> None:
+        super().__init__()
+        self._tombstone_ids = [str(i) for i in range(1, tombstone_count + 1)]
+        self._delivered = False
+        self._next_id = tombstone_count + 1
+
+    async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+        target = next(iter(streams.values()))
+        if target == "0" and not self._delivered:
+            self._delivered = True
+            return [("stream", [(mid, {}) for mid in self._tombstone_ids])]
+        return []
+
+
+@pytest.mark.asyncio
+async def test_redis_stream_mode_acks_tombstone_silently_and_records_metric():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+    )
+    bus._redis = _FakeRedisStreamWithTombstonePending()
+    fresh_event = _make_event(ticker="FRESH_AFTER_TOMB", event_type="A")
+
+    from app.core.metrics import POLYGON_EVENT_BUS_TOMBSTONES_ACKED
+
+    counter = POLYGON_EVENT_BUS_TOMBSTONES_ACKED.labels(
+        stream="stockradar:polygon:aggregate",
+        group="aggregate-persistence",
+        source="read",
+    )
+    before = counter._value.get()
+
+    await bus.publish(fresh_event)
+    result = await bus.read()
+    await bus.task_done()
+
+    assert result.ticker == "FRESH_AFTER_TOMB"
+    assert "1" in bus._redis.acked
+    assert "2" in bus._redis.acked
+    assert counter._value.get() == before + 1
+
+
+@pytest.mark.asyncio
+async def test_drain_tombstones_drains_full_backlog_in_one_pass():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+        janitor_batch_size=100,
+    )
+    bus._redis = _FakeRedisStreamWithTombstoneBacklog(tombstone_count=17)
+
+    from app.core.metrics import POLYGON_EVENT_BUS_TOMBSTONES_ACKED
+
+    counter = POLYGON_EVENT_BUS_TOMBSTONES_ACKED.labels(
+        stream="stockradar:polygon:aggregate",
+        group="aggregate-persistence",
+        source="drain",
+    )
+    before = counter._value.get()
+
+    drained = await bus._drain_tombstones()
+
+    assert drained == 17
+    assert bus._redis.acked == [str(i) for i in range(1, 18)]
+    assert counter._value.get() == before + 17
+
+
+@pytest.mark.asyncio
+async def test_drain_tombstones_stops_at_first_non_empty_payload():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+        janitor_batch_size=100,
+    )
+
+    class _Mixed(_FakeRedisStream):
+        def __init__(self) -> None:
+            super().__init__()
+            self._delivered = False
+
+        async def xreadgroup(self, *, groupname, consumername, streams, count, block=None):
+            target = next(iter(streams.values()))
+            if target == "0" and not self._delivered:
+                self._delivered = True
+                return [
+                    (
+                        "stream",
+                        [
+                            ("1", {}),
+                            ("2", {}),
+                            ("3", {"ticker": "STOP"}),
+                            ("4", {}),
+                        ],
+                    )
+                ]
+            return []
+
+    bus._redis = _Mixed()
+    drained = await bus._drain_tombstones()
+
+    assert drained == 2
+    assert bus._redis.acked == ["1", "2"]
+
+
+class _FakeRedisStreamWithJanitor(_FakeRedisStream):
+    """Supports xautoclaim returning a mix of tombstones and live entries."""
+
+    def __init__(self, claimed: list[tuple[str, dict]]) -> None:
+        super().__init__()
+        self._claimed = claimed
+        self._called = False
+
+    async def xautoclaim(
+        self,
+        *,
+        name,
+        groupname,
+        consumername,
+        min_idle_time,
+        start_id,
+        count,
+    ):
+        if self._called:
+            return ("0-0", [], [])
+        self._called = True
+        return ("0-0", list(self._claimed), [])
+
+
+@pytest.mark.asyncio
+async def test_janitor_acks_only_tombstones_from_xautoclaim():
+    bus = PolygonEventBus(
+        maxsize=10,
+        redis_url="redis://unit-test",
+        stream_name="stockradar:polygon:aggregate",
+        consumer_group="aggregate-persistence",
+        consumer_name="aggregate-persistence",
+    )
+    bus._redis = _FakeRedisStreamWithJanitor(
+        claimed=[
+            ("10", {}),
+            ("11", {"ticker": "REAL", "event_type": "A"}),
+            ("12", {}),
+        ]
+    )
+
+    from app.core.metrics import POLYGON_EVENT_BUS_TOMBSTONES_ACKED
+
+    counter = POLYGON_EVENT_BUS_TOMBSTONES_ACKED.labels(
+        stream="stockradar:polygon:aggregate",
+        group="aggregate-persistence",
+        source="janitor",
+    )
+    before = counter._value.get()
+
+    reclaimed = await bus._reclaim_idle_tombstones()
+
+    assert reclaimed == 2
+    assert bus._redis.acked == ["10", "12"]
+    assert counter._value.get() == before + 2

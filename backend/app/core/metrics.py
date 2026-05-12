@@ -81,6 +81,12 @@ POLYGON_RECONNECT_TOTAL = Counter(
     ["mode"],
 )
 
+POLYGON_EVENT_BUS_TOMBSTONES_ACKED = Counter(
+    "stockradar_polygon_event_bus_tombstones_acked_total",
+    "Total Redis Streams tombstone entries ACKed by the polygon event bus",
+    ["stream", "group", "source"],
+)
+
 SECRET_L2_QUEUE_DEPTH = Gauge(
     "stockradar_secret_l2_queue_depth",
     "Current depth of the Secret Ingredients L2 promotion queue",
